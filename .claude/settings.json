@@ -32,6 +32,16 @@
       "Bash(pdftotext *)",
       "Bash(pandoc *)",
 
+      "Bash(fc-list*)",
+      "Bash(fc-match*)",
+      "Bash(fc-cache -v*)",
+      "Bash(fc-cache --verbose*)",
+      "Bash(getent *)",
+
+      "Bash(curl -sI *)",
+      "Bash(curl -s -I *)",
+      "Bash(curl -I *)",
+
       "Bash(git *)",
 
       "Bash(uv *)",
