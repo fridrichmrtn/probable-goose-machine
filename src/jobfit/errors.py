@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from contextvars import Token
 from types import TracebackType
 from typing import Self
 
 from pydantic import BaseModel
+
+from jobfit import obs
 
 
 class StageFailure(BaseModel):
@@ -28,8 +31,10 @@ class stage_boundary:
     def __init__(self, stage_name: str) -> None:
         self.stage_name = stage_name
         self.failure: StageFailure | None = None
+        self._stage_token: Token[str | None] | None = None
 
     def __enter__(self) -> Self:
+        self._stage_token = obs.current_stage.set(self.stage_name)
         return self
 
     def __exit__(
@@ -38,9 +43,15 @@ class stage_boundary:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool:
-        return self._handle(exc_type, exc)
+        try:
+            return self._handle(exc_type, exc)
+        finally:
+            if self._stage_token is not None:
+                obs.current_stage.reset(self._stage_token)
+                self._stage_token = None
 
     async def __aenter__(self) -> Self:
+        self._stage_token = obs.current_stage.set(self.stage_name)
         return self
 
     async def __aexit__(
@@ -49,7 +60,12 @@ class stage_boundary:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool:
-        return self._handle(exc_type, exc)
+        try:
+            return self._handle(exc_type, exc)
+        finally:
+            if self._stage_token is not None:
+                obs.current_stage.reset(self._stage_token)
+                self._stage_token = None
 
     def _handle(
         self,
@@ -66,6 +82,11 @@ class stage_boundary:
                 user_message=str(exc) or type(exc).__name__,
                 debug_detail=repr(exc),
             )
-            # T02: wire to obs.emit("error", stage=self.stage_name, exc=repr(exc))
+            obs.emit(
+                self.stage_name,
+                "error",
+                exc_type=type(exc).__name__,
+                exc_message=str(exc),
+            )
             return True
         return False
