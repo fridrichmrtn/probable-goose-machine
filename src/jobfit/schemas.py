@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, Field, HttpUrl, computed_field, model_validator
 
 from jobfit.errors import StageFailure
 
@@ -13,7 +13,17 @@ COMPONENT_WEIGHTS: dict[str, float] = {
     "soft_signals": 0.15,
 }
 
-StageStatus = Literal["pending", "running", "done", "failed"]
+StageStatus = Literal["pending", "running", "done", "failed", "skipped"]
+StageName = Literal["profile", "score", "salary", "confidence", "growth"]
+ComponentName = Literal["skills", "experience", "education", "soft_signals"]
+
+REPORT_STAGE_NAMES: tuple[StageName, ...] = (
+    "profile",
+    "score",
+    "salary",
+    "confidence",
+    "growth",
+)
 
 
 class Redaction(BaseModel):
@@ -46,8 +56,10 @@ class Anchor(BaseModel):
 
 
 class Component(BaseModel):
-    name: Literal["skills", "experience", "education", "soft_signals"]
+    name: ComponentName
     score_0_100: int = Field(ge=0, le=100)
+    # Model commentary. The evidence-bearing claim is `anchor`, which must verify
+    # against the CV text before rendering.
     justification: str
     anchor: Anchor
 
@@ -64,11 +76,11 @@ class Profile(BaseModel):
     soft_signals: list[ProfileItem]
     detected_role: str
     detected_location: str | None
-    detected_years_experience: int
+    detected_years_experience: int = Field(ge=0, le=70)
 
 
 class Source(BaseModel):
-    url: str
+    url: HttpUrl
     snippet: str
     domain: str
 
@@ -87,6 +99,12 @@ class SalaryEstimate(BaseModel):
     period: Literal["month", "year"]
     sources: list[Source]
     reasoning: str
+
+    @model_validator(mode="after")
+    def _require_ordered_range(self) -> SalaryEstimate:
+        if self.low > self.high:
+            raise ValueError("SalaryEstimate.low must be <= high")
+        return self
 
 
 class Confidence(BaseModel):
@@ -114,7 +132,8 @@ class Score(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def total(self) -> int:
-        return round(sum(c.score_0_100 * COMPONENT_WEIGHTS[c.name] for c in self.components))
+        weighted = sum(c.score_0_100 * COMPONENT_WEIGHTS[c.name] for c in self.components)
+        return int(weighted + 0.5)
 
 
 class Report(BaseModel):
@@ -123,8 +142,18 @@ class Report(BaseModel):
     salary: SalaryEstimate | StageFailure
     confidence: Confidence | StageFailure
     growth: list[GrowthAction] | StageFailure
-    statuses: dict[str, StageStatus]
+    statuses: dict[StageName, StageStatus]
     raw_cv_text: str
+
+    @model_validator(mode="after")
+    def _require_exact_status_keys(self) -> Report:
+        expected = set(REPORT_STAGE_NAMES)
+        actual = set(self.statuses)
+        if actual != expected:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            raise ValueError(f"Report.statuses mismatch; missing={missing}, extra={extra}")
+        return self
 
 
 Report.model_rebuild()

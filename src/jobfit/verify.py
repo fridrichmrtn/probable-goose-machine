@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -12,16 +13,17 @@ _HEADER = re.compile(r"^#{1,6}\s+(.+)$", flags=re.MULTILINE)
 
 
 def _normalize(text: str) -> str:
-    return _WS.sub(" ", text.strip().lower())
+    return _WS.sub(" ", unicodedata.normalize("NFC", text).strip().lower())
 
 
 def _section_text(source: str, section: str) -> str | None:
-    target = section.strip().lower()
+    target = unicodedata.normalize("NFC", section).strip().lower()
     matches = list(_HEADER.finditer(source))
     if not matches:
         return None
     for i, m in enumerate(matches):
-        if m.group(1).strip().lower() == target:
+        header = unicodedata.normalize("NFC", m.group(1)).strip().lower()
+        if header == target:
             start = m.end()
             end = matches[i + 1].start() if i + 1 < len(matches) else len(source)
             return source[start:end]
@@ -32,7 +34,7 @@ def verify_quote(quote: str, source: str, *, section: str | None = None) -> bool
     """Substring-verify `quote` against `source` (optionally restricted to a section).
 
     Rules (PLAN §"Hallucination guard hardened"):
-      - normalize: lowercase + collapse whitespace; punctuation preserved.
+      - normalize: Unicode NFC, lowercase + collapse whitespace; punctuation preserved.
       - <6 words → False.
       - 6–7 words → must appear exactly once.
       - >=8 words → must appear at least once.

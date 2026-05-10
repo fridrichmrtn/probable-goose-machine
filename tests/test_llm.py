@@ -26,6 +26,48 @@ class Echo(BaseModel):
     message: str
 
 
+class _RetryingLLMClient(LLMClient):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def _resolve_model(self, logical: str) -> str:
+        return f"fake-{logical}"
+
+    def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        return float(prompt_tokens + completion_tokens)
+
+    async def _chat_json(
+        self, model: str, system: str, user: str, temperature: float
+    ) -> tuple[str, int, int, str]:
+        self.calls += 1
+        if self.calls == 1:
+            return "not json", 3, 5, "stop"
+        return '{"message": "pong"}', 7, 11, "stop"
+
+
+@pytest.mark.fast
+async def test_complete_json_retry_telemetry_accumulates_tokens() -> None:
+    events: list[dict[str, Any]] = []
+    client = _RetryingLLMClient()
+
+    with subscribe(events.append):
+        echo = await client.complete_json(
+            system="Return JSON.",
+            user="Echo pong.",
+            schema=Echo,
+            model="cheap",
+            max_retries=1,
+        )
+
+    assert echo == Echo(message="pong")
+    assert client.calls == 2
+    llm_events = [e for e in events if e["event"] == "llm_call"]
+    assert len(llm_events) == 1
+    assert llm_events[0]["prompt_tokens"] == 10
+    assert llm_events[0]["completion_tokens"] == 16
+    assert llm_events[0]["usd_cost"] == 26.0
+
+
 @pytest.mark.live
 @pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set")
 async def test_complete_json_roundtrip_emits_telemetry() -> None:

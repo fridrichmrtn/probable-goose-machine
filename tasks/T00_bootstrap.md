@@ -12,11 +12,11 @@ Stand up the Python project skeleton so `uv sync && uv run python -c "import job
 
 ## Deliverables
 
-- [ ] `pyproject.toml` — `[project]` + `[tool.uv]` + `[tool.ruff]` + `[tool.mypy]` + `[tool.pytest.ini_options]` (with markers `fast`, `slow`, `live`, `pytest-asyncio mode = auto`).
-- [ ] Dependency pins (use `uv add ...`):
+- [x] `pyproject.toml` — `[project]` + `[tool.uv]` + `[tool.ruff]` + `[tool.mypy]` + `[tool.pytest.ini_options]` (with markers `fast`, `slow`, `live`, `pytest-asyncio mode = auto`).
+- [x] Dependency pins (use `uv add ...`):
   - runtime: `openai`, `gradio`, `pypdf`, `pdfplumber`, `python-docx`, `pydantic>=2`, `structlog`, `ddgs`, `tenacity`
   - dev: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `pre-commit`
-- [ ] Directory layout:
+- [x] Directory layout:
   ```
   src/jobfit/__init__.py
   src/jobfit/prompts/        (empty for now, .gitkeep)
@@ -25,10 +25,10 @@ Stand up the Python project skeleton so `uv sync && uv run python -c "import job
   scripts/                   (.gitkeep)
   reports/                   (.gitkeep, gitignored contents)
   ```
-- [ ] `.gitignore` covering: `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `.env`, `reports/*` (but keep `.gitkeep`).
-- [ ] `.env.example` — `MINIMAX_API_KEY=` and `ANTHROPIC_API_KEY=` (commented as fallback) and `JOBFIT_MODEL_PROFILE=local`.
-- [ ] `README.md` — minimal frontmatter (HF Space metadata: `sdk: gradio`, `app_file: app.py`, `python_version: "3.11"`) + a one-line "see tasks/PLAN.md for architecture" stub. Full README is T23.
-- [ ] `app.py` — empty stub: `import gradio as gr; demo = gr.Blocks(); demo.launch()` so `uv run python app.py` doesn't error.
+- [x] `.gitignore` covering: `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `.env`, `reports/*` (but keep `.gitkeep`).
+- [x] `.env.example` — `MINIMAX_API_KEY=` and `ANTHROPIC_API_KEY=` (commented as fallback) and `JOBFIT_MODEL_PROFILE=local`.
+- [x] `README.md` — minimal frontmatter (HF Space metadata: `sdk: gradio`, `app_file: app.py`, `python_version: "3.11"`) + a one-line "see tasks/PLAN.md for architecture" stub. Full README is T23.
+- [x] `app.py` — empty stub: `import gradio as gr; demo = gr.Blocks(); demo.launch()` so `uv run python app.py` doesn't error.
 
 ## Verification
 

@@ -33,9 +33,13 @@ from jobfit import obs
 from jobfit.llm import LLMClient
 from jobfit.verify import verify_quote
 
-FIXTURES = Path("tests/fixtures/cvs")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = REPO_ROOT / "tests/fixtures/cvs"
 JUNIOR_TXT = FIXTURES / "01_junior_da_novotny.txt"
 SENIOR_TXT = FIXTURES / "08_staff_ml_engineer_dvorak.txt"
+CV_SPECS = (("junior", JUNIOR_TXT), ("senior", SENIOR_TXT))
+CALLS_PER_CV = 2
+TOTAL_CALLS = len(CV_SPECS) * CALLS_PER_CV
 
 ANCHOR_RATE_FLOOR = 0.70
 SCORE_SPREAD_FLOOR = 20
@@ -108,7 +112,8 @@ def _preflight() -> int | None:
     required = "ANTHROPIC_API_KEY" if provider == "anthropic" else "MINIMAX_API_KEY"
     if not os.environ.get(required):
         print(
-            f"Set {required} in .env (JOBFIT_LLM_PROVIDER={provider})",
+            f"Set {required} in the environment before running "
+            f"(JOBFIT_LLM_PROVIDER={provider}; .env is not auto-loaded)",
             file=sys.stderr,
         )
         return 2
@@ -206,7 +211,7 @@ async def main() -> int:
         ("spike.senior.score", senior_score),
     ]
     failure_count = sum(1 for _, r in call_results if r is None)
-    json_survival = (4 - failure_count) / 4
+    json_survival = (TOTAL_CALLS - failure_count) / TOTAL_CALLS
 
     successful_durations_ms = [
         _stage_duration_ms(events, stage) for stage, result in call_results if result is not None
@@ -256,7 +261,7 @@ async def main() -> int:
             senior_latency_s,
         )
     )
-    print(f"JSON-mode failures: {failure_count}/4 calls")
+    print(f"JSON-mode failures: {failure_count}/{TOTAL_CALLS} calls")
 
     gates: list[tuple[str, bool]] = [
         ("anchor-rate", anchor_rate >= ANCHOR_RATE_FLOOR),

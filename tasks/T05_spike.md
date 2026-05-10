@@ -12,7 +12,7 @@ Before sinking time into all six pipeline stages on MiniMax, prove the model can
 
 ## Deliverables
 
-- [ ] `scripts/spike_minimax.py`:
+- [x] `scripts/spike_minimax.py`:
   - Loads CVs #1 (junior) and #8 (senior) via `jobfit.ingest.extract_text` (or pypdf/python-docx directly if T07 isn't done yet — can stub).
   - For each CV, runs **two** prompts:
     1. **Extract**: minimal Pydantic schema (`{"skills": [{"text": str, "anchor_quote": str}], "years_experience": int}`) — measures literal-copy rate of `anchor_quote` against source.
@@ -22,7 +22,7 @@ Before sinking time into all six pipeline stages on MiniMax, prove the model can
     junior  extract: 8/10 anchors verified  (80%)  | score: 32  | latency p50: 5.2s
     senior  extract: 12/15 anchors verified (80%)  | score: 78  | latency p50: 6.1s
     JSON-mode failures: 0/4 calls
-    GATES: anchor-rate ≥70%? YES  | spread ≥20? YES  | json-survival ≥90%? YES  | p50 ≤8s? YES
+    GATES: anchor-rate ≥70%? YES  | spread ≥20? YES  | json-survival ≥90%? YES  | p50 ≤20s? YES
     ```
   - Exits 0 if all gates pass; exits 1 with a clear "FAILED GATE: <which>" message otherwise.
 

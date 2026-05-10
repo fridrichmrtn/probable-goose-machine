@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unicodedata
+
 import pytest
 from pydantic import BaseModel
 
@@ -63,6 +65,12 @@ def test_punctuation_preserved_in_normalization() -> None:
     quote = "we reduced churn by 18% last year"
     source = "## Experience\nWe reduced churn by 18% last year and grew ARR.\n"
     assert verify_quote(quote, source) is True
+
+
+def test_unicode_nfc_normalization_handles_pdf_diacritic_forms() -> None:
+    quote = "Tomáš Dvořák vedl tým šesti inženýrů"
+    source = unicodedata.normalize("NFD", f"## Experience\n{quote} v Praze.\n")
+    assert verify_quote(quote, source, section="Experience") is True
 
 
 class _Item(BaseModel):
