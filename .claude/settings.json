@@ -35,6 +35,8 @@
       "Bash(git *)",
 
       "Bash(uv *)",
+      "Bash(codex *)",
+      "Bash(cd * && codex *)",
 
       "Bash(python *)",
       "Bash(python3 *)",
