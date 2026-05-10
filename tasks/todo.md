@@ -6,7 +6,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T00** — Project bootstrap (`tasks/T00_bootstrap.md`)
 - [x] **T01** — Schemas + StageFailure (`tasks/T01_schemas.md`)
 - [x] **T02** — Cross-cutting utils (`tasks/T02_utils.md`)
-- [ ] **T03** — CI + pre-commit + warm-keeper (`tasks/T03_ci_precommit.md`) — *parallel with T01/T02 after T00*
+- [x] **T03** — CI + pre-commit + warm-keeper (`tasks/T03_ci_precommit.md`) — *parallel with T01/T02 after T00*
 
 ## Capability gate
 - [ ] **T04** — CV corpus part 1: junior + senior (`tasks/T04_cvs_part1.md`)

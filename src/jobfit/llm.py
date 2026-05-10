@@ -45,12 +45,8 @@ class LLMClient:
         if self._provider == "minimax":
             api_key = os.environ.get("MINIMAX_API_KEY")
             if not api_key:
-                raise RuntimeError(
-                    "MINIMAX_API_KEY not set — add it to .env or export it"
-                )
-            self._client = AsyncOpenAI(
-                api_key=api_key, base_url="https://api.minimaxi.chat/v1"
-            )
+                raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
+            self._client = AsyncOpenAI(api_key=api_key, base_url="https://api.minimaxi.chat/v1")
         elif self._provider == "anthropic":
             try:
                 import anthropic
@@ -61,14 +57,11 @@ class LLMClient:
                 ) from e
             api_key = os.environ.get("ANTHROPIC_API_KEY")
             if not api_key:
-                raise RuntimeError(
-                    "ANTHROPIC_API_KEY not set — add it to .env or export it"
-                )
+                raise RuntimeError("ANTHROPIC_API_KEY not set — add it to .env or export it")
             self._client = anthropic.AsyncAnthropic(api_key=api_key)
         else:
             raise RuntimeError(
-                f"Unknown JOBFIT_LLM_PROVIDER={self._provider!r}; "
-                "expected 'minimax' or 'anthropic'"
+                f"Unknown JOBFIT_LLM_PROVIDER={self._provider!r}; expected 'minimax' or 'anthropic'"
             )
 
     def _resolve_model(self, logical: LogicalModel) -> str:
@@ -82,9 +75,7 @@ class LLMClient:
             )
         return _PROFILE_MODELS[profile][logical]
 
-    def _estimate_cost(
-        self, model: str, prompt_tokens: int, completion_tokens: int
-    ) -> float:
+    def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         # Cost only modeled for MiniMax; Anthropic fallback returns 0.0 for now.
         price = MODEL_PRICES.get(model)
         if price is None:
