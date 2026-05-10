@@ -12,6 +12,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
       JOBFIT_MODEL_PROFILE: ci

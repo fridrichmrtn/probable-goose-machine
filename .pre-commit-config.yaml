@@ -21,13 +21,13 @@ repos:
         name: mypy (src/jobfit, strict)
         entry: uv run mypy src/
         language: system
-        types: [python]
         pass_filenames: false
+        always_run: true
         stages: [pre-push]
       - id: pytest-fast
         name: pytest -m fast
         entry: uv run pytest -m fast -q
         language: system
-        types: [python]
         pass_filenames: false
+        always_run: true
         stages: [pre-push]

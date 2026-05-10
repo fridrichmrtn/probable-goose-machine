@@ -192,7 +192,7 @@ If step 5 fails, inspect the diff from step 4 and either (a) commit the auto-fix
 
 **Decision — no `actions/setup-python`.** `setup-uv@v3` installs the interpreter uv selects per `uv.lock`. Adding a separate setup-python step would create two Pythons on `PATH` and risk uv falling back to the wrong one.
 
-**Risk — `MINIMAX_API_KEY` and `vars.HF_SPACE_URL` not set.** These are user actions in GitHub repo settings, out of scope for this task. CI will run without `MINIMAX_API_KEY` (live tests are gated by the `slow`/`live` markers and excluded by `-m "not slow"`); warm-keeper will silently no-op (curl with empty URL → `|| true`). **Flag in T03 Outcome:** reviewer must add `MINIMAX_API_KEY` (Secret) and `HF_SPACE_URL` (Variable) before T22.
+**Risk — `MINIMAX_API_KEY` and `vars.HF_SPACE_URL` not set.** These are user actions in GitHub repo settings, out of scope for this task. The CI selector is `-m "not slow"` per the user's "full live suite per directive" — `live`-marked tests ARE included by this filter (it only excludes `slow`). Without `MINIMAX_API_KEY` set, the live tests' `pytest.mark.skipif(not MINIMAX_API_KEY)` guard skips them; once the secret lands, every PR will hit the live MiniMax API on every push, with `JOBFIT_MODEL_PROFILE=ci` capping cost via `abab6.5s-chat`. Warm-keeper hard-fails (red workflow) until `HF_SPACE_URL` is set — see the explicit guard step rather than a silent `|| true`. **Flag in T03 Outcome:** reviewer must add `MINIMAX_API_KEY` (Secret) and `HF_SPACE_URL` (Variable) before T22.
 
 **Risk — pre-push pytest may run on a branch with broken tests mid-development.** Devs can `git push --no-verify` for WIP branches; CI is the authoritative gate. Document in the eventual README if this becomes friction.
 
