@@ -35,5 +35,5 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T21** — `scripts/eval_corpus.py` (`tasks/T21_eval_corpus.md`)
 
 ## Ship
-- [ ] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
+- [x] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
 - [ ] **T23** — README finalize (`tasks/T23_readme.md`)
