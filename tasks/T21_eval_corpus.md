@@ -15,10 +15,10 @@ The user's manual gauging surface. Runs all 10 CVs through the live pipeline end
 - [ ] `scripts/eval_corpus.py`:
   - Iterates over `sorted(tests/fixtures/cvs/*.{pdf,docx})`.
   - For each: read bytes, time the pipeline, collect the final `Report`.
-  - Writes `eval_outputs/<cv_basename>.md` containing:
+  - Writes `reports/<cv_basename>.md` containing:
     - Header: filename, format, total latency, total cost.
     - The same markdown the Gradio UI would render (`render_body(report)`).
-  - Writes `eval_outputs/SUMMARY.md`:
+  - Writes `reports/SUMMARY.md`:
     ```md
     # Eval corpus run — <ISO timestamp>
 
@@ -34,14 +34,14 @@ The user's manual gauging surface. Runs all 10 CVs through the live pipeline end
   - Exits non-zero if any CV produced a top-level `StageFailure` (ingest/redact failures) — those are bugs, not graceful degradation.
   - Concurrency: serial (avoid hammering DDG with 10 parallel queries from the same IP).
   - Adds a `--profile {local,ci}` flag that just sets `JOBFIT_MODEL_PROFILE` env var for this run.
-- [ ] `eval_outputs/.gitkeep` + `.gitignore` covers `eval_outputs/*.md`.
+- [ ] `reports/.gitkeep` + `.gitignore` covers `reports/*.md`.
 
 ## Verification
 
 ```bash
 uv run python scripts/eval_corpus.py
-ls eval_outputs/                      # 10 .md files + SUMMARY.md
-cat eval_outputs/SUMMARY.md           # eyeball — totals look sane
+ls reports/                      # 10 .md files + SUMMARY.md
+cat reports/SUMMARY.md           # eyeball — totals look sane
 echo $?                               # 0 unless there were ingest failures
 ```
 

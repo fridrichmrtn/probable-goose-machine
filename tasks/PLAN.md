@@ -7,7 +7,7 @@ After v2 (review-driven revisions), the user added these directives:
 1. **Pre-commit + CI/CD from the beginning** — folded into L0. Pre-commit: `ruff format` + `ruff check` + `mypy` + fast unit tests (marked `@pytest.mark.fast`). CI: GitHub Actions on every PR runs the **full test suite with live MiniMax + live DDG** — catches model and search regressions immediately. Burns tokens deliberately; CI uses `abab6.5s-chat` for stages where reasoning isn't critical (configured via env var `JOBFIT_MODEL_PROFILE=ci`) to keep costs bounded.
 2. **10 synthesized CZ data/DS/ML CVs** — I author them spanning junior→senior across roles (data analyst, data scientist, ML engineer, MLOps, research scientist). Mixed formats: roughly half PDF, half DOCX, so `scripts/eval_corpus.py` exercises both ingestion paths end-to-end. Three of the 10 serve as the §5.4 acceptance triplet (junior/mid/senior).
 3. **CZ localization** — salary stage defaults to CZK monthly gross; search queries target CZ aggregators (platy.cz, profesia.cz, glassdoor.com/Location/Czech-Republic-Salaries) plus EUR cross-checks for senior roles. Bias smoke test uses CZ-specific prestige signal (Charles University / MFF UK / VŠE vs anonymized).
-4. **`scripts/eval_corpus.py` as the user's gauging surface** — runs all 10 CVs through the **real live pipeline** (true e2e smoke, not VCR), writes one `<cv_name>.md` per CV plus an `eval_outputs/SUMMARY.md` table (candidate | format | score | salary range | confidence | top growth action). User runs it locally to manually gauge output quality before submission.
+4. **`scripts/eval_corpus.py` as the user's gauging surface** — runs all 10 CVs through the **real live pipeline** (true e2e smoke, not VCR), writes one `<cv_name>.md` per CV plus an `reports/SUMMARY.md` table (candidate | format | score | salary range | confidence | top growth action). User runs it locally to manually gauge output quality before submission.
 
 These directives expand build budget by ~3.5h. Acceptable given the 5-day calendar window.
 
@@ -349,7 +349,7 @@ Files: `README.md` (with HF Space metadata in YAML frontmatter — there is no s
 - **Warm-keeper**: `.github/workflows/warm-keeper.yml` runs every 5 min, HEADs the Space URL. Free, keeps Space hot through the whole review window — including round-2 share-screen.
 - **CI**: `.github/workflows/ci.yml` on every PR/push: lint, format check, mypy, full pytest with **live MiniMax + live DDG** (per user directive). Repo secrets: `MINIMAX_API_KEY`. Concurrency: 1. Env: `JOBFIT_MODEL_PROFILE=ci` to swap M1→`abab6.5s-chat` where reasoning is dispensable, keeping CI cost <$0.50/run.
 - **Local-run**: `uv sync && MINIMAX_API_KEY=... uv run python app.py` (one command after `.env` is filled).
-- **Eval corpus**: `uv run python scripts/eval_corpus.py` writes `eval_outputs/SUMMARY.md` and one report per CV. README documents this as the recommended manual gauging step before submission.
+- **Eval corpus**: `uv run python scripts/eval_corpus.py` writes `reports/SUMMARY.md` and one report per CV. README documents this as the recommended manual gauging step before submission.
 - **README sections** (the Decisions section is load-bearing — written in author voice, not box-checking the PRD back):
   - **Run** — hosted URL **above the fold** with a one-line note: "First request may take ~20s if the Space is asleep — the warm-keeper cron usually prevents this."
   - **How the pipeline works** — DAG image + stage descriptions with explicit callouts for: (a) confidence judged by a *different model* with a *recompute-then-compare* protocol; (b) every claim is a substring-verified anchor with section-locality; (c) per-stage cost+latency surfaced in the UI footer.
@@ -406,7 +406,7 @@ tests/test_failures.py
 tests/test_partial_failure_streaming.py
 tests/test_confidence_judge.py      # structural isolation + recompute-protocol golden
 tests/test_bias_smoke.py            # CZ school (MFF UK / Charles University) pair test
-eval_outputs/                       # gitignored; populated by scripts/eval_corpus.py
+reports/                       # gitignored; populated by scripts/eval_corpus.py
 tasks/todo.md                       # checked off as work proceeds
 ```
 
@@ -449,8 +449,8 @@ uv run python scripts/eval_corpus.py
 
 - Iterates over all 10 fixtures (PDFs and DOCX).
 - Runs each through the **live** pipeline end-to-end (real MiniMax + real DDG) — true e2e smoke, not VCR replay.
-- Writes per-CV report to `eval_outputs/<cv_name>.md` (the same Markdown the Gradio UI would render, plus a header line with file format and timing).
-- Writes `eval_outputs/SUMMARY.md` — a table:
+- Writes per-CV report to `reports/<cv_name>.md` (the same Markdown the Gradio UI would render, plus a header line with file format and timing).
+- Writes `reports/SUMMARY.md` — a table:
 
   | # | CV | Format | Score | Salary (CZK/mo) | Confidence | Top growth action | Cost (USD) | Latency (s) |
   |---|---|---|---|---|---|---|---|---|

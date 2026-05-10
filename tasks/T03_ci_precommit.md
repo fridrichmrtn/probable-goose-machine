@@ -41,7 +41,7 @@ Wire engineering hygiene from day one: every commit is linted/formatted/typechec
   - HEAD request to ${{ vars.HF_SPACE_URL }} with curl -sfI
   - exit 0 even on non-2xx (Space waking up shouldn't fail the cron)
   ```
-- [ ] `.github/workflows/release-eval.yml` (optional, can defer to T22) — manually-dispatched workflow that runs `scripts/eval_corpus.py` and uploads `eval_outputs/` as a build artifact.
+- [ ] `.github/workflows/release-eval.yml` (optional, can defer to T22) — manually-dispatched workflow that runs `scripts/eval_corpus.py` and uploads `reports/` as a build artifact.
 - [ ] `pyproject.toml` updates — confirm `[tool.ruff]` line-length 100, target-version `py311`; `[tool.mypy]` strict mode on `src/jobfit/*`; `[tool.pytest.ini_options]` markers declared.
 
 ## Verification

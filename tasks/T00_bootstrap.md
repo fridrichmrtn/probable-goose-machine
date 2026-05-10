@@ -23,9 +23,9 @@ Stand up the Python project skeleton so `uv sync && uv run python -c "import job
   tests/__init__.py
   tests/fixtures/cvs/        (.gitkeep)
   scripts/                   (.gitkeep)
-  eval_outputs/              (.gitkeep, gitignored contents)
+  reports/                   (.gitkeep, gitignored contents)
   ```
-- [ ] `.gitignore` covering: `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `.env`, `eval_outputs/*` (but keep `.gitkeep`).
+- [ ] `.gitignore` covering: `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `.env`, `reports/*` (but keep `.gitkeep`).
 - [ ] `.env.example` — `MINIMAX_API_KEY=` and `ANTHROPIC_API_KEY=` (commented as fallback) and `JOBFIT_MODEL_PROFILE=local`.
 - [ ] `README.md` — minimal frontmatter (HF Space metadata: `sdk: gradio`, `app_file: app.py`, `python_version: "3.11"`) + a one-line "see tasks/PLAN.md for architecture" stub. Full README is T23.
 - [ ] `app.py` — empty stub: `import gradio as gr; demo = gr.Blocks(); demo.launch()` so `uv run python app.py` doesn't error.
