@@ -57,6 +57,7 @@ Available local subagents:
 - `ux-engineer`: frontend, accessibility, responsive layouts, component quality, and interaction review.
 - `ai-ml-engineer`: model selection, prompts, evals, RAG, agent design, and AI behavior review.
 - `hiring-manager`: interview-style code review, hiring bar assessment, rubrics, and evaluation materials.
+- `qa-engineer`: test architecture, coverage vs PRD §5/§4.6, observability validation, end-to-end reproducibility, plan/task testability review.
 
 Common routes:
 
@@ -65,6 +66,7 @@ Common routes:
 - Use `ux-engineer` before completing user-facing UI, accessibility, responsive layout, or interaction changes.
 - Use `ai-ml-engineer` for prompt changes, eval design, model choice, RAG, or agent/tool behavior.
 - Use `hiring-manager` when the work needs an interview-style quality bar, rubric, or candidate-style assessment.
+- Use `qa-engineer` before declaring a stage done, when reviewing test diffs, or when a plan/task lacks a clear verification path.
 
 Use one task per subagent. Keep delegation narrow, explicit, and useful.
 

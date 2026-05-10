@@ -1,6 +1,6 @@
 ---
 name: dev
-description: End-to-end implementation orchestrator. Creates a per-invocation git worktree, plans, implements, tests, runs a parallel multi-agent review (ai-ml-engineer, ux-engineer, product-owner, hiring-manager), then self-heals once. Stack-agnostic — detects Python / JS / UI signals and only runs checks that apply. Invokable by humans or by other agents (disable-model-invocation is false). Use when a task needs to go from intent to verified implementation in one shot.
+description: End-to-end implementation orchestrator. Creates a per-invocation git worktree, plans, implements, tests, runs a parallel multi-agent review (ai-ml-engineer, ux-engineer, product-owner, hiring-manager, qa-engineer), then self-heals once. Stack-agnostic — detects Python / JS / UI signals and only runs checks that apply. Invokable by humans or by other agents (disable-model-invocation is false). Use when a task needs to go from intent to verified implementation in one shot.
 disable-model-invocation: false
 ---
 
@@ -189,7 +189,7 @@ git -C "$WT" diff main...HEAD
 
 (Use `main` as the base — adjust to `master` only if `main` doesn't exist.)
 
-Fan out **in a single turn, parallel Agent tool calls**. Drop `ux-engineer` from the burst if no UI flag (`streamlit`/`gradio`/`fastapi`) is set — that's a 3-agent burst. Fire the codex CLI reviewer (below) in the same turn as the Agent burst via a Bash tool call.
+Fan out **in a single turn, parallel Agent tool calls**. Drop `ux-engineer` from the burst if no UI flag (`streamlit`/`gradio`/`fastapi`) is set — that's a 4-agent burst (qa-engineer always fires). Fire the codex CLI reviewer (below) in the same turn as the Agent burst via a Bash tool call.
 
 Each prompt opens with: "You are reviewing a diff. Tag every finding `[must-fix]`, `[should-fix]`, or `[nit]`. Be concise — one bullet per finding with file:line."
 
@@ -199,6 +199,7 @@ Each prompt opens with: "You are reviewing a diff. Tag every finding `[must-fix]
 | `ux-engineer` | UI code (Streamlit/Gradio/FastAPI templates), error strings, stage-transition surfaces | "Reviewer-facing copy, stage transitions ([PRD.md](../../../PRD.md) §4.8), error states (§4.6). Skip findings outside UI scope." |
 | `product-owner` | Full diff at scope level (no per-line review) | "Match [PRD.md](../../../PRD.md) §5 acceptance criteria. Flag drift into §6 out-of-scope. Decisions notes read senior?" |
 | `hiring-manager` | Full diff as a candidate submission | "Grade strong / on-bar / below-bar against [CLAUDE.md](../../../CLAUDE.md) §9 (judgment + reliability). What would tank a real round-1 review?" |
+| `qa-engineer` | Tests, `scripts/eval_corpus.py`, `obs.py`, stage workers, `tasks/PLAN.md`, `tasks/todo.md`, README setup section | "Coverage vs [PRD.md](../../../PRD.md) §5 acceptance criteria + §4.6 failures, §4.8 observability per stage, clean-env reproducibility, plan/task testability gaps. Tag `[must-fix]` for missing tests on stated criteria." |
 
 `software-engineer` is **not** a reviewer — it owns implementation and the heal pass. Self-review would be circular.
 
@@ -284,7 +285,7 @@ Report: <REPORT_FILE> (in dev/<slug>)
 - [source] file:line — summary
 ```
 
-Use `[source]` values from the reviewer that surfaced the finding: `ai-ml-engineer`, `ux-engineer`, `product-owner`, `hiring-manager`, or `codex`. Omit any subsection that has zero items. Skip the whole append (do not create or touch the file) if all three lists are empty.
+Use `[source]` values from the reviewer that surfaced the finding: `ai-ml-engineer`, `ux-engineer`, `product-owner`, `hiring-manager`, `qa-engineer`, or `codex`. Omit any subsection that has zero items. Skip the whole append (do not create or touch the file) if all three lists are empty.
 
 Append the block with **both a leading and a trailing blank line** so the union driver keeps adjacent blocks visually separated when multiple dev branches land. Concretely: write `\n## <slug>...\n\n` ... `\n` to the file.
 
