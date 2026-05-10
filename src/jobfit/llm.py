@@ -18,12 +18,16 @@ if TYPE_CHECKING:
 LogicalModel = Literal["reasoning", "cheap"]
 
 # MiniMax-M2.x models prepend a <think>...</think> reasoning block to chat output
-# regardless of response_format. Strip before JSON-parsing or returning text.
+# regardless of response_format, and often wrap JSON-mode payloads in ```json fences.
+# Strip both before JSON-parsing or returning text.
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 
 
 def _strip_think(text: str) -> str:
-    return _THINK_BLOCK_RE.sub("", text, count=1).strip()
+    text = _THINK_BLOCK_RE.sub("", text, count=1).strip()
+    m = _JSON_FENCE_RE.match(text)
+    return m.group(1).strip() if m else text
 
 
 # USD per 1M tokens, (prompt, completion).
@@ -107,6 +111,7 @@ class LLMClient:
         prompt_tokens = 0
         completion_tokens = 0
         usd_cost = 0.0
+        finish_reason = ""
         try:
             current_user = user
             last_err: ValidationError | json.JSONDecodeError | None = None
@@ -117,7 +122,7 @@ class LLMClient:
                         + f"\n\nYour previous output failed validation: {last_err}"
                         + "\n\nReturn corrected JSON only."
                     )
-                text, prompt_tokens, completion_tokens = await self._chat_json(
+                text, prompt_tokens, completion_tokens, finish_reason = await self._chat_json(
                     resolved, system, current_user, temperature
                 )
                 try:
@@ -139,6 +144,7 @@ class LLMClient:
                 completion_tokens=completion_tokens,
                 usd_cost=usd_cost,
                 duration_ms=duration_ms,
+                finish_reason=finish_reason,
             )
 
     async def complete_text(
@@ -154,8 +160,9 @@ class LLMClient:
         prompt_tokens = 0
         completion_tokens = 0
         usd_cost = 0.0
+        finish_reason = ""
         try:
-            text, prompt_tokens, completion_tokens = await self._chat_text(
+            text, prompt_tokens, completion_tokens, finish_reason = await self._chat_text(
                 resolved, system, user, temperature
             )
             return text
@@ -170,11 +177,12 @@ class LLMClient:
                 completion_tokens=completion_tokens,
                 usd_cost=usd_cost,
                 duration_ms=duration_ms,
+                finish_reason=finish_reason,
             )
 
     async def _chat_json(
         self, model: str, system: str, user: str, temperature: float
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, int, int, str]:
         if self._provider == "minimax":
             client: Any = self._client
             response = await client.chat.completions.create(
@@ -185,10 +193,18 @@ class LLMClient:
                 ],
                 response_format={"type": "json_object"},
                 temperature=temperature,
+                max_tokens=4096,
+                extra_body={"reasoning_split": True},
             )
-            text = response.choices[0].message.content or ""
+            choice = response.choices[0]
+            text = choice.message.content or ""
             usage = response.usage
-            return _strip_think(text), usage.prompt_tokens, usage.completion_tokens
+            return (
+                _strip_think(text),
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                choice.finish_reason or "",
+            )
         client_a: Any = self._client
         response_a = await client_a.messages.create(
             model=model,
@@ -199,11 +215,11 @@ class LLMClient:
         )
         text = response_a.content[0].text
         usage_a = response_a.usage
-        return text, usage_a.input_tokens, usage_a.output_tokens
+        return text, usage_a.input_tokens, usage_a.output_tokens, response_a.stop_reason or ""
 
     async def _chat_text(
         self, model: str, system: str, user: str, temperature: float
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, int, int, str]:
         if self._provider == "minimax":
             client: Any = self._client
             response = await client.chat.completions.create(
@@ -213,10 +229,17 @@ class LLMClient:
                     {"role": "user", "content": user},
                 ],
                 temperature=temperature,
+                extra_body={"reasoning_split": True},
             )
-            text = response.choices[0].message.content or ""
+            choice = response.choices[0]
+            text = choice.message.content or ""
             usage = response.usage
-            return _strip_think(text), usage.prompt_tokens, usage.completion_tokens
+            return (
+                _strip_think(text),
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                choice.finish_reason or "",
+            )
         client_a: Any = self._client
         response_a = await client_a.messages.create(
             model=model,
@@ -227,4 +250,4 @@ class LLMClient:
         )
         text = response_a.content[0].text
         usage_a = response_a.usage
-        return text, usage_a.input_tokens, usage_a.output_tokens
+        return text, usage_a.input_tokens, usage_a.output_tokens, response_a.stop_reason or ""

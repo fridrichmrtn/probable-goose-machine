@@ -6,19 +6,28 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from jobfit.llm import LLMClient
+from jobfit.llm import LLMClient, _strip_think
 from jobfit.obs import subscribe
 
-pytestmark = [
-    pytest.mark.live,
-    pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set"),
-]
+
+@pytest.mark.fast
+def test_strip_think_handles_fences_and_thinkblocks() -> None:
+    # think block + json fence (the real M2.7 shape that broke the spike)
+    assert _strip_think('<think>reasoning</think>\n\n```json\n{"a": 1}\n```') == '{"a": 1}'
+    # fence only
+    assert _strip_think('```json\n{"a": 1}\n```') == '{"a": 1}'
+    # think only
+    assert _strip_think('<think>reasoning</think>\n\n{"a": 1}') == '{"a": 1}'
+    # bare json
+    assert _strip_think('{"a": 1}') == '{"a": 1}'
 
 
 class Echo(BaseModel):
     message: str
 
 
+@pytest.mark.live
+@pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set")
 async def test_complete_json_roundtrip_emits_telemetry() -> None:
     events: list[dict[str, Any]] = []
     client = LLMClient()
