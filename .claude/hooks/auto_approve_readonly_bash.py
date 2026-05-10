@@ -127,6 +127,21 @@ SAFE_COMMANDS = {
     "fc-match",
     "pdftotext",
     "pandoc",
+    # Bracket test (sibling of `test`)
+    "[",
+    "[[",
+    # Shell-state changes that don't execute external code
+    "set",
+    # OS-query / package metadata (read-only)
+    "apt-cache",
+    "dpkg",
+    "lspci",
+    "lscpu",
+    "lsblk",
+    "lsmod",
+    # Low-risk writes used constantly for project setup
+    "mkdir",
+    "chmod",
 }
 
 # Tools where ANY first-arg is read-only — git, gh, docker, etc.
@@ -169,6 +184,16 @@ SAFE_SUBCOMMANDS = {
     },
     "codex": {"--help", "--version"},
     "ruff": {"check", "format", "--help", "--version"},
+    "apt": {"list", "show", "search", "policy"},
+}
+
+# Per-tool global flags that take an argument and appear before the subcommand.
+# Stripped before subcommand lookup so `git -C /path status` reads as `status`.
+GLOBAL_FLAGS_WITH_ARG = {
+    "git": {"-C", "-c", "--git-dir", "--work-tree", "--namespace"},
+    "gh": {"-R", "--repo"},
+    "docker": {"-H", "--host", "--context"},
+    "kubectl": {"-n", "--namespace", "--context", "--kubeconfig"},
 }
 
 # Patterns that must NEVER auto-approve, even if leading tokens look safe.
@@ -210,8 +235,13 @@ HARD_DENY = [
 UNSAFE_FEATURES = re.compile(r"\$\(|`|<\(|>\(|<<<|<<")
 
 # Shell separators we split on. Order matters: longer tokens first so `&&` is
-# not split as `&` `&`.
-SEGMENT_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
+# not split as `&` `&`. Newlines count too — multi-line scripts otherwise become
+# one mis-parsed segment.
+SEGMENT_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\||\n)\s*")
+
+# A segment that is purely `VAR=value` (with optional more assignments) and
+# nothing else — pure assignment doesn't execute anything.
+LONE_ASSIGNMENT = re.compile(r"^(?:[A-Z_][A-Z0-9_]*=\S*\s*)+$")
 
 # Strip `cd … &&` / env-var / timeout prefixes and yield the actual command.
 PREFIX_STRIP = re.compile(
@@ -237,6 +267,10 @@ def is_safe_segment(seg: str) -> bool:
     if not seg_clean:
         return True
 
+    # Pure `VAR=value` segments don't execute anything; safe.
+    if LONE_ASSIGNMENT.match(seg_clean):
+        return True
+
     m = LEAD_TOKEN.match(seg_clean)
     if not m:
         return False
@@ -248,6 +282,11 @@ def is_safe_segment(seg: str) -> bool:
 
     if cmd_base in SAFE_SUBCOMMANDS:
         rest = seg_clean[m.end() :].strip().split()
+        # Strip per-tool global flags that take an argument
+        # (e.g., `git -C /path status` -> subcommand is `status`).
+        global_flags = GLOBAL_FLAGS_WITH_ARG.get(cmd_base, set())
+        while len(rest) >= 2 and rest[0] in global_flags:
+            rest = rest[2:]
         if not rest:
             return True  # bare invocation prints help, harmless
         return rest[0] in SAFE_SUBCOMMANDS[cmd_base]
