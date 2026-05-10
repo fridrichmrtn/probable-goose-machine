@@ -11,9 +11,7 @@ from jobfit.obs import subscribe
 
 pytestmark = [
     pytest.mark.live,
-    pytest.mark.skipif(
-        not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set"
-    ),
+    pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set"),
 ]
 
 

@@ -1,0 +1,26 @@
+name: warm-keeper
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Guard — HF_SPACE_URL must be set
+        env:
+          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
+        run: |
+          if [ -z "$HF_SPACE_URL" ]; then
+            echo "::error::repo variable HF_SPACE_URL is not set — warm-keeper is a no-op until T22 wires it"
+            exit 1
+          fi
+      - name: HEAD-ping HF Space
+        env:
+          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
+        # `|| true` swallows non-2xx so a Space cold-start (502 mid-wake) doesn't redden cron history.
+        # The unset-URL case is handled by the guard step above so silent no-ops can't happen.
+        run: curl -sfI "$HF_SPACE_URL" || true

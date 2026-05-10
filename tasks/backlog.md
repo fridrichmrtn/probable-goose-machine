@@ -60,3 +60,23 @@ Report: tasks/T02_dev-report.md (in dev/t02-utils)
 - [ai-ml-engineer] src/jobfit/obs.py — `_subscribers` uses immutable tuple (good for asyncio.gather), but mutation is O(n) per subscribe. Fine at expected fan-out (≤5 subscribers); flag if T16 hits more.
 - [ai-ml-engineer] src/jobfit/llm.py — JSON-mode fallback for Anthropic uses prompt-injection ("Return JSON only, no prose."), not native tool-use. Switch to `tools=[{...}]` if Anthropic becomes primary.
 
+## t03-ci-precommit — 2026-05-10T15:00Z
+Report: tasks/T03_dev-report.md (in dev/t03-ci-precommit)
+
+### Should-fix
+- [ux-engineer] .github/workflows/warm-keeper.yml:5 — `*/5 * * * *` is 288 runs/day — overkill for a hiring-committee review window of ~1–2 hours. Consider business-hours-only schedule (e.g. `*/10 8-22 * * *`) before T22 deploy. Free-tier Actions minutes are unlimited for public repos so this is harmless today, but worth tightening when traffic pattern is known.
+- [hiring-manager] all of T03 commit dcddf96 — auto-format pass on T01/T02 source (`src/jobfit/llm.py`, `src/jobfit/schemas.py`, `tests/test_llm.py`) was bundled into T03 instead of landing as a separate "format ratchet" commit. Direction is right (CI's `ruff format --check` would otherwise red day one), but packaging is wrong — bundling ties the auto-fix to the workflow change so a revert of T03 would undo both. Acceptable cost for an L0 task; flag the pattern in `tasks/lessons.md` so future hygiene PRs land on their own commit.
+- [ux-engineer] .github/workflows/ci.yml:8-10 — `concurrency.cancel-in-progress: true` is fine for PRs but cancels mid-flight `main` builds when a fast follow-up push lands. Consider `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` so reviewers always see a definitive pass/fail on the latest main commit.
+- [ai-ml-engineer + ux-engineer] .github/workflows/ci.yml:14-16 — `MINIMAX_API_KEY` is plumbed at job level, leaking into every step (ruff/mypy/etc.). Tighten to step-level env on the pytest step only to keep blast radius narrow.
+- [ai-ml-engineer] .github/workflows/ci.yml:39 — `pytest … -m "not slow" -v` doesn't add `--strict-markers`. Add it so a typo'd marker (`@pytest.mark.fst`) fails fast in CI rather than silently running everything.
+- [ux-engineer] tasks/T03_ci_precommit.md Outcome — should explicitly state the failure mode if user skips the two manual GitHub-settings actions: "Without `MINIMAX_API_KEY`, CI passes but live tests skip silently. Without `HF_SPACE_URL`, warm-keeper now hard-fails (after heal); set both before merging T22."
+- [hiring-manager] .pre-commit-config.yaml — pre-push hook on a config-only branch fails confusingly if `uv` isn't installed; add a guard or document in README.
+- [product-owner] tasks/T22_deploy.md — should mirror T03's user-action checklist (`MINIMAX_API_KEY` Secret + `HF_SPACE_URL` Variable) as a precondition so the T22 picker doesn't reverse-trace it from this task.
+
+### Nits
+- [hiring-manager] .github/workflows/ci.yml:31,34 — `ruff format --check .` and `ruff check .` rely on `.gitignore` to exclude `.venv`/`reports/`. Explicit `src tests` (or pyproject `[tool.ruff].src`) reads more honestly.
+- [hiring-manager] .pre-commit-config.yaml:22 — `entry: uv run mypy src/` could be `uv run mypy` since `[tool.mypy].files` already scopes it. Style preference.
+- [hiring-manager] tasks/T03_ci_precommit.md Outcome — mentions "three pre-existing T01 files" auto-formatted but actual diff also touched `tests/test_llm.py`. Minor accuracy nit.
+- [hiring-manager] scripts/.gitkeep — added with no explanation. If T22 will populate `scripts/eval_corpus.py`, fine; otherwise drop.
+- [product-owner] tasks/T03_ci_precommit.md:44 — "Deferred to T22 per plan §1" but PLAN §1 doesn't explicitly call out release-eval; the constraint comes from this task spec. Either drop the cite or update PLAN.
+- [ai-ml-engineer] .github/workflows/warm-keeper.yml — log the HTTP status to job summary (`curl -sI -o /dev/null -w "%{http_code}\n"`) so a sustained 5xx is visible without failing the run.

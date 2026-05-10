@@ -107,21 +107,14 @@ class Score(BaseModel):
     @model_validator(mode="after")
     def _require_one_component_per_category(self) -> Score:
         names = [c.name for c in self.components]
-        if set(names) != set(COMPONENT_WEIGHTS.keys()) or len(names) != len(
-            COMPONENT_WEIGHTS
-        ):
-            raise ValueError(
-                "Score requires exactly one component per category; "
-                f"got {names}"
-            )
+        if set(names) != set(COMPONENT_WEIGHTS.keys()) or len(names) != len(COMPONENT_WEIGHTS):
+            raise ValueError(f"Score requires exactly one component per category; got {names}")
         return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def total(self) -> int:
-        return round(
-            sum(c.score_0_100 * COMPONENT_WEIGHTS[c.name] for c in self.components)
-        )
+        return round(sum(c.score_0_100 * COMPONENT_WEIGHTS[c.name] for c in self.components))
 
 
 class Report(BaseModel):
