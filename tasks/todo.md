@@ -33,7 +33,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T19** — Confidence-judge tests (`tasks/T19_judge_tests.md`)
 - [ ] **T20** — Bias smoke test (`tasks/T20_bias.md`)
 - [ ] **T21** — `scripts/eval_corpus.py` (`tasks/T21_eval_corpus.md`)
-- [x] **QA01** — QA audit of plan + task testability (`tasks/qa_audit.md`)
+- [ ] **QA01** — QA audit of plan + task testability (stub at `tasks/qa_audit.md`; re-run via real `qa-engineer` after merge)
 
 ## Ship
 - [x] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
