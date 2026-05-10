@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from jobfit.errors import StageFailure
 
@@ -34,6 +34,13 @@ class RedactedCV(BaseModel):
 
 
 class Anchor(BaseModel):
+    """Substring-attribution for a claim.
+
+    `section` names a CV section header (e.g., 'Work Experience', 'Education') — open
+    vocabulary, not the closed Component.name set. Section-locality is enforced by
+    jobfit.verify.verify_quote (T02).
+    """
+
     quote: str
     section: str | None = None
 
@@ -67,6 +74,13 @@ class Source(BaseModel):
 
 
 class SalaryEstimate(BaseModel):
+    """Salary range with sources and the estimator's reasoning.
+
+    NOTE: when invoking the L4c confidence judge (T12), pass
+    `sources`/`low`/`high`/`currency`/`period` individually — `reasoning` must NOT reach
+    the judge (PLAN §L4c, recompute-then-compare protocol).
+    """
+
     low: int
     high: int
     currency: str
@@ -89,6 +103,18 @@ class GrowthAction(BaseModel):
 
 class Score(BaseModel):
     components: list[Component]
+
+    @model_validator(mode="after")
+    def _require_one_component_per_category(self) -> Score:
+        names = [c.name for c in self.components]
+        if set(names) != set(COMPONENT_WEIGHTS.keys()) or len(names) != len(
+            COMPONENT_WEIGHTS
+        ):
+            raise ValueError(
+                "Score requires exactly one component per category; "
+                f"got {names}"
+            )
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property

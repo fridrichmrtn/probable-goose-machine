@@ -93,6 +93,32 @@ def test_score_total_recomputes_from_components_and_weights() -> None:
 
 
 @pytest.mark.fast
+def test_score_rejects_duplicate_component_names() -> None:
+    with pytest.raises(ValidationError):
+        Score(
+            components=[
+                _component("skills", 80),
+                _component("skills", 70),
+                _component("experience", 60),
+                _component("education", 40),
+                _component("soft_signals", 100),
+            ]
+        )
+
+
+@pytest.mark.fast
+def test_score_rejects_missing_component_categories() -> None:
+    with pytest.raises(ValidationError):
+        Score(
+            components=[
+                _component("skills", 80),
+                _component("experience", 60),
+                _component("soft_signals", 100),
+            ]
+        )
+
+
+@pytest.mark.fast
 def test_growth_action_rejects_out_of_range_months() -> None:
     GrowthAction(
         what="x",
