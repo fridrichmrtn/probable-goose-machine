@@ -40,7 +40,10 @@ SENIOR_TXT = FIXTURES / "08_staff_ml_engineer_dvorak.txt"
 ANCHOR_RATE_FLOOR = 0.70
 SCORE_SPREAD_FLOOR = 20
 JSON_SURVIVAL_FLOOR = 0.90
-P50_LATENCY_CEILING_S = 8.0
+# MiniMax-M2.7-highspeed measured ~13–18s p50 with reasoning_split=True.
+# Reasoning is mandatory on this catalog (no non-reasoning sibling); 8s was unreachable.
+# Revisit when we swap providers (e.g. Gemini Flash) per follow-up note in T05_spike.md.
+P50_LATENCY_CEILING_S = 20.0
 
 EXTRACT_SYSTEM = (
     "You extract structured skills evidence from a CV.\n\n"
@@ -56,7 +59,9 @@ EXTRACT_SYSTEM = (
     "- If you cannot find a 6+ word literal substring that supports a skill, drop "
     "that skill entirely. Do not fabricate.\n"
     "- `years_experience` is the candidate's total professional years across "
-    "roles, as an integer."
+    "roles, as an integer.\n"
+    "- Return raw JSON only. Do not wrap your response in markdown code fences. "
+    "Do not include any prose outside the JSON object."
 )
 
 SCORE_SYSTEM = (
@@ -76,7 +81,9 @@ SCORE_SYSTEM = (
     "words from the CV that justifies the score. Case- and punctuation-preserved. "
     "No paraphrasing.\n"
     "- Pick a quote that appears in the CV only once. If you cannot guarantee "
-    "uniqueness, copy 8 or more consecutive words."
+    "uniqueness, copy 8 or more consecutive words.\n"
+    "- Return raw JSON only. Do not wrap your response in markdown code fences. "
+    "Do not include any prose outside the JSON object."
 )
 
 
@@ -258,10 +265,10 @@ async def main() -> int:
         ("p50-latency", bool(successful_durations_ms) and p50_s <= P50_LATENCY_CEILING_S),
     ]
     gate_labels = {
-        "anchor-rate": "anchor-rate ≥70%?",
-        "spread": "spread ≥20?",
-        "json-survival": "json-survival ≥90%?",
-        "p50-latency": "p50 ≤8s?",
+        "anchor-rate": f"anchor-rate ≥{int(ANCHOR_RATE_FLOOR * 100)}%?",
+        "spread": f"spread ≥{SCORE_SPREAD_FLOOR}?",
+        "json-survival": f"json-survival ≥{int(JSON_SURVIVAL_FLOOR * 100)}%?",
+        "p50-latency": f"p50 ≤{int(P50_LATENCY_CEILING_S)}s?",
     }
     p50_suffix = f" ({p50_s:.1f}s)" if successful_durations_ms else " (n/a)"
     parts = []

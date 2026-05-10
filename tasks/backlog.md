@@ -128,3 +128,9 @@ Report: tasks/dev-report.md (in dev/add-qa-engineer)
 - [hiring-manager] .claude/agents/qa-engineer.md:33 — wording: "Read the diff against `main` end-to-end" — orchestrator already passes the diff in; reword so qa does not redundantly recompute.
 - [hiring-manager] tasks/PLAN.md:531 — qa-engineer added to Owner enum but no T17–T21 task currently routes to qa ownership; not blocking, but consider adding a co-ownership note for T18/T20 so the new owner is not a dangling signal.
 - [hiring-manager] tasks/lessons.md — no entry capturing the "Agent tool unavailable → stub-and-disclose" pattern; durable lesson would auto-fire the same workaround next time a /dev run hits a missing-tool gap.
+
+## t05-latency-revisit — 2026-05-10T16:30Z
+Report: tasks/T05_spike.md (Outcome section)
+
+### Should-fix
+- [ai-ml-engineer] scripts/spike_minimax.py:43-46 — p50 latency gate relaxed 8s → 20s because MiniMax-M2.x catalog is reasoning-only (no non-reasoning sibling per platform.minimax.io docs). Measured ~16s p50. Acceptable for prototype, but if user-visible latency becomes pain in T15 UI, evaluate Gemini Flash or another non-reasoning provider and revisit the gate.
