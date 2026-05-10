@@ -79,3 +79,17 @@ Report: tasks/T03_dev-report.md (in dev/t03-ci-precommit)
 - [hiring-manager] scripts/.gitkeep — added with no explanation. If T22 will populate `scripts/eval_corpus.py`, fine; otherwise drop.
 - [product-owner] tasks/T03_ci_precommit.md:44 — "Deferred to T22 per plan §1" but PLAN §1 doesn't explicitly call out release-eval; the constraint comes from this task spec. Either drop the cite or update PLAN.
 - [ai-ml-engineer] .github/workflows/warm-keeper.yml — log the HTTP status to job summary (`curl -sI -o /dev/null -w "%{http_code}\n"`) so a sustained 5xx is visible without failing the run.
+
+## t22-deploy — 2026-05-10T14:30Z
+Report: tasks/T22_deploy.md (Outcome section)
+
+### Should-fix
+- [software-engineer] `HF_TOKEN` GH secret was seeded from local `hf auth token` (account-wide write). Replace with a fine-grained Space-only token at https://huggingface.co/settings/tokens (`fridrichmrtn/probable-goose-machine` Spaces → Write only) to shrink blast radius on compromise. `gh secret set HF_TOKEN` to swap; no workflow change needed.
+- [software-engineer] No drift guard between `requirements.txt` and `uv.lock`. If `pyproject.toml` is edited without re-running `uv export`, HF builds with stale deps. Add a pre-commit hook that regenerates `requirements.txt` whenever `uv.lock` changes (`uv export --quiet --no-hashes --no-dev --no-emit-project --format requirements-txt > requirements.txt`) AND/OR a CI step that re-exports and `git diff --exit-code requirements.txt`.
+- [software-engineer] `.github/workflows/sync-to-hub.yml` triggers in parallel with `ci.yml`, not gated on it. A push that fails ruff/mypy/pytest-fast can briefly reach the HF Space (~60s window before next fix). Acceptable for personal-project review traffic; switch to `workflow_run`-gated on the `static` job (not `live` — too flaky) if reviewer load grows.
+- [software-engineer] `huggingface/hub-sync@v0.1.0` rejected in favor of direct `git push` (chosen for proven path + history preservation). Revisit when the action graduates past v0.1.0 — file-mirror semantics auto-exclude `.github/` (currently dead-weight-mirrored to HF) and sidestep the protocol-v2 footgun.
+- [software-engineer] `sync-to-hub.yml` uses `actions/checkout@v4` — third workflow now subject to the existing Node 20 deprecation entry (t03-ci-precommit batch). No new fix needed; flag for the same bump-day.
+
+### Nits
+- [software-engineer] `tasks/T22_deploy.md` Outcome's "Token note" paragraph duplicates the token-rotation Should-fix above. Drop the Outcome bullet when the rotation lands, or accept the duplication as intentional cross-reference.
+- [software-engineer] `.gitattributes` carries HF's full LFS filter set (38 lines) for a project that ships no LFS-tracked binaries. Defensible for forward-compat (T16 may add fixture binaries) but a one-line `# kept for HF parity even though we ship no LFS today` comment would justify it for the next reader.

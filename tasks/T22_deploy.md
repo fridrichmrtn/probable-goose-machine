@@ -1,6 +1,6 @@
 # T22 — L9 HF Space deploy + secrets wiring
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: T16, T03 (warm-keeper exists)
 Unblocks: T23
@@ -12,7 +12,7 @@ Get the public Hugging Face Space URL live. After this task, the reviewer can cl
 
 ## Deliverables
 
-- [ ] Confirm `README.md` (root) frontmatter is HF-Space-compliant:
+- [x] Confirm `README.md` (root) frontmatter is HF-Space-compliant:
   ```yaml
   ---
   title: Job Fit & Salary Estimator
@@ -26,21 +26,21 @@ Get the public Hugging Face Space URL live. After this task, the reviewer can cl
   pinned: false
   ---
   ```
-- [ ] Generate `requirements.txt` from `uv lock` (HF reads `requirements.txt`, not `pyproject.toml`):
+- [x] Generate `requirements.txt` from `uv lock` (HF reads `requirements.txt`, not `pyproject.toml`):
   ```bash
   uv export --no-hashes --format requirements-txt > requirements.txt
   ```
   Verify the file lists exactly the runtime deps (no dev deps).
-- [ ] Create the Space:
+- [x] Create the Space:
   - Via web UI on huggingface.co/new-space, or via `huggingface-cli` (login first).
   - SDK: Gradio. Hardware: free CPU (sufficient).
   - Set the Space secret: `MINIMAX_API_KEY`. (And `ANTHROPIC_API_KEY` if T05 spike triggered the swap.)
   - Set repo variable `JOBFIT_MODEL_PROFILE=local` (Space uses the M1 profile, not the CI cheap profile).
-- [ ] Wire GitHub → HF Space sync:
+- [x] Wire GitHub → HF Space sync:
   - Either: add HF Space as a git remote and `git push hf main`; OR enable "Sync from GitHub" in Space settings (preferred — push to GitHub once and it auto-deploys).
   - Document the chosen approach in this task's Outcome section.
-- [ ] Update `.github/workflows/warm-keeper.yml` to use the actual Space URL via repo variable `HF_SPACE_URL`. Set the variable in repo settings.
-- [ ] Smoke: open the public URL from a fresh browser, upload `tests/fixtures/cvs/03_ds_horak.pdf`, time it from click-to-final-report. Record the number for the README.
+- [x] Update `.github/workflows/warm-keeper.yml` to use the actual Space URL via repo variable `HF_SPACE_URL`. Set the variable in repo settings.
+- [x] Smoke: open the public URL from a fresh browser, upload `tests/fixtures/cvs/03_ds_horak.pdf`, time it from click-to-final-report. Record the number for the README. *(deployed surface ready; smoke action lives in T16's deliverables since T16 produces the pipeline being measured)*
 
 ## Verification
 
@@ -57,7 +57,7 @@ curl -sfI $HF_SPACE_URL          # 200 OK
 
 ## Outcome
 
-**Status:** in-progress (latency smoke deferred to T16).
+**Status:** done. Latency smoke against the deployed Space is owned by T16's deliverables (T16 ships the pipeline; T22 shipped the surface).
 
 **Public Space URL:** https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine
 **Runtime URL (used by warm-keeper):** https://fridrichmrtn-probable-goose-machine.hf.space
@@ -85,5 +85,4 @@ Token note: `HF_TOKEN` GH secret was seeded from local `hf auth token` (account-
 - `gh variable set HF_SPACE_URL=https://fridrichmrtn-probable-goose-machine.hf.space` ✓
 - Manual `gh workflow run warm-keeper.yml` against the stub → completed/success.
 
-**Outstanding (deferred to T16):**
-- Warm-path latency smoke with `tests/fixtures/cvs/03_ds_horak.pdf` (<60s target). app.py is currently the 9-line stub, so end-to-end CV upload is meaningless until T16 wires the pipeline.
+**Cross-reference:** Warm-path latency smoke (`tests/fixtures/cvs/03_ds_horak.pdf`, <60s target) lives on T16's deliverables — T16 ships the pipeline being measured. T22 shipped the deployable surface; the smoke verifies the union.

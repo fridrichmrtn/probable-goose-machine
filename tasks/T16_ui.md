@@ -47,6 +47,11 @@ The user-facing Gradio app: file upload, generate button, stage tracker pills, s
 - [ ] Manual smoke (no automated test for the UI itself — Gradio's queue+stream interaction is hard to unit-test cleanly; rely on `eval_corpus.py` for end-to-end):
   - `uv run python app.py`
   - Open localhost:7860, upload `tests/fixtures/cvs/03_ds_horak.pdf`, click Generate, watch pills transition through states, watch markdown appear progressively, confirm no traceback in terminal.
+- [ ] Deployed-Space smoke (PRD §7 zero-setup access acceptance — closes T22's deferred verification):
+  - Open https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine in a fresh browser.
+  - Upload `tests/fixtures/cvs/03_ds_horak.pdf`, click Generate.
+  - Time click → final-report-rendered. Target <60s warm (warm-keeper cron keeps the Space alive every 5 min).
+  - Record the number for the README and update T22 outcome's cross-reference.
 
 ## Verification
 
