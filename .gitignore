@@ -1,10 +1,15 @@
-# Claude Code (local skills + per-user overrides)
-.claude/
-CLAUDE.md
+# Claude Code — infra committed; ignore per-user override + transient state
+.claude/settings.local.json
+.claude/local/
+.claude/.cache/
 CLAUDE.local.md
 
-# Codex (local config)
-.codex/
+# Codex — project config committed; ignore per-user state
+.codex/auth.json
+.codex/cache/
+.codex/log/
+.codex/logs_*.sqlite*
+.codex/installation_id
 
 # Per-invocation worktrees
 .worktrees/
