@@ -1,0 +1,42 @@
+# Claude Code (local skills + per-user overrides)
+.claude/
+CLAUDE.local.md
+
+# Codex (local config)
+.codex/
+
+# Per-invocation worktrees
+.worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv / venv
+.venv/
+venv/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Eval outputs (regenerated)
+eval_outputs/*.md
+!eval_outputs/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store

@@ -1,0 +1,4 @@
+- Date: 2026-05-10
+- Correction: Flagged `"effortLevel": "max"` as invalid based on the JSON schema's enum (`low|medium|high|xhigh`), but the runtime UI clearly accepts and displays "Max" as the highest tier.
+- Pattern: Treating the published settings JSON schema as ground truth for what the runtime accepts.
+- Rule: Schema diagnostics are advisory, not authoritative. When a user's existing config "looks invalid" per the schema but the app is running fine, do not propose changes — the schema may lag the runtime, or the value may be a legacy/alias accepted at parse time. Only flag if the user reports a behavior problem.
