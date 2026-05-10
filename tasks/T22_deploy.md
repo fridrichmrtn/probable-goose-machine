@@ -72,7 +72,9 @@ curl -sfI $HF_SPACE_URL          # 200 OK
 
 **Sync method:** Direct push (`git remote add hf …` + `git -c protocol.version=0 push hf main`). Force-push was used once to replace HF's auto-generated init commit (`8c75dce`) with our richer history; HF's `.gitattributes` LFS filters were preserved by merging into the existing `.gitattributes` first. Note: required `protocol.version=0` to work around `fatal: expected 'acknowledgments'` error on HF endpoint.
 
-**GitHub→HF sync:** Not yet enabled. To switch from manual `git push hf main` to one-push deploys, enable "Sync from GitHub" in Space Settings (browser-only step). Until then, deploys require pushing to both `origin` and `hf`.
+**GitHub→HF sync:** Wired via [.github/workflows/sync-to-hub.yml](../.github/workflows/sync-to-hub.yml) (direct `git push` triggered on `push: main` and `workflow_dispatch`). HF does **not** offer a "Sync from GitHub" Space-settings UI — earlier walkthrough was a misread; correct mechanism per [HF docs](https://huggingface.co/docs/hub/spaces-github-actions) is a GH Action. After commit `eaa6d1f`, deploying requires only `git push origin main`; the action does the HF push. First run completed/success in 11s — `protocol.version=0` workaround was **not** needed (runner git is recent enough). Manual `git push hf main` remains the fallback if the action breaks; `hf` remote stays configured.
+
+Token note: `HF_TOKEN` GH secret was seeded from local `hf auth token` (account-wide write). Rotation follow-up: mint a fine-grained token scoped to this Space only at https://huggingface.co/settings/tokens and replace via `gh secret set HF_TOKEN`.
 
 **Build issues encountered & fixed during deploy:**
 1. `uv export` writes its `Resolved N packages …` status line to stdout, not stderr — it became line 1 of `requirements.txt` and pip rejected with `Invalid requirement`. Fix: re-export with `--quiet`.
