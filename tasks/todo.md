@@ -9,7 +9,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T03** — CI + pre-commit + warm-keeper (`tasks/T03_ci_precommit.md`) — *parallel with T01/T02 after T00*
 
 ## Capability gate
-- [ ] **T04** — CV corpus part 1: junior + senior (`tasks/T04_cvs_part1.md`)
+- [x] **T04** — CV corpus part 1: junior + senior (`tasks/T04_cvs_part1.md`)
 - [ ] **T05** — MiniMax capability spike (`tasks/T05_spike.md`) — *gates T07–T13*
 
 ## Stage workers (parallel after T05)
