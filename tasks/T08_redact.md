@@ -1,6 +1,6 @@
 # T08 — L2 PII redaction (regex-only default)
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: T02, T05 (gate)
 Unblocks: T15
@@ -44,4 +44,39 @@ uv run pytest -m slow tests/test_redact.py -v
 
 ## Outcome
 
-(fill in when done — esp. any false-positive redactions on real fixtures)
+Shipped `src/jobfit/redact.py` (regex-only pipeline: URL → email → phone → CZ
+postcode → year-in-date-context → header name → `Name:` label) and
+`tests/test_redact.py`. Spans in `Redaction.audit_log` are recorded against the
+output text and documented as informational. Helper `_replace_with_audit`
+replaces a `name` named-group when present (so `Name: Jan` becomes
+`Name: [NAME]` without losing the label) and otherwise replaces the full match.
+The header-name pass skips a section-header denylist (`Curriculum Vitae`,
+`Summary`, plus Czech equivalents) so a CV that opens with a section heading
+still gets the real name redacted from the next non-blank line.
+
+Verification (from `/home/mf/GitHub/probable-goose-machine/.worktrees/block-a`):
+
+- `uv run ruff format` — 2 files left unchanged.
+- `uv run ruff check` — all checks passed.
+- `uv run mypy src/jobfit` — Success: no issues found in 8 source files.
+- `uv run pytest -m fast tests/test_redact.py -v` — 12 passed, 3 deselected.
+- `uv run pytest -m slow tests/test_redact.py -v` — 3 passed (corpus guard +
+  both fixtures: `01_junior_da_novotny.docx`, `08_staff_ml_engineer_dvorak.pdf`).
+- `uv run pre-commit run --all-files` — all hooks passed.
+- Full fast suite (`uv run pytest -m fast`) — 69 passed, no regressions.
+
+Fixture audit-log inspection (no false positives observed):
+
+- `01_junior_da_novotny.docx`: 1 email, 1 phone, 4 year tokens (all in CV date
+  ranges), 1 name (`Jan Novotný`).
+- `08_staff_ml_engineer_dvorak.pdf`: 1 email, 1 phone, 10 year tokens (date
+  ranges in work history + education), 1 name (`Tomáš Dvořák`).
+
+Known limitations (carried from plan §4):
+
+- Phone formats like `(420) 777 123 456`, `+1.555.123.4567`, `00420 …` are not
+  matched; the three-branch regex is best-effort per PLAN §L2.
+- Postcode requires nearby comma + city-like word context; bare `110 00`
+  strings are intentionally left alone.
+- Year tokens outside date context (`version 2024`, `C++17`, `Python 3.10`)
+  are preserved by design — covered by a dedicated fast test.
