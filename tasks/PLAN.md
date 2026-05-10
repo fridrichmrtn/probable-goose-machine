@@ -528,7 +528,7 @@ Every task is its own `tasks/T<NN>_<name>.md` file with a uniform shape so any a
 ```
 # T<NN> — <title>
 Status: todo | wip | done
-Owner: software-engineer | ux-engineer | ai-ml-engineer | (unassigned)
+Owner: software-engineer | ux-engineer | ai-ml-engineer | qa-engineer | (unassigned)
 Depends on: T<NN>, T<NN>
 Unblocks: T<NN>, T<NN>
 Estimate: ~Nh
