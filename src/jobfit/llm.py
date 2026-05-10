@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -16,16 +17,25 @@ if TYPE_CHECKING:
 
 LogicalModel = Literal["reasoning", "cheap"]
 
-# Pricing as of 2026-05-10 — re-check minimaxi.chat/pricing if cost reports drift.
+# MiniMax-M2.x models prepend a <think>...</think> reasoning block to chat output
+# regardless of response_format. Strip before JSON-parsing or returning text.
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_think(text: str) -> str:
+    return _THINK_BLOCK_RE.sub("", text, count=1).strip()
+
+
 # USD per 1M tokens, (prompt, completion).
+# TODO(T05): re-verify model identifiers and re-cost from MiniMax pricing console;
+# zeroed because public docs no longer expose per-model pricing without auth.
 MODEL_PRICES: dict[str, tuple[float, float]] = {
-    "MiniMax-M1": (1.10, 4.40),
-    "abab6.5s-chat": (0.20, 0.20),
+    "MiniMax-M2.7-highspeed": (0.0, 0.0),
 }
 
 _PROFILE_MODELS: dict[str, dict[str, str]] = {
-    "local": {"reasoning": "MiniMax-M1", "cheap": "abab6.5s-chat"},
-    "ci": {"reasoning": "abab6.5s-chat", "cheap": "abab6.5s-chat"},
+    "local": {"reasoning": "MiniMax-M2.7-highspeed", "cheap": "MiniMax-M2.7-highspeed"},
+    "ci": {"reasoning": "MiniMax-M2.7-highspeed", "cheap": "MiniMax-M2.7-highspeed"},
 }
 
 _ANTHROPIC_MODEL = "claude-sonnet-4-6"
@@ -178,7 +188,7 @@ class LLMClient:
             )
             text = response.choices[0].message.content or ""
             usage = response.usage
-            return text, usage.prompt_tokens, usage.completion_tokens
+            return _strip_think(text), usage.prompt_tokens, usage.completion_tokens
         client_a: Any = self._client
         response_a = await client_a.messages.create(
             model=model,
@@ -206,7 +216,7 @@ class LLMClient:
             )
             text = response.choices[0].message.content or ""
             usage = response.usage
-            return text, usage.prompt_tokens, usage.completion_tokens
+            return _strip_think(text), usage.prompt_tokens, usage.completion_tokens
         client_a: Any = self._client
         response_a = await client_a.messages.create(
             model=model,

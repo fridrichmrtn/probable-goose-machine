@@ -4,7 +4,7 @@
 
 After v2 (review-driven revisions), the user added these directives:
 
-1. **Pre-commit + CI/CD from the beginning** — folded into L0. Pre-commit: `ruff format` + `ruff check` + `mypy` + fast unit tests (marked `@pytest.mark.fast`). CI: GitHub Actions on every PR runs the **full test suite with live MiniMax + live DDG** — catches model and search regressions immediately. Burns tokens deliberately; CI uses `abab6.5s-chat` for stages where reasoning isn't critical (configured via env var `JOBFIT_MODEL_PROFILE=ci`) to keep costs bounded.
+1. **Pre-commit + CI/CD from the beginning** — folded into L0. Pre-commit: `ruff format` + `ruff check` + `mypy` + fast unit tests (marked `@pytest.mark.fast`). CI: GitHub Actions on every PR runs the **full test suite with live MiniMax + live DDG** — catches model and search regressions immediately. Burns tokens deliberately; CI uses `MiniMax-M2.7-highspeed` for stages where reasoning isn't critical (configured via env var `JOBFIT_MODEL_PROFILE=ci`) to keep costs bounded.
 2. **10 synthesized CZ data/DS/ML CVs** — I author them spanning junior→senior across roles (data analyst, data scientist, ML engineer, MLOps, research scientist). Mixed formats: roughly half PDF, half DOCX, so `scripts/eval_corpus.py` exercises both ingestion paths end-to-end. Three of the 10 serve as the §5.4 acceptance triplet (junior/mid/senior).
 3. **CZ localization** — salary stage defaults to CZK monthly gross; search queries target CZ aggregators (platy.cz, profesia.cz, glassdoor.com/Location/Czech-Republic-Salaries) plus EUR cross-checks for senior roles. Bias smoke test uses CZ-specific prestige signal (Charles University / MFF UK / VŠE vs anonymized).
 4. **`scripts/eval_corpus.py` as the user's gauging surface** — runs all 10 CVs through the **real live pipeline** (true e2e smoke, not VCR), writes one `<cv_name>.md` per CV plus an `reports/SUMMARY.md` table (candidate | format | score | salary range | confidence | top growth action). User runs it locally to manually gauge output quality before submission.
@@ -15,10 +15,10 @@ These directives expand build budget by ~3.5h. Acceptable given the 5-day calend
 
 After product-owner, software-engineer, ai-ml-engineer, ux-engineer, and hiring-manager reviews of v1, the following high-severity issues are addressed below in their respective sections:
 
-1. **Latency budget honestly costed.** New "Latency budget" table; L4a collapsed to one structured call; L4a/L4b run concurrently via `asyncio.gather` (not just "parallel work tracks"); MiniMax-M1 reserved for stages where reasoning matters.
+1. **Latency budget honestly costed.** New "Latency budget" table; L4a collapsed to one structured call; L4a/L4b run concurrently via `asyncio.gather` (not just "parallel work tracks"); MiniMax-M2.7-highspeed reserved for stages where reasoning matters.
 2. **Cold-start mitigation is now real, not wishful.** GitHub Actions warm-keeper cron (5 min) replaces the "ping ~10 min before" line; README leads with a "first request may take 20s" note above the fold.
 3. **Gradio UI pattern fixed.** Drop the `gr.Progress` + tuple-yield conflation. Pipeline yields a single `Report` state object to a `gr.HTML` stage-tracker + `gr.Markdown` body; renderer is a pure function of state. Hero stage-card pills as the first 10s impression.
-4. **Confidence judge isolated more aggressively.** Different model (`abab6.5s-chat`, not M1), temperature 0, and a recompute-then-compare protocol: judge derives its own tier from sources alone, then is shown the produced range only to write its rationale. Token-grep isolation test dropped (false-positives on shared vocab); replaced with a structural test asserting the function signature.
+4. **Confidence judge isolated more aggressively.** _(Note: under M2.x highspeed-only deployment the "different model" defense degrades to prompt-/temperature-only isolation; revisit during T12.)_ Temperature 0, recompute-then-compare protocol: judge derives its own tier from sources alone, then is shown the produced range only to write its rationale. Token-grep isolation test dropped (false-positives on shared vocab); replaced with a structural test asserting the function signature.
 5. **Hallucination guard hardened.** `verify_quote` floor raised to **≥6 words AND match must be unique in the source** (or ≥8 words if not unique). Experience-section claims must match within their own section, not anywhere in the CV.
 6. **Acceptance tests strengthened beyond verbatim-equality.** Added n-gram overlap check (Jaccard ≥0.4 across any two growth-plan items across CVs is a fail) and a calibration test (same CV run 3× → score variance ≤5).
 7. **Early MiniMax capability spike (L0.5)** before sinking time into all six stages. Hard gate: anchor-quote literal-copy rate ≥70% on 2 fixtures and score spread ≥20 between junior/senior on those 2. Fallback path documented (Claude Sonnet 4.6).
@@ -52,7 +52,7 @@ The discriminator is judgment + reliability. Anything that does not serve those 
 |---|---|---|
 | UI framework | **Gradio (Blocks API)** | Native AI-community surface; `gr.Progress` covers §4.8 observability and §8 first-impression risk; clean file upload + markdown rendering; same `app.py` works locally and on HF Spaces. |
 | Hosting | **Hugging Face Spaces (Gradio SDK)** | Free public URL straight from a GitHub-synced or HF-hosted repo; secrets via Space settings; matches the AI-first hiring lens. |
-| LLM | **MiniMax** via OpenAI-compatible API (user's token plan on minimax.io) | Default model: `MiniMax-M1` (reasoning) for scoring, confidence, and growth-plan stages; `abab6.5s-chat` for cheaper extraction/redaction passes. Endpoint: `https://api.minimaxi.chat/v1`. Use the `openai` Python SDK with `base_url` override. No prompt caching assumed (graceful: keep prompts compact). |
+| LLM | **MiniMax** via OpenAI-compatible API (user's token plan on minimax.io) | Default model: `MiniMax-M2.7-highspeed` (reasoning) for scoring, confidence, and growth-plan stages; `MiniMax-M2.7-highspeed` for cheaper extraction/redaction passes. Endpoint: `https://api.minimaxi.chat/v1`. Use the `openai` Python SDK with `base_url` override. No prompt caching assumed (graceful: keep prompts compact). |
 | Web search (salary) | **DuckDuckGo** via `ddgs` Python package | No API key (preserves zero-setup ethos), free, returns title + snippet + URL. Risk: rate-limit / HTML-scrape brittleness — handled with retry, jittered sleep, and a search-empty path that triggers §4.6 fallback. |
 | PDF parsing | **pypdf** (primary) + **pdfplumber** (layout fallback) | Pure-Python, no system deps; pdfplumber rescues column-heavy CVs when pypdf returns empty. |
 | DOCX parsing | **python-docx** | Standard, no system deps. |
@@ -140,12 +140,12 @@ The 60s SLA (PRD §7) is tight. Honest per-stage estimate, costed before we star
 | L3 profile extract | 6s | one M1 structured call |
 | L4a scoring (one structured call) | 6s | concurrent with L4b |
 | L4b salary search + estimate | 8s | DDG ~2s + M1 ~6s, concurrent with L4a |
-| L4c confidence | 3s | abab6.5s, sequential after L4b |
+| L4c confidence | 3s | MiniMax-M2.7-highspeed, sequential after L4b |
 | L5 growth plan | 6s | M1 |
 | L6 assembly + render | 0.2s | local |
 | **Sequential total** | **~30s warm** | well under 60s, leaves headroom for cold path |
 
-L4a/L4b run via `asyncio.gather` — not just "parallel work tracks". If the L0.5 spike shows M1 latency is 2× this estimate, downgrade L3 and L5 to `abab6.5s-chat` and re-measure.
+L4a/L4b run via `asyncio.gather` — not just "parallel work tracks". If the L0.5 spike shows M1 latency is 2× this estimate, downgrade L3 and L5 to `MiniMax-M2.7-highspeed` and re-measure.
 
 ---
 
@@ -207,13 +207,13 @@ Files to create:
 - `src/jobfit/llm.py` — thin wrapper around the OpenAI SDK client configured for MiniMax (`base_url="https://api.minimaxi.chat/v1"`, model selection per stage). Methods: `complete_json(messages, schema, *, temperature=0.0)`, `complete_text(messages)`. Async by default (`AsyncOpenAI`); JSON mode used for structured stages with one retry on schema-validation failure. Emits `prompt_tokens`/`completion_tokens`/`usd_cost`/`duration_ms` via `obs.emit()` for every call.
 - `tests/conftest.py` — fixtures, sample-CV loader, marker registration. `ddgs` pinned to a single tested version (HTTP backend has churned). `pytest-asyncio` mode = `auto` so the async pipeline tests don't need decorators.
 - `.github/workflows/warm-keeper.yml` — cron `*/5 * * * *` HEAD request to the HF Space URL. Free, keeps Space hot through the review window.
-- `.github/workflows/ci.yml` — on every PR + push to main: `uv sync` → `ruff format --check` → `ruff check` → `mypy src/` → `pytest -m "not slow"` with **live `MINIMAX_API_KEY` + live DDG**. `JOBFIT_MODEL_PROFILE=ci` env var swaps M1 for `abab6.5s-chat` in stages where reasoning is dispensable, keeping CI token spend bounded. Concurrency: 1 (avoid DDG rate-limits and token-plan thrash).
+- `.github/workflows/ci.yml` — on every PR + push to main: `uv sync` → `ruff format --check` → `ruff check` → `mypy src/` → `pytest -m "not slow"` with **live `MINIMAX_API_KEY` + live DDG**. `JOBFIT_MODEL_PROFILE=ci` env var swaps M1 for `MiniMax-M2.7-highspeed` in stages where reasoning is dispensable, keeping CI token spend bounded. Concurrency: 1 (avoid DDG rate-limits and token-plan thrash).
 - `.pre-commit-config.yaml` — hooks: `ruff` (format + check), `mypy` on `src/`, `pytest -m fast` (only tests marked `@pytest.mark.fast` — pure-function unit tests under 1s, no external calls).
 - `pyproject.toml` includes pytest markers: `fast` (no external IO), `slow` (>1s or external IO), `live` (requires API keys).
 
 ### L0.5 — MiniMax capability spike (~30 min, blocking, gates L3+)
 
-Before committing all six stages to MiniMax-M1, prove it can do the job. Requires that **2 of the 10 corpus CVs (one junior, one senior) are synthesized first** — Track E starts in parallel with L0 specifically to unblock this spike. Spike script `scripts/spike_minimax.py`: run M1 against those 2 fixtures on just the extract + score prompts. Hard gates:
+Before committing all six stages to MiniMax-M2.7-highspeed, prove it can do the job. Requires that **2 of the 10 corpus CVs (one junior, one senior) are synthesized first** — Track E starts in parallel with L0 specifically to unblock this spike. Spike script `scripts/spike_minimax.py`: run M1 against those 2 fixtures on just the extract + score prompts. Hard gates:
 
 - **Anchor-quote literal-copy rate ≥70%** (counts items whose `anchor_quote` passes `verify_quote` against the source).
 - **Score spread ≥20** between junior and senior on the 2 test fixtures.
@@ -233,13 +233,13 @@ Files: `src/jobfit/ingest.py`
 Files: `src/jobfit/redact.py`
 - Regex pass: emails, phone numbers (international + US), URLs, postal codes, common name patterns ("Name: X", header-line all-caps name detection).
 - **Date redaction**: `19xx`/`20xx` four-digit year *inside a date-like context* (e.g., adjacent to a month name or a `–` range) → `[YEAR]`. Must not eat "Python 3.10" / "C++17".
-- LLM pass: **deferred to optional**. v1 promised an `abab6.5s-chat` name/address pass. Cost: extra model surface, extra failure mode, extra latency. v2 default: ship with regex-only and disclose the limitation in README. Re-enable only if regex misses on real fixtures.
+- LLM pass: **deferred to optional**. v1 promised an `MiniMax-M2.7-highspeed` name/address pass. Cost: extra model surface, extra failure mode, extra latency. v2 default: ship with regex-only and disclose the limitation in README. Re-enable only if regex misses on real fixtures.
 - Output: `RedactedCV(text, audit_log: list[Redaction])`.
 - Tests: known-name CV, already-anonymized CV, year-only-no-context (should NOT redact "Python 3.10" or "C++17"); audit log must cover at least name + email on each fixture.
 
 ### L3 — Profile Extraction (~45 min)
 Files: `src/jobfit/extract.py`
-- One MiniMax-M1 call via `llm.complete_json()` with JSON mode + Pydantic schema in the system prompt. System prompt: "extract the candidate's profile. For each item, copy the EXACT substring from the CV that supports it into `anchor_quote` — do not paraphrase."
+- One MiniMax-M2.7-highspeed call via `llm.complete_json()` with JSON mode + Pydantic schema in the system prompt. System prompt: "extract the candidate's profile. For each item, copy the EXACT substring from the CV that supports it into `anchor_quote` — do not paraphrase."
 - Pydantic-validate; for each item with an `anchor_quote`, call `verify_quote` → drop unverified items, log drop count.
 - Tests: golden-output snapshot per fixture CV; assertion that >80% of items survive verification (MiniMax may need a stronger anti-paraphrase instruction than Claude — adjust if survival rate is low).
 
@@ -266,7 +266,7 @@ Files: `src/jobfit/confidence.py`
 
 The v1 design ("separate prompt, same model, same provider") was correctly flagged as theatre by the AI/ML review — same RLHF distribution will rubber-stamp itself. v2 isolates more aggressively:
 
-1. **Different model**: `abab6.5s-chat`, not `MiniMax-M1`. Tier-judging against an explicit rubric is easier than salary estimation; the cheaper model is sufficient *and* breaks the same-distribution defense pattern.
+1. **Different-model defense degraded.** v1 used `abab6.5s-chat` for L4c vs `MiniMax-M1` for L4b to break same-distribution self-grading; under M2.x highspeed-only (post-2026-05 catalog), both stages run on `MiniMax-M2.7-highspeed`. Isolation now relies on prompt structure + temperature 0 + the two-step protocol below. T12 should re-evaluate whether MiniMax exposes a sufficiently distinct sibling model (or revive a Claude Sonnet 4.6 fallback for L4c).
 2. **Recompute first, compare second.** Two-step protocol inside `judge()`:
    - Step A: model receives `sources` only and outputs its own tier (Low/Med/High) by walking the rubric. Does NOT see the produced range.
    - Step B: model receives the produced `(low, high, currency, period)` plus its own Step-A tier and writes a one-paragraph rationale. If Step A's tier is Low, the rationale must include the words "insufficient" or "disagree". The final `Confidence.tier` is **always Step A's tier** — Step B can only write prose.
@@ -347,7 +347,7 @@ Files: `tests/`
 Files: `README.md` (with HF Space metadata in YAML frontmatter — there is no separate `huggingface.yaml`), `.env.example`, `requirements.txt`, `.github/workflows/warm-keeper.yml`
 - **HF Space setup**: create a Gradio Space, sync from GitHub repo (or push directly to HF), set `MINIMAX_API_KEY` as a Space secret. Frontmatter (`sdk: gradio`, `app_file: app.py`, `python_version: 3.11`). Public URL goes at top of README.
 - **Warm-keeper**: `.github/workflows/warm-keeper.yml` runs every 5 min, HEADs the Space URL. Free, keeps Space hot through the whole review window — including round-2 share-screen.
-- **CI**: `.github/workflows/ci.yml` on every PR/push: lint, format check, mypy, full pytest with **live MiniMax + live DDG** (per user directive). Repo secrets: `MINIMAX_API_KEY`. Concurrency: 1. Env: `JOBFIT_MODEL_PROFILE=ci` to swap M1→`abab6.5s-chat` where reasoning is dispensable, keeping CI cost <$0.50/run.
+- **CI**: `.github/workflows/ci.yml` on every PR/push: lint, format check, mypy, full pytest with **live MiniMax + live DDG** (per user directive). Repo secrets: `MINIMAX_API_KEY`. Concurrency: 1. Env: `JOBFIT_MODEL_PROFILE=ci` to swap M1→`MiniMax-M2.7-highspeed` where reasoning is dispensable, keeping CI cost <$0.50/run.
 - **Local-run**: `uv sync && MINIMAX_API_KEY=... uv run python app.py` (one command after `.env` is filled).
 - **Eval corpus**: `uv run python scripts/eval_corpus.py` writes `reports/SUMMARY.md` and one report per CV. README documents this as the recommended manual gauging step before submission.
 - **README sections** (the Decisions section is load-bearing — written in author voice, not box-checking the PRD back):
@@ -385,7 +385,7 @@ src/jobfit/redact.py                # L2 (regex-only by default)
 src/jobfit/extract.py               # L3
 src/jobfit/score.py                 # L4a (one structured call)
 src/jobfit/salary.py                # L4b (DDG fail-fast + estimator)
-src/jobfit/confidence.py            # L4c (abab6.5s + recompute-then-compare)
+src/jobfit/confidence.py            # L4c (MiniMax-M2.7-highspeed + recompute-then-compare)
 src/jobfit/growth.py                # L5
 src/jobfit/report.py                # L6 renderer
 src/jobfit/pipeline.py              # L6 orchestrator (async iterator, conditional flow)
@@ -477,10 +477,10 @@ uv run python scripts/eval_corpus.py
 | Risk | Mitigation |
 |---|---|
 | HF Space cold start (§8) | **GitHub Actions warm-keeper cron every 5 min** keeps the Space hot through review window (incl. round-2). README leads with "first request may take ~20s if the Space is asleep" so expectation is set. |
-| Per-run latency busts 60s SLA | Latency budget table costed before build; L4a/L4b run via `asyncio.gather`; L4a collapsed to one structured call; L0.5 spike validates p50; downgrade-to-`abab6.5s-chat` path documented if M1 is too slow. |
+| Per-run latency busts 60s SLA | Latency budget table costed before build; L4a/L4b run via `asyncio.gather`; L4a collapsed to one structured call; L0.5 spike validates p50; downgrade-to-`MiniMax-M2.7-highspeed` path documented if M1 is too slow. |
 | DDG rate-limits on HF Spaces shared egress | **Fail-fast** (max 2 retries, short backoff), trip §4.6 "Insufficient market data" quickly rather than burning the latency budget. |
 | MiniMax structured-output unreliable | L0.5 capability spike with hard gates (≥70% literal-quote rate, ≥90% JSON-mode survival). Documented swap path to Claude Sonnet 4.6 if gates fail. `llm.py` interface designed for swap. |
-| Confidence judge rubber-stamps the estimator | **Different model** (`abab6.5s-chat`, not M1) + **recompute-then-compare protocol** (Step A computes tier from sources alone before Step B sees the range) + structural signature isolation. |
+| Confidence judge rubber-stamps the estimator | **Recompute-then-compare protocol** (Step A computes tier from sources alone before Step B sees the range) + structural signature isolation + temperature 0. _Different-model isolation degraded post-2026-05 (M2.x highspeed-only); revisit in T12._ |
 | Hallucinated quotes pass `verify_quote` by chance | ≥6 words AND positionally unique, OR ≥8 words; section-locality where applicable. |
 | Growth plan goes generic across CVs | Verbatim-repeat test + **Jaccard 4-gram overlap test** + per-action anchor-uniqueness test + runtime n-gram smoke check. Anti-slop rules in the system prompt explicitly enumerate forbidden recommendations (PhD, found-a-company, generic). |
 | Salary data sparse | §4.6 path: confidence Low + "insufficient market data" copy, rest of report renders. |
@@ -494,7 +494,7 @@ uv run python scripts/eval_corpus.py
 ## Decisions (confirmed)
 
 - **Framework + hosting**: Gradio on Hugging Face Spaces.
-- **LLM**: MiniMax via OpenAI-compatible API (user's token plan), `MiniMax-M1` for L3/L4a/L4b/L5, **`abab6.5s-chat` for L4c** (different model breaks same-distribution self-grading). L2 is regex-only by default. Documented Claude Sonnet 4.6 fallback path if L0.5 spike fails.
+- **LLM**: MiniMax via OpenAI-compatible API (user's token plan), `MiniMax-M2.7-highspeed` for L3/L4a/L4b/L5, **`MiniMax-M2.7-highspeed` for L4c** (different model breaks same-distribution self-grading). L2 is regex-only by default. Documented Claude Sonnet 4.6 fallback path if L0.5 spike fails.
 - **Search**: DuckDuckGo via `ddgs` (no API key; fail-fast policy on rate-limits).
 - **Test CVs**: real anonymized public CVs, three levels, ≥1 messy real-world Word→PDF, sourcing logged in `tests/fixtures/cvs/SOURCES.md`.
 
@@ -569,7 +569,7 @@ Estimate: ~Nh
 | **T09** | L3 profile extract — single M1 JSON-mode call + verify_quote | T02 | after T05 |
 | **T10** | L4a seniority scorer — single structured call + calibration | T02 | after T05 |
 | **T11** | L4b salary search + estimate — DDG fail-fast + CZ localization | T02 | after T05 |
-| **T12** | L4c confidence judge — recompute-then-compare + abab6.5s | T02 | after T05 |
+| **T12** | L4c confidence judge — recompute-then-compare + MiniMax-M2.7-highspeed | T02 | after T05 |
 | **T13** | L5 growth plan — anti-slop prompt + Jaccard runtime smoke | T02 | after T05 |
 | **T14** | L6 report renderer (`report.py`) — markdown + tracker HTML | T01 | after T01 (parallel) |
 | **T15** | L6 pipeline orchestrator (`pipeline.py`) — async iterator, conditional flow | T07–T13 | after T07–T13 |
