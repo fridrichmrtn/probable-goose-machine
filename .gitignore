@@ -1,5 +1,6 @@
 # Claude Code (local skills + per-user overrides)
 .claude/
+CLAUDE.md
 CLAUDE.local.md
 
 # Codex (local config)
