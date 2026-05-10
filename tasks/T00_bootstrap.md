@@ -1,6 +1,6 @@
 # T00 — Project bootstrap
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: —
 Unblocks: T01, T03, T04
@@ -46,4 +46,4 @@ uv run ruff check .                       # clean
 
 ## Outcome
 
-(fill in when done — surprises, deltas vs. plan)
+Bootstrap landed on branch dev/t00-project-bootstrap. Verification: uv sync + import + pytest collect + ruff + mypy all green.
