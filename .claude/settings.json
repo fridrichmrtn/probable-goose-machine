@@ -92,6 +92,12 @@
       "Bash(hf jobs ps*)",
       "Bash(hf jobs logs*)",
       "Bash(hf jobs inspect*)",
+      "Bash(hf spaces logs *)",
+      "Bash(hf spaces variables list *)",
+      "Bash(hf spaces info *)",
+      "Bash(hf spaces --help)",
+      "Bash(hf spaces * --help)",
+      "Bash(codex review --help)",
       "Bash(hf skills *)",
       "Bash(hf env)",
       "Bash(hf version)",
@@ -147,7 +153,15 @@
       "Bash(* | rg *)",
       "Bash(* | jq *)",
       "Bash(* 2>&1 | *)",
-      "Bash(* ; echo *)"
+      "Bash(* ; echo *)",
+
+      "Bash(* 2>/dev/null*)",
+      "Bash(* > /dev/null*)",
+      "Bash(* > /dev/null 2>&1*)",
+      "Bash(* 2>&1)",
+      "Bash(* ; * ; *)",
+      "Bash(* && * && *)",
+      "Bash(* | * | *)"
     ],
     "ask": [
       "Bash(git push --force*)",
