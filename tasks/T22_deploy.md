@@ -57,4 +57,25 @@ curl -sfI $HF_SPACE_URL          # 200 OK
 
 ## Outcome
 
-(fill in when done — public Space URL, observed warm-path latency, any HF-build issues)
+**Status:** in-progress (latency smoke deferred to T16).
+
+**Public Space URL:** https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine
+**Runtime URL (used by warm-keeper):** https://fridrichmrtn-probable-goose-machine.hf.space
+
+**Configuration:**
+- SDK: Gradio 6.14.0, Python 3.11, hardware free CPU, public visibility.
+- Secrets: `MINIMAX_API_KEY` set (from local `.env`).
+- Env vars: `JOBFIT_MODEL_PROFILE=local`.
+- Created via `hf repo create probable-goose-machine --repo-type space --space-sdk gradio --public --secrets MINIMAX_API_KEY=… --env JOBFIT_MODEL_PROFILE=local --exist-ok`.
+
+**Sync method:** Direct push (`git remote add hf …` + `git -c protocol.version=0 push hf main`). Force-push was used once to replace HF's auto-generated init commit (`8c75dce`) with our richer history; HF's `.gitattributes` LFS filters were preserved by merging into the existing `.gitattributes` first. Note: required `protocol.version=0` to work around `fatal: expected 'acknowledgments'` error on HF endpoint.
+
+**GitHub→HF sync:** Not yet enabled. To switch from manual `git push hf main` to one-push deploys, enable "Sync from GitHub" in Space Settings (browser-only step). Until then, deploys require pushing to both `origin` and `hf`.
+
+**Warm-keeper plumbing:**
+- `gh variable set HF_SPACE_URL=https://fridrichmrtn-probable-goose-machine.hf.space` ✓
+- Manual `gh workflow run warm-keeper.yml` → completed/success in 7s.
+
+**Outstanding (deferred to T16):**
+- First-build status (Space was still building at hand-off; runtime URL returned 503).
+- Warm-path latency smoke with `tests/fixtures/cvs/03_ds_horak.pdf` (<60s target). app.py is currently the stub, so end-to-end CV upload is meaningless until T16 wires the pipeline.
