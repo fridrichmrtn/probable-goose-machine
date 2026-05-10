@@ -64,18 +64,24 @@ curl -sfI $HF_SPACE_URL          # 200 OK
 
 **Configuration:**
 - SDK: Gradio 6.14.0, Python 3.11, hardware free CPU, public visibility.
-- Secrets: `MINIMAX_API_KEY` set (from local `.env`).
-- Env vars: `JOBFIT_MODEL_PROFILE=local`.
+- Secrets: `MINIMAX_API_KEY` (from local `.env`).
+- Env vars: `JOBFIT_MODEL_PROFILE=local`, `PYTHONPATH=/app/src` (so `import jobfit` resolves once T07–T16 wires it; HF's pip step doesn't see source code, so editable install can't be used).
 - Created via `hf repo create probable-goose-machine --repo-type space --space-sdk gradio --public --secrets MINIMAX_API_KEY=… --env JOBFIT_MODEL_PROFILE=local --exist-ok`.
+
+**Build status:** RUNNING (commit `37d8513`). First green build took ~62s from BUILDING→RUNNING. Both runtime URL and page URL return HTTP 200.
 
 **Sync method:** Direct push (`git remote add hf …` + `git -c protocol.version=0 push hf main`). Force-push was used once to replace HF's auto-generated init commit (`8c75dce`) with our richer history; HF's `.gitattributes` LFS filters were preserved by merging into the existing `.gitattributes` first. Note: required `protocol.version=0` to work around `fatal: expected 'acknowledgments'` error on HF endpoint.
 
 **GitHub→HF sync:** Not yet enabled. To switch from manual `git push hf main` to one-push deploys, enable "Sync from GitHub" in Space Settings (browser-only step). Until then, deploys require pushing to both `origin` and `hf`.
 
+**Build issues encountered & fixed during deploy:**
+1. `uv export` writes its `Resolved N packages …` status line to stdout, not stderr — it became line 1 of `requirements.txt` and pip rejected with `Invalid requirement`. Fix: re-export with `--quiet`.
+2. `uv export` emits `-e .` for the project itself; HF's pip-install step has only `requirements.txt` mounted (project source is COPYd to `/app` afterwards), so `-e .` resolved to an empty dir and failed with "neither setup.py nor pyproject.toml found". Fix: add `--no-emit-project` to the export, set `PYTHONPATH=/app/src` Space env var so `import jobfit` works post-COPY.
+3. HF auto-injects `gradio[oauth,mcp]==6.14.0` into the build's pip install. The `[mcp]` extra requires `pydantic<=2.12.5,>=2.11.10`; our unbounded `pydantic>=2` resolved to 2.13.4 and pip hit `ResolutionImpossible`. Fix: `pydantic>=2,<2.13` in pyproject.toml; `uv lock` resolved to 2.12.5.
+
 **Warm-keeper plumbing:**
 - `gh variable set HF_SPACE_URL=https://fridrichmrtn-probable-goose-machine.hf.space` ✓
-- Manual `gh workflow run warm-keeper.yml` → completed/success in 7s.
+- Manual `gh workflow run warm-keeper.yml` against the stub → completed/success.
 
 **Outstanding (deferred to T16):**
-- First-build status (Space was still building at hand-off; runtime URL returned 503).
-- Warm-path latency smoke with `tests/fixtures/cvs/03_ds_horak.pdf` (<60s target). app.py is currently the stub, so end-to-end CV upload is meaningless until T16 wires the pipeline.
+- Warm-path latency smoke with `tests/fixtures/cvs/03_ds_horak.pdf` (<60s target). app.py is currently the 9-line stub, so end-to-end CV upload is meaningless until T16 wires the pipeline.
