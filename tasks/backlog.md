@@ -69,6 +69,7 @@ Report: tasks/T03_dev-report.md (in dev/t03-ci-precommit)
 - [ai-ml-engineer] .github/workflows/ci.yml — no CI runner exists for the `slow` pytest marker. Today only `fast` (in `static`) and `live` (in `live`) jobs run; `@pytest.mark.slow` tests would silently not execute. Design a trigger when T15 lands the first slow test (manual `workflow_dispatch`, scheduled nightly, or PR label like `run-slow`).
 - [ux-engineer] tasks/T03_ci_precommit.md Outcome — should explicitly state the failure mode if user skips the two manual GitHub-settings actions: "Without `MINIMAX_API_KEY`, CI passes but live tests skip silently. Without `HF_SPACE_URL`, warm-keeper now hard-fails (after heal); set both before merging T22."
 - [hiring-manager] .pre-commit-config.yaml — pre-push hook on a config-only branch fails confusingly if `uv` isn't installed; add a guard or document in README.
+- [ux-engineer] .github/workflows/ci.yml — `actions/checkout@v4` and `astral-sh/setup-uv@v3` run on Node 20, deprecated by GitHub Actions: forced to Node 24 starting 2026-06-02 and Node 20 removed 2026-09-16. Bump to next major (likely `@v5` / `@v4`) once released, or set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` as an interim opt-in. Observed in run 25630539366.
 - [product-owner] tasks/T22_deploy.md — should mirror T03's user-action checklist (`MINIMAX_API_KEY` Secret + `HF_SPACE_URL` Variable) as a precondition so the T22 picker doesn't reverse-trace it from this task.
 
 ### Nits
