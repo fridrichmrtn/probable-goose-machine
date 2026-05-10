@@ -115,3 +115,27 @@ Report: tasks/T05_spike.md (Outcome section)
 
 ### Should-fix
 - [ai-ml-engineer] scripts/spike_minimax.py:43-46 — p50 latency gate relaxed 8s → 20s because MiniMax-M2.x catalog is reasoning-only (no non-reasoning sibling per platform.minimax.io docs). Measured ~16s p50. Acceptable for prototype, but if user-visible latency becomes pain in T15 UI, evaluate Gemini Flash or another non-reasoning provider and revisit the gate.
+
+
+## T11 — 2026-05-10T18:30Z
+Report: tasks/T11_dev-report.md (in feat/block-b-late-stages)
+
+### Should-fix
+- [ai-ml-engineer] src/jobfit/salary.py:80 — `kept` partial-drop branch (some URLs match input set, some don't) has no fast-test coverage; only the all-drop branch is exercised.
+- [ai-ml-engineer] src/jobfit/salary.py:213 — URL-subset comparison is on the post-Pydantic-normalized form (`str(HttpUrl)`), not the raw DDG `href`. Document the matching invariant in code or prompt; add a unit test pinning normalization behavior on edge URLs (trailing slash, scheme casing).
+- [hiring-manager] src/jobfit/salary.py:78 — `search()` raises `RuntimeError` while `estimate_salary()` returns `StageFailure` for post-LLM logical failures. Pattern inconsistency vs T10 (which only returns). Consider migrating `search` to a sentinel-return + caller-checks-and-returns shape so the canonical user copy lives next to the structured failure.
+- [hiring-manager] src/jobfit/salary.py:107 — `profile.detected_role.strip() or "data scientist"` silently masks an empty role, which would be a T09 (profile) defect. Surface via StageFailure or at minimum emit telemetry.
+- [hiring-manager] src/jobfit/salary.py:21 — `_CZ_MARKERS` includes `"cz"` which substring-matches in unrelated strings (e.g. "Aczland"). Use word-boundary matching or a normalized token set.
+- [hiring-manager] tests/test_salary.py — DDG mock returns either `[]` or raises. Defensive `body`/`snippet` and `href`/`url` key fallback in `_to_source` is therefore untested. Add a populated-result fast test that exercises both key shapes.
+- [qa-engineer] tests/test_salary.py:173 — live test reads `cv_text` from senior fixture but only asserts truthiness — never pipes the CV through T09's parser → T10's redactor. Either drop the read or wire the upstream stages once T09 lands.
+- [qa-engineer] src/jobfit/salary.py — telemetry key naming (`raw_results`, `dedup_results`, `dropped_invalid_url`) is stage-local. Audit cross-stage convention once T12/T13 land; consider a one-line `obs.py` schema doc.
+- [qa-engineer] tasks/T11_salary.md — Verification block names commands but doesn't enumerate the events tests must assert on (`salary_search`, `salary_estimate`, `stage_failure`). Tighten when promoting T11 contract to durable doc.
+- [codex] src/jobfit/salary.py:213 — Source snippets/domains are not verified against the matched input source; only URL is checked. Fabricated snippet text + correct URL would pass. Add a substring check that the LLM's emitted snippet appears in the matched input snippet.
+
+### Nits
+- [hiring-manager] src/jobfit/salary.py:154 — single-letter loop var `q`; rename to `query`.
+- [hiring-manager] tests/test_salary.py — extract `_placeholder_item()` helper (used 4×).
+- [ai-ml-engineer] src/jobfit/prompts/salary.md:33 — language about "if fewer than 2 input results corroborate" conflicts with the §4.5 hallucination guard; reword to forbid extrapolation explicitly.
+- [hiring-manager] src/jobfit/salary.py:14 — `_SYSTEM_PROMPT = _PROMPT_PATH.read_text(...)` at import time defeats hot-reload; comment intent or move into a function.
+- [ai-ml-engineer] src/jobfit/salary.py:124 — `>= 10` senior threshold is hardcoded with no comment.
+- 7 additional minor naming/convention nits surfaced across reviewers — not enumerated.
