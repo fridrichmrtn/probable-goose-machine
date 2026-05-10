@@ -1,0 +1,33 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Single global queue — never race two pushes to the same HF remote.
+    # `cancel-in-progress: false` lets in-flight pushes finish; the newer push queues behind.
+    concurrency:
+      group: sync-to-hub
+      cancel-in-progress: false
+    steps:
+      - name: Checkout (full history + LFS)
+        uses: actions/checkout@v4
+        with:
+          # HF rejects shallow pushes as non-fast-forward; we need the full graph.
+          fetch-depth: 0
+          # .gitattributes declares HF's LFS filters — fetch the pointers so the push is byte-identical.
+          lfs: true
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        # `x-access-token` is HF's documented user for token-auth pushes.
+        # No `--force` — pushes must be fast-forward. A non-FF rejection is a real divergence
+        # (e.g. someone direct-pushed to `hf` while CI ran) and should fail loudly for triage.
+        run: |
+          git push "https://x-access-token:${HF_TOKEN}@huggingface.co/spaces/fridrichmrtn/probable-goose-machine" main
