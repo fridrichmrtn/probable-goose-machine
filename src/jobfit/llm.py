@@ -110,7 +110,6 @@ class LLMClient:
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
-        usd_cost = 0.0
         finish_reason = ""
         try:
             current_user = user
@@ -122,9 +121,14 @@ class LLMClient:
                         + f"\n\nYour previous output failed validation: {last_err}"
                         + "\n\nReturn corrected JSON only."
                     )
-                text, prompt_tokens, completion_tokens, finish_reason = await self._chat_json(
-                    resolved, system, current_user, temperature
+                text, attempt_prompt, attempt_completion, finish_reason = await self._chat_json(
+                    resolved,
+                    system,
+                    current_user,
+                    temperature,
                 )
+                prompt_tokens += attempt_prompt
+                completion_tokens += attempt_completion
                 try:
                     parsed = json.loads(text)
                     return schema.model_validate(parsed)
@@ -134,7 +138,6 @@ class LLMClient:
                         raise
             raise RuntimeError("unreachable: complete_json loop exited without return")
         finally:
-            usd_cost = self._estimate_cost(resolved, prompt_tokens, completion_tokens)
             duration_ms = int((time.perf_counter() - t0) * 1000)
             obs.emit(
                 obs.current_stage.get(),
@@ -142,7 +145,7 @@ class LLMClient:
                 model=resolved,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                usd_cost=usd_cost,
+                usd_cost=self._estimate_cost(resolved, prompt_tokens, completion_tokens),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
             )

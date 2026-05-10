@@ -12,24 +12,25 @@ Define the Pydantic contracts that every other module depends on, plus the `Stag
 
 ## Deliverables
 
-- [ ] `src/jobfit/schemas.py` with the following models (Pydantic v2):
-  - `StageStatus = Literal["pending", "running", "done", "failed"]`
+- [x] `src/jobfit/schemas.py` with the following models (Pydantic v2):
+  - `StageStatus = Literal["pending", "running", "done", "failed", "skipped"]`
+  - `StageName = Literal["profile","score","salary","confidence","growth"]`
   - `RawCV(filename: str, content_bytes: bytes)` — pre-ingestion.
   - `RedactedCV(text: str, audit_log: list[Redaction])` — post-redaction.
   - `Redaction(kind: Literal["email","phone","name","address","year","url"], original: str, replacement: str, span: tuple[int, int])`
   - `Anchor(quote: str, section: str | None = None)` — every claim points at one.
   - `Component(name: Literal["skills","experience","education","soft_signals"], score_0_100: int, justification: str, anchor: Anchor)`
-  - `Profile(skills: list[ProfileItem], experience: list[ProfileItem], education: list[ProfileItem], soft_signals: list[ProfileItem], detected_role: str, detected_location: str | None, detected_years_experience: int)` where `ProfileItem(text: str, anchor: Anchor)`.
+  - `Profile(skills: list[ProfileItem], experience: list[ProfileItem], education: list[ProfileItem], soft_signals: list[ProfileItem], detected_role: str, detected_location: str | None, detected_years_experience: int)` where `ProfileItem(text: str, anchor: Anchor)` and years are bounded to a plausible career range.
   - `Score(total: int, components: list[Component])` — `total` field is a `computed_field` from weighted sum.
-  - `Source(url: str, snippet: str, domain: str)`
-  - `SalaryEstimate(low: int, high: int, currency: str, period: Literal["month","year"], sources: list[Source], reasoning: str)`
+  - `Source(url: HttpUrl, snippet: str, domain: str)`
+  - `SalaryEstimate(low: int, high: int, currency: str, period: Literal["month","year"], sources: list[Source], reasoning: str)` with `low <= high`.
   - `Confidence(tier: Literal["Low","Medium","High"], rationale: str)`
   - `GrowthAction(what: str, time_horizon_months: int, mechanism: str, anchor: Anchor)` with `time_horizon_months: int = Field(ge=1, le=24)`.
-  - `Report(profile: Profile | StageFailure, score: Score | StageFailure, salary: SalaryEstimate | StageFailure, confidence: Confidence | StageFailure, growth: list[GrowthAction] | StageFailure, statuses: dict[str, StageStatus], raw_cv_text: str)` — every block plus a status map keyed by stage name.
-- [ ] `src/jobfit/errors.py`:
+  - `Report(profile: Profile | StageFailure, score: Score | StageFailure, salary: SalaryEstimate | StageFailure, confidence: Confidence | StageFailure, growth: list[GrowthAction] | StageFailure, statuses: dict[StageName, StageStatus], raw_cv_text: str)` — every block plus a complete status map keyed by report block name.
+- [x] `src/jobfit/errors.py`:
   - `class StageFailure(BaseModel): stage: str; user_message: str; debug_detail: str | None = None`
   - `def stage_boundary(stage_name: str)` — decorator/context-manager that wraps a stage call: catches all `Exception`, emits an `obs.emit("error", stage=...)` event, and returns `StageFailure(stage=stage_name, user_message=...)`. Re-raises only `KeyboardInterrupt` and `SystemExit`.
-- [ ] `tests/test_schemas.py` (`@pytest.mark.fast`):
+- [x] `tests/test_schemas.py` (`@pytest.mark.fast`):
   - `Score.total` recomputes correctly given component scores and weights.
   - `GrowthAction(time_horizon_months=25)` raises `ValidationError`.
   - `Report` accepts a `StageFailure` in any block-shaped field.

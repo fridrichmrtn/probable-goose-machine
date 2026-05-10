@@ -10,7 +10,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## Capability gate
 - [x] **T04** — CV corpus part 1: junior + senior (`tasks/T04_cvs_part1.md`)
-- [ ] **T05** — MiniMax capability spike (`tasks/T05_spike.md`) — *gates T07–T13*
+- [x] **T05** — MiniMax capability spike (`tasks/T05_spike.md`) — *gates T07–T13*
 
 ## Stage workers (parallel after T05)
 - [ ] **T07** — L1 ingestion (`tasks/T07_ingest.md`)
