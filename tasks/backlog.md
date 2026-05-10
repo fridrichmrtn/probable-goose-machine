@@ -106,3 +106,25 @@ Report: tasks/T05_dev-report.md (in dev/implement-t05-minimax-capability-spike)
 - [hiring-manager] src/jobfit/py.typed — added in this branch as a marker file so `mypy --strict scripts/spike_minimax.py` resolves the local `jobfit` package. Mention in the upstream PR description so reviewers don't read it as accidental.
 - [ai-ml-engineer] src/jobfit/obs.py — the `_stage` contextmanager defined inline in `scripts/spike_minimax.py` is a manual `current_stage` setter. If T07/T08 also need a "set stage but let exceptions propagate" helper (vs `stage_boundary` which swallows), promote it to `obs.py` rather than duplicating.
 - [ai-ml-engineer] scripts/spike_minimax.py — the "≥6 consecutive words" instruction in extract/score prompts duplicates the constant in `src/jobfit/verify.py`. Risk of drift if the floor moves. Either import the constant or add a `# kept in sync with verify.py:_MIN_QUOTE_WORDS` comment in both places.
+## add-qa-engineer — 2026-05-10T15:44Z
+Report: tasks/dev-report.md (in dev/add-qa-engineer)
+
+### Should-fix
+- [ai-ml-engineer] .claude/agents/qa-engineer.md:17 — §5(4) differentiation eval bullet overlaps ai-ml-engineer ownership; tighten to "verify the assertion exists / would fail on regression", clarify ai-ml-engineer owns eval design vs qa owns presence-check.
+- [ai-ml-engineer] .claude/agents/qa-engineer.md:17 — substring-grounded explanation bar (PRD §4.5) reads as inviting qa to grade grounding logic itself; reword to "a test asserts every claim in a sample report passes the substring check" so lane stays test-presence, not eval-design.
+- [product-owner] .claude/skills/dev/SKILL.md:192 — qa-engineer fires every dev run; for docs/prompt-only diffs that burns burst tokens. Consider gating on diff-signal: tests/, src/jobfit/obs.py, stage workers, tasks/PLAN.md, tasks/T*.md.
+- [product-owner] .claude/agents/qa-engineer.md:33 — lane-overlap risk with product-owner / ai-ml-engineer; add explicit "do not duplicate findings already in product-owner / ai-ml-engineer scope" line so the burst returns distinct findings.
+- [product-owner] tasks/qa_audit.md:3 — stub disclosure is honest but creates ambiguity; a real qa-engineer re-run is now required before any audit finding is actioned.
+- [product-owner] tasks/PLAN.md:531 — no decision rationale captured for adding a 5th reviewer at this stage of a 1-day budget; add a 1–2 line rationale so the addition reads deliberate.
+- [hiring-manager] .claude/skills/dev/SKILL.md:192 — burst-size arithmetic wording: "4-agent burst (qa-engineer always fires)" reads as if 4 is always-on. Reword as "with UI flag = 5-agent burst, without = 4 (qa-engineer always fires)".
+- [hiring-manager] tasks/qa_audit.md:1 — surface the stub disclosure into the dev-report itself and add a [STUB] tag in the H1 so an `rg "^# "` index does not equate this with future real audits.
+- [codex] .claude/skills/dev/SKILL.md:192 — same arithmetic ambiguity as hiring-manager finding above; one-line wording fix.
+
+### Nits
+- [ai-ml-engineer] .claude/agents/qa-engineer.md:50 — "mock that defeats the test" example ("salary test mocks both search and LLM range estimator") is ambiguous — that pattern is correct for a salary-stage plumbing unit test; reword so false positives on legit stage-isolation tests are avoided.
+- [ai-ml-engineer] tasks/qa_audit.md:25 — `requests.head(url, timeout=3)` is unreliable (servers return 405/403 on HEAD); prefer `requests.get(url, stream=True, timeout=3)` and inspect status without consuming body.
+- [product-owner] tasks/qa_audit.md:97 — co-ownership recommendation for T18/T20 is buried in audit; surface it as a one-line PLAN.md addition instead.
+- [hiring-manager] .claude/agents/qa-engineer.md:4 — Bash tool is unbounded; add a one-line constraint in the body ("Bash is for read-only inspection — no `>` / `tee` / `sed -i` against tracked files outside `tasks/qa_*.md`").
+- [hiring-manager] .claude/agents/qa-engineer.md:33 — wording: "Read the diff against `main` end-to-end" — orchestrator already passes the diff in; reword so qa does not redundantly recompute.
+- [hiring-manager] tasks/PLAN.md:531 — qa-engineer added to Owner enum but no T17–T21 task currently routes to qa ownership; not blocking, but consider adding a co-ownership note for T18/T20 so the new owner is not a dangling signal.
+- [hiring-manager] tasks/lessons.md — no entry capturing the "Agent tool unavailable → stub-and-disclose" pattern; durable lesson would auto-fire the same workaround next time a /dev run hits a missing-tool gap.
