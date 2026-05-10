@@ -1,0 +1,49 @@
+Adam Marek
+Research Scientist · Prague, Czech Republic
+adam.marek@example.cz · +420 777 503 188 · linkedin.com/in/adammarekresearch
+Summary
+Research Scientist with 12 years spanning academic ML research and applied work at the
+Česká spořitelna research lab. PyTorch Lightning research codebase, NeurIPS workshop track
+publication, and one industrial collaboration with T-Mobile CZ on time-series anomaly
+detection.
+Experience
+Research Scientist — Česká spořitelna AI Lab, Prague
+June 2021 – present (5 years)
+Owns the bank's deep-learning research agenda for tabular-time-series problems:
+payment-fraud detection, anti-money-laundering case prioritisation, and customer
+lifetime-value forecasting. PyTorch Lightning 2.2 research codebase shared across 3 research
+scientists.
+Led the T-Mobile CZ collaboration project on cell-tower anomaly detection (2023), shipping a
+transformer-based model that reduced false-positive alerts by 31% over the prior LSTM
+baseline. Joint publication at the NeurIPS 2023 Time-Series Workshop.
+Postdoctoral Researcher — Institute of Computer Science, AS CR, Prague
+September 2018 – May 2021
+Researched representation learning for irregular medical time-series in collaboration with
+Motol University Hospital. Published 4 papers (1 main-track ICML, 3 workshop). Wrote the
+lab's first standardised eval harness for medical time-series benchmarks.
+Ph.D. Researcher (graduate)
+September 2014 – June 2018
+Dissertation on Bayesian non-parametric methods for hierarchical time-series. Advisor: prof.
+Bartoš. Teaching assistant for 'Probabilistic Graphical Models' (2 semesters).
+Education
+Ph.D. in Computer Science — [REDACTED UNIVERSITY]
+2014 – 2018, dissertation on Bayesian non-parametric methods for hierarchical time-series.
+Mgr. (M.Sc.) in Mathematics — MUNI Brno
+2012 – 2014, focus on probability and statistics.
+Bc. (B.Sc.) in Mathematics — MUNI Brno
+2009 – 2012.
+Skills
+Python 3.11, PyTorch 2.3, PyTorch Lightning 2.2, transformers 4.41, JAX 0.4, NumPyro 0.13,
+scikit-learn 1.5, pandas 2.2, LaTeX, Git.
+Research workflow: experiment tracking via Weights & Biases, literature triage, peer review
+for ICML/NeurIPS workshops.
+Languages: Czech (native), English (C2), Russian (B1).
+Selected projects
+
+Adam Marek
+Research Scientist · Prague, Czech Republic
+adam.marek@example.cz · +420 777 503 188 · linkedin.com/in/adammarekresearch
+T-Mobile CZ cell-tower anomaly project (2023) — transformer model; 31% reduction in
+false-positive alerts; joint publication at the NeurIPS 2023 Time-Series Workshop.
+Medical time-series eval harness (AS CR, 2020) — standardised benchmark across 4
+hospital datasets.

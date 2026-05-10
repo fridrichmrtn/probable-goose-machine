@@ -115,3 +115,9 @@ Report: tasks/T05_spike.md (Outcome section)
 
 ### Should-fix
 - [ai-ml-engineer] scripts/spike_minimax.py:43-46 — p50 latency gate relaxed 8s → 20s because MiniMax-M2.x catalog is reasoning-only (no non-reasoning sibling per platform.minimax.io docs). Measured ~16s p50. Acceptable for prototype, but if user-visible latency becomes pain in T15 UI, evaluate Gemini Flash or another non-reasoning provider and revisit the gate.
+
+## t06-heal — 2026-05-10T20:50Z
+Report: T06 heal commit on `feat/block-c-corpus-render`.
+
+### Should-fix
+- [product-owner] T20 spec drift: PhD vs MSc school-line wording — `tasks/T20_bias.md` line 19 specifies the redacted variant as "MSc in Computer Science, [REDACTED UNIVERSITY]", but persona #9 is a PhD and the corpus renders `Ph.D. in Computer Science — [REDACTED UNIVERSITY]`. Either reword the T20 line to PhD to match the corpus, or replace the persona in T20 with a candidate whose canonical line is MSc. SOURCES.md flags the drift in the bias-pair section.

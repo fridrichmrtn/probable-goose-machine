@@ -1,0 +1,66 @@
+Marek Beneš
+MLOps / Platform Engineer · Brno, Czech Republic
+marek.benes@example.cz · +420 608 441 207 · linkedin.com/in/marekbenesmlops
+CV — last updated March 2026
+Page 1
+© Marek Beneš 2026 · prepared for internal review · do not redistribute
+Summary
+MLOps / Platform Engineer with 7
+years building the ML infrastructure
+layer at Kiwi.com and Pilulka. Owns
+feature stores, training orchestration,
+model registries, and the RFC
+process around them.
+Experience
+MLOps Engineer — Kiwi.com,
+Brno
+January 2022 – present (4 years)
+Owns the Argo Workflows 3.5
+training-orchestration layer for the
+search-ranking and pricing teams
+(180+ scheduled training jobs per
+week). Migrated from Airflow 2.3 to
+Argo Workflows over a 4-month
+window with zero training-job
+regressions, cutting orchestration
+infra cost by 38%.
+Authored the internal RFC on
+feature-store contracts that defined
+the migration path from a bespoke
+Postgres-backed store to Feast 0.40
+with online serving in Redis 7.
+Owns the MLflow 2.10 model registry
+across 4 product teams; wrote the
+auto-promotion policy used by the
+ranking team.
+ML Platform Engineer —
+Pilulka.cz, Prague
+October 2019 – December 2021
+Built the first Kubernetes-based
+training stack for the
+demand-forecasting team — Helm
+charts, GPU node pools, and a Python
+3.9 SDK for submitting training jobs.
+Reduced the data-scientist setup time
+from 2 days to under 30 minutes.
+DevOps Engineer — Pilulka.cz,
+Prague
+September 2018 – September 2019
+On-call rotation for the e-commerce
+platform; led the migration of the CI
+pipeline from Jenkins to GitLab CI.
+Education
+Ing. (M.Sc.) in Information Systems — VUT
+Brno
+2016 – 2018.
+Bc. (B.Sc.) in Information Technology — VUT
+Brno
+2013 – 2016.
+Skills
+Kubernetes 1.29, Argo Workflows 3.5, Feast 0.40,
+MLflow 2.10, Python 3.11, Go 1.22, Helm,
+Terraform, GitLab CI, Redis 7, Prometheus, Grafana,
+Loki.
+RFC authorship, cross-team platform consultation,
+on-call.
+Languages: Czech (native), English (C1).

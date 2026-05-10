@@ -1,0 +1,35 @@
+Petra Svobodová
+Data Analyst · Prague, Czech Republic
+petra.svobodova@example.cz · +420 776 102 244 · linkedin.com/in/petrasvobodovacz
+Summary
+Data Analyst with 3 years of experience transitioning from marketing analytics into a
+product-data role. Owns SQL and dbt modelling, dashboards in Looker, and ad-hoc Python
+analyses. Looking to move toward a Data Scientist track over the next two years.
+Experience
+Data Analyst — Rohlik.cz, Prague
+March 2024 – present (2 years)
+Owns the dbt 1.7 mart serving the operations team — 42 models on PostgreSQL 15, with
+column-level tests on every primary key. Reduced the daily ops-dashboard refresh from 18
+minutes to 4 minutes by rewriting two incremental models.
+Built the warehouse-picking productivity dashboard in Looker, now used by 6 warehouse
+managers across Prague-Uhříněves and Brno-Slatina; flagged a 9.2% drop in picks-per-hour
+after a shift-pattern change that was rolled back in week 3.
+Marketing Analyst — Productboard, Prague
+September 2023 – February 2024 (6 months)
+Built the paid-acquisition attribution model in Python 3.11 (pandas 2.2, scikit-learn 1.4)
+combining Google Ads and LinkedIn Ads spend with HubSpot pipeline data. Replaced the
+spreadsheet-based CAC report with a weekly Looker dashboard.
+Junior Marketing Analyst — Productboard, Prague
+June 2023 – August 2023 (3 months internship-to-hire)
+Wrote the first SQL workbook for the SDR team and ran the first cohort-retention analysis on
+the self-serve trial funnel, identifying a 14% activation gap for EU SMB accounts.
+Education
+Ing. (M.Sc.) in Quantitative Methods — VŠE Prague
+2021 – 2023, thesis on uplift modelling for direct-mail campaigns using R's causalTree
+package.
+Bc. (B.Sc.) in Economics and Management — VŠE Prague
+2018 – 2021.
+Skills
+SQL (PostgreSQL 15, BigQuery), Python 3.11 (pandas 2.2, scikit-learn 1.4), dbt 1.7, Looker,
+light Airflow 2.9 DAG maintenance, Git.
+Languages: Czech (native), English (C1, CAE 2022).

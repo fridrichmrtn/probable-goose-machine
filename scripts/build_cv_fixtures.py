@@ -1,14 +1,19 @@
 """Author the test CV fixtures.
 
-T04 covers CV #1 (junior, DOCX) and CV #8 (senior, PDF). T06 extends this
-script with CVs #2–7, #9, #10. PDFs use a deliberately messy two-column
-reportlab layout so pdfplumber's column-aware fallback gets exercised.
+Single source of truth for the 10-persona CZ corpus (#1–#10) plus the 09b
+bias-pair variant of #9. PDFs come from two reportlab templates: a clean
+single-frame layout (#2, #3, #7, #9, #9b) and a deliberately messy
+two-column layout with optional footer cruft (#5, #8) so pdfplumber's
+column-aware fallback gets exercised. DOCX fixtures (#1, #4, #6, #10) use
+``python-docx``. Goldens (``*.txt``) are the actual extractor output, not
+the source content.
 
 Run: ``uv run python scripts/build_cv_fixtures.py``
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -222,14 +227,24 @@ def _senior_blocks() -> list[CVBlock]:
     ]
 
 
-def _build_messy_pdf(out_path: Path, blocks: list[CVBlock]) -> None:
+def _build_messy_pdf(
+    out_path: Path,
+    blocks: list[CVBlock],
+    *,
+    name: str = "Tomáš Dvořák",
+    role: str = "Staff Machine Learning Engineer · Prague, Czech Republic",
+    contact: str = "tomas.dvorak@example.cz · +420 602 555 100 · linkedin.com/in/tomasdvorakml",
+    footer_left: str = "CV — last updated April 2026",
+    footer_cruft: str | None = None,
+) -> None:
     """Two-column reportlab layout with deliberate stressors for pdfplumber.
 
     Stressors:
       * narrow left column + wider right column (uneven frames),
       * a header band the columns flow under,
       * mixed font families across blocks,
-      * a footer band with page number + date stamp.
+      * a footer band with page number + date stamp,
+      * optional footer cruft line (overlaps content for the messy 05 path).
     """
 
     doc = BaseDocTemplate(
@@ -239,8 +254,8 @@ def _build_messy_pdf(out_path: Path, blocks: list[CVBlock]) -> None:
         rightMargin=1.6 * cm,
         topMargin=2.4 * cm,
         bottomMargin=2.0 * cm,
-        title="Tomáš Dvořák — CV",
-        author="Tomáš Dvořák",
+        title=f"{name} — CV",
+        author=name,
     )
 
     page_w, page_h = A4
@@ -264,23 +279,20 @@ def _build_messy_pdf(out_path: Path, blocks: list[CVBlock]) -> None:
         canvas.saveState()
         # Header band — name + role
         canvas.setFont(_FONT_SANS_BOLD, 18)
-        canvas.drawString(1.6 * cm, page_h - 1.8 * cm, "Tomáš Dvořák")
+        canvas.drawString(1.6 * cm, page_h - 1.8 * cm, name)
         canvas.setFont(_FONT_SANS, 11)
-        canvas.drawString(
-            1.6 * cm,
-            page_h - 2.4 * cm,
-            "Staff Machine Learning Engineer · Prague, Czech Republic",
-        )
+        canvas.drawString(1.6 * cm, page_h - 2.4 * cm, role)
         canvas.setFont(_FONT_SANS_OBLIQUE, 9)
-        canvas.drawString(
-            1.6 * cm,
-            page_h - 2.9 * cm,
-            "tomas.dvorak@example.cz · +420 602 555 100 · linkedin.com/in/tomasdvorakml",
-        )
+        canvas.drawString(1.6 * cm, page_h - 2.9 * cm, contact)
         # Footer band — page number + version stamp
         canvas.setFont(_FONT_SERIF_ITALIC, 8)
-        canvas.drawString(1.6 * cm, 1.2 * cm, "CV — last updated April 2026")
+        canvas.drawString(1.6 * cm, 1.2 * cm, footer_left)
         canvas.drawRightString(page_w - 1.6 * cm, 1.2 * cm, f"Page {_doc.page}")
+        if footer_cruft:
+            # Drawn slightly above the footer band, into the bottom of the body
+            # area, so pdfplumber sees footer chrome interleaved with content.
+            canvas.setFont(_FONT_SANS_OBLIQUE, 7)
+            canvas.drawString(1.6 * cm, 1.7 * cm, footer_cruft)
         canvas.restoreState()
 
     template = PageTemplate(id="two-col", frames=[left_frame, right_frame], onPage=_draw_chrome)
@@ -319,6 +331,737 @@ def build_senior_pdf(out_path: Path) -> None:
     _build_messy_pdf(out_path, _senior_blocks())
 
 
+# ---------- Clean PDF template (used by 02, 03, 07, 09, 09b) ----------
+
+
+def _build_clean_pdf(
+    out_path: Path,
+    blocks: list[CVBlock],
+    *,
+    name: str,
+    role: str,
+    contact: str,
+) -> None:
+    """Single-frame full-width PDF — no two-column gymnastics, no footer cruft.
+
+    Header band drawn in ``onPage`` with name + role + contact, serif body /
+    sans heading so the visual style stays cohesive with the messy template.
+    """
+
+    doc = BaseDocTemplate(
+        str(out_path),
+        pagesize=A4,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=2.6 * cm,
+        bottomMargin=1.8 * cm,
+        title=f"{name} — CV",
+        author=name,
+    )
+
+    page_w, page_h = A4
+    body_top = page_h - 2.6 * cm - 1.6 * cm  # under the header band
+    body_h = body_top - 1.8 * cm
+    frame = Frame(1.8 * cm, 1.8 * cm, page_w - 3.6 * cm, body_h, id="body", showBoundary=0)
+
+    def _draw_chrome(canvas, _doc) -> None:
+        canvas.saveState()
+        canvas.setFont(_FONT_SANS_BOLD, 18)
+        canvas.drawString(1.8 * cm, page_h - 2.0 * cm, name)
+        canvas.setFont(_FONT_SANS, 11)
+        canvas.drawString(1.8 * cm, page_h - 2.6 * cm, role)
+        canvas.setFont(_FONT_SANS_OBLIQUE, 9)
+        canvas.drawString(1.8 * cm, page_h - 3.1 * cm, contact)
+        canvas.restoreState()
+
+    template = PageTemplate(id="single", frames=[frame], onPage=_draw_chrome)
+    doc.addPageTemplates([template])
+
+    base = getSampleStyleSheet()
+    h_style = ParagraphStyle(
+        "Heading",
+        parent=base["Heading2"],
+        fontName=_FONT_SANS_BOLD,
+        fontSize=12,
+        spaceBefore=8,
+        spaceAfter=4,
+        textColor="#1a3a6b",
+    )
+    body_style = ParagraphStyle(
+        "Body",
+        parent=base["BodyText"],
+        fontName=_FONT_SERIF,
+        fontSize=10,
+        leading=13,
+        spaceAfter=6,
+    )
+
+    flow: list = []
+    for block in blocks:
+        flow.append(Paragraph(block.heading, h_style))
+        for para in block.paragraphs:
+            flow.append(Paragraph(para, body_style))
+        flow.append(Spacer(1, 4))
+
+    doc.build(flow)
+
+
+# ---------- Shared DOCX builder (used by 04, 06, 10) ----------
+
+
+def _build_docx(
+    out_path: Path,
+    blocks: list[CVBlock],
+    *,
+    name: str,
+    role: str,
+    contact: str,
+) -> None:
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(11)
+
+    h = doc.add_heading(name, level=0)
+    h.alignment = 1
+    header = doc.add_paragraph()
+    header.alignment = 1
+    header.add_run(role + "\n")
+    header.add_run(contact)
+
+    for block in blocks:
+        doc.add_heading(block.heading, level=1)
+        for para in block.paragraphs:
+            # python-docx Paragraph adds a runs.text fragment; we don't render
+            # <b>/<br/> here — DOCX blocks use plain prose so the extraction
+            # gold matches verbatim.
+            doc.add_paragraph(para)
+
+    doc.save(out_path)
+
+
+# ---------- Persona blocks: #2–7, #9, #10 (+ 09b bias variant) ----------
+
+
+def _svoboda_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "Data Analyst with 3 years of experience transitioning from "
+                "marketing analytics into a product-data role. Owns SQL and dbt "
+                "modelling, dashboards in Looker, and ad-hoc Python analyses. "
+                "Looking to move toward a Data Scientist track over the next "
+                "two years.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "<b>Data Analyst — Rohlik.cz, Prague</b><br/>"
+                "March 2024 – present (2 years)<br/>"
+                "Owns the dbt 1.7 mart serving the operations team — 42 models "
+                "on PostgreSQL 15, with column-level tests on every primary "
+                "key. Reduced the daily ops-dashboard refresh from 18 minutes "
+                "to 4 minutes by rewriting two incremental models.",
+                "Built the warehouse-picking productivity dashboard in Looker, "
+                "now used by 6 warehouse managers across Prague-Uhříněves and "
+                "Brno-Slatina; flagged a 9.2% drop in picks-per-hour after a "
+                "shift-pattern change that was rolled back in week 3.",
+                "<b>Marketing Analyst — Productboard, Prague</b><br/>"
+                "September 2023 – February 2024 (6 months)<br/>"
+                "Built the paid-acquisition attribution model in Python 3.11 "
+                "(pandas 2.2, scikit-learn 1.4) combining Google Ads and "
+                "LinkedIn Ads spend with HubSpot pipeline data. Replaced the "
+                "spreadsheet-based CAC report with a weekly Looker dashboard.",
+                "<b>Junior Marketing Analyst — Productboard, Prague</b><br/>"
+                "June 2023 – August 2023 (3 months internship-to-hire)<br/>"
+                "Wrote the first SQL workbook for the SDR team and ran the "
+                "first cohort-retention analysis on the self-serve trial "
+                "funnel, identifying a 14% activation gap for EU SMB accounts.",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                "<b>Ing. (M.Sc.) in Quantitative Methods — VŠE Prague</b><br/>"
+                "2021 – 2023, thesis on uplift modelling for direct-mail "
+                "campaigns using R's causalTree package.",
+                "<b>Bc. (B.Sc.) in Economics and Management — VŠE Prague</b><br/>2018 – 2021.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "SQL (PostgreSQL 15, BigQuery), Python 3.11 (pandas 2.2, "
+                "scikit-learn 1.4), dbt 1.7, Looker, light Airflow 2.9 DAG "
+                "maintenance, Git.",
+                "Languages: Czech (native), English (C1, CAE 2022).",
+            ],
+        ),
+    ]
+
+
+def _horak_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "Data Scientist with 5 years of mid-level experience across "
+                "Czech e-commerce and search. Owns end-to-end model lifecycle "
+                "from problem framing to monitoring; comfortable shipping "
+                "classical ML in production and partnering with ML engineers "
+                "on the platform side.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "<b>Data Scientist — Mall.cz, Prague</b><br/>"
+                "August 2023 – present<br/>"
+                "Led the customer churn model retraining for Mall.cz, "
+                "reducing 30-day churn by 11% on the loyalty-program cohort "
+                "via a re-targeted email-frequency policy. Stack: Python 3.11, "
+                "scikit-learn 1.4, MLflow 2.7, PostgreSQL 15.",
+                "Built the basket-level demand-forecasting model for the "
+                "grocery vertical (LightGBM 3.3, weekly retraining on Airflow "
+                "2.9), cutting forecast MAPE on top-200 SKUs from 24% to 17%.",
+                "<b>Data Scientist — Seznam.cz, Prague</b><br/>"
+                "June 2021 – July 2023<br/>"
+                "Owned the click-prediction model for the Zboží.cz product "
+                "feed (XGBoost 1.7, 220M rows daily). Lifted top-3 CTR by "
+                "6.8% in a 30-day A/B against the previous logistic baseline.",
+                "Ran the weekly modelling review and onboarded 2 junior data scientists.",
+                "<b>Junior Data Scientist — Seznam.cz, Prague</b><br/>"
+                "September 2020 – May 2021<br/>"
+                "Built the spam-classifier evaluation harness for the "
+                "Email.cz inbox-zero feature; flagged a labelling drift in "
+                "the held-out set that the senior team had been chasing for "
+                "two sprints.",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                "<b>Ing. (M.Sc.) in Computer Science — ČVUT FIT, Prague</b><br/>"
+                "2018 – 2020, focus on machine learning.",
+                "<b>Bc. (B.Sc.) in Computer Science — ČVUT FIT, Prague</b><br/>2015 – 2018.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "Python 3.11, scikit-learn 1.4, XGBoost 1.7, LightGBM 3.3, "
+                "MLflow 2.7, PostgreSQL 15, BigQuery, Airflow 2.9, Git, Docker.",
+                "Languages: Czech (native), English (C1), German (B1).",
+            ],
+        ),
+        CVBlock(
+            "Selected projects",
+            [
+                "<b>Churn 2024 (Mall.cz)</b> — see Experience; 11% 30-day "
+                "churn reduction on the loyalty cohort.",
+                "<b>Zboží click-ranker (Seznam.cz, 2022)</b> — XGBoost "
+                "retraining pipeline; +6.8% top-3 CTR on the product feed.",
+            ],
+        ),
+    ]
+
+
+def _kralova_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "Machine Learning Engineer with 6 years of experience taking "
+                "DS prototypes into production at Slido and Avast. Owns the "
+                "training-to-serving handoff: model packaging, online "
+                "inference, monitoring, and rollback.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "Machine Learning Engineer — Slido (Cisco), Brno",
+                "April 2022 – present (4 years)",
+                "Owns the real-time poll-classification service powering the "
+                "Slido Q&A moderation feature for 40k concurrent attendees. "
+                "Stack: PyTorch 2.3, FastAPI, Kubernetes 1.29, deployed via "
+                "Argo Rollouts with automatic canary on online accuracy.",
+                "Migrated the training pipeline from notebooks to a Kubeflow "
+                "Pipelines 2.1 setup, cutting retrain wall-clock from 9 hours "
+                "to 70 minutes and giving the DS team self-serve rollback.",
+                "Wrote the team's first online-eval playbook covering shadow "
+                "traffic, A/B power-analysis, and rollback criteria.",
+                "Machine Learning Engineer — Avast, Prague",
+                "September 2020 – March 2022",
+                "Built the model-packaging tooling for the threat-intel team: "
+                "a Python 3.10 CLI wrapping ONNX export, signature checks, "
+                "and Docker image build. Cut the median model-to-staging "
+                "lead time from 6 days to 11 hours.",
+                "Junior ML Engineer — Avast, Prague",
+                "July 2019 – August 2020",
+                "On-call rotation for the malware-classifier serving stack; "
+                "wrote the first runbook for the 'classifier latency spike' "
+                "incident class.",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                "Ing. (M.Sc.) in Computer Science — ČVUT FEL, Prague",
+                "2017 – 2019, focus on distributed systems.",
+                "Bc. (B.Sc.) in Computer Science — ČVUT FEL, Prague",
+                "2014 – 2017.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "Python 3.11, PyTorch 2.3, FastAPI, Kubernetes 1.29, Argo "
+                "Rollouts, Kubeflow Pipelines 2.1, ONNX, Docker, PostgreSQL, "
+                "Prometheus, Grafana.",
+                "Languages: Czech (native), English (C1), Slovak (fluent).",
+            ],
+        ),
+    ]
+
+
+def _benes_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "MLOps / Platform Engineer with 7 years building the ML "
+                "infrastructure layer at Kiwi.com and Pilulka. Owns feature "
+                "stores, training orchestration, model registries, and the "
+                "RFC process around them.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "<b>MLOps Engineer — Kiwi.com, Brno</b><br/>"
+                "January 2022 – present (4 years)<br/>"
+                "Owns the Argo Workflows 3.5 training-orchestration layer "
+                "for the search-ranking and pricing teams (180+ scheduled "
+                "training jobs per week). Migrated from Airflow 2.3 to Argo "
+                "Workflows over a 4-month window with zero training-job "
+                "regressions, cutting orchestration infra cost by 38%.",
+                "Authored the internal RFC on feature-store contracts that "
+                "defined the migration path from a bespoke Postgres-backed "
+                "store to Feast 0.40 with online serving in Redis 7.",
+                "Owns the MLflow 2.10 model registry across 4 product teams; "
+                "wrote the auto-promotion policy used by the ranking team.",
+                "<b>ML Platform Engineer — Pilulka.cz, Prague</b><br/>"
+                "October 2019 – December 2021<br/>"
+                "Built the first Kubernetes-based training stack for the "
+                "demand-forecasting team — Helm charts, GPU node pools, and "
+                "a Python 3.9 SDK for submitting training jobs. Reduced the "
+                "data-scientist setup time from 2 days to under 30 minutes.",
+                "<b>DevOps Engineer — Pilulka.cz, Prague</b><br/>"
+                "September 2018 – September 2019<br/>"
+                "On-call rotation for the e-commerce platform; led the "
+                "migration of the CI pipeline from Jenkins to GitLab CI.",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                "<b>Ing. (M.Sc.) in Information Systems — VUT Brno</b><br/>2016 – 2018.",
+                "<b>Bc. (B.Sc.) in Information Technology — VUT Brno</b><br/>2013 – 2016.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "Kubernetes 1.29, Argo Workflows 3.5, Feast 0.40, MLflow "
+                "2.10, Python 3.11, Go 1.22, Helm, Terraform, GitLab CI, "
+                "Redis 7, Prometheus, Grafana, Loki.",
+                "RFC authorship, cross-team platform consultation, on-call.",
+                "Languages: Czech (native), English (C1).",
+            ],
+        ),
+    ]
+
+
+def _pokorna_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "NLP-focused Data Scientist with 8 years of experience "
+                "fine-tuning Czech and English language models for "
+                "information-extraction and classification tasks. Owns the "
+                "labelling-to-deployment loop end-to-end.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "Senior NLP Data Scientist — Datamole, Prague",
+                "May 2022 – present (4 years)",
+                "Leads the Czech NER fine-tuning programme on top of the "
+                "Seznam-released Small-E-Czech BERT base — domain-specific "
+                "models for agritech invoices and pharma adverse-event "
+                "reports. F1 on the agritech holdout: 0.918 (baseline 0.74).",
+                "Built the labelling-platform integration with Label Studio "
+                "1.13 and the export-to-HuggingFace-datasets pipeline; cut "
+                "the median labelling-to-training-set lead time from 11 days "
+                "to 3 days.",
+                "Mentored 2 junior NLP engineers and ran the bi-weekly model review.",
+                "NLP Data Scientist — Seznam.cz, Prague",
+                "February 2020 – April 2022",
+                "Owned the Search-Suggest reranker model on top of the "
+                "Seznam fulltext index; combined a BM25 baseline with a "
+                "fine-tuned XLM-R model, lifting suggest-acceptance rate by "
+                "8.4% over a 60-day A/B test.",
+                "Data Scientist — Seznam.cz, Prague",
+                "October 2018 – January 2020",
+                "Built the spam-classifier retraining pipeline for "
+                "Email.cz (spaCy 3.0 + scikit-learn 1.0). Reduced "
+                "false-positive rate from 1.8% to 0.9%.",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                "Ph.D. (incomplete, 2 years) in Computational Linguistics — "
+                "MUNI Brno, 2016 – 2018; left to take the Seznam.cz role.",
+                "Mgr. (M.A.) in Computational Linguistics — MUNI Brno",
+                "2014 – 2016.",
+                "Bc. (B.A.) in Linguistics — MUNI Brno",
+                "2011 – 2014.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "Python 3.11, HuggingFace transformers 4.41, spaCy 3.7, "
+                "PyTorch 2.3, scikit-learn 1.5, Label Studio 1.13, MLflow "
+                "2.10, PostgreSQL, BigQuery.",
+                "Czech NLP specifics: Small-E-Czech BERT, RobeCzech, "
+                "Czech-language NER and POS tagging.",
+                "Languages: Czech (native), English (C2), German (B2), Slovak (fluent).",
+            ],
+        ),
+    ]
+
+
+def _holub_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "Senior Data Scientist with 10 years of experience in Czech "
+                "banking and insurance: credit-risk, survival analysis, and "
+                "model-explainability for regulator-facing reports. Currently "
+                "leads a 4-person DS team at Komerční banka.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "<b>Senior Data Scientist — Komerční banka, Prague</b><br/>"
+                "March 2021 – present (5 years)<br/>"
+                "Leads a 4-person Data Science team owning the SME "
+                "credit-risk scorecard programme. Migrated the legacy "
+                "logistic scorecard to a LightGBM 3.3 stack with SHAP "
+                "explanations, retaining model interpretability for the CNB "
+                "regulator while lifting AUC from 0.72 to 0.79.",
+                "Built the survival-analysis model for early-warning signals "
+                "on the SME portfolio (lifelines 0.27, Cox PH), flagging at-"
+                "risk accounts 38 days earlier on average than the previous "
+                "rules-based system.",
+                "Owns the model-documentation template the risk-management "
+                "team submits to the regulator; co-authored with the chief "
+                "risk officer.",
+                "<b>Data Scientist — Generali Česká, Prague</b><br/>"
+                "September 2017 – February 2021<br/>"
+                "Built the motor-insurance pricing model (GLM + GBM "
+                "ensemble, scikit-learn 0.24) for the Czech retail book; "
+                "improved combined ratio by 2.1 pp over the prior pricing "
+                "engine on a 12-month holdout.",
+                "Mentored 2 junior data scientists.",
+                "<b>Junior Data Scientist — Generali Česká, Prague</b><br/>"
+                "October 2015 – August 2017<br/>"
+                "Built the fraud-detection rule-mining tooling on top of "
+                "PostgreSQL; flagged a recurring staged-collision pattern "
+                "that recovered 4.2 MCZK in disallowed claims in 2016.",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                "<b>Ing. (M.Sc.) in Statistics and Econometrics — VŠE Prague</b><br/>"
+                "2013 – 2015, thesis on survival analysis for retail credit.",
+                "<b>Bc. (B.Sc.) in Quantitative Methods — VŠE Prague</b><br/>2010 – 2013.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "Python 3.11, scikit-learn 1.5, LightGBM 3.3, XGBoost 1.7, "
+                "SHAP 0.45, lifelines 0.27, statsmodels 0.14, PostgreSQL, "
+                "SAS (legacy), Git.",
+                "Leadership: team lead (4 DS), regulator-facing documentation, "
+                "model-risk-management partnership.",
+                "Languages: Czech (native), English (C1), German (A2).",
+            ],
+        ),
+        CVBlock(
+            "Selected projects",
+            [
+                "<b>SME scorecard migration (KB, 2023)</b> — see Experience; "
+                "AUC 0.72 → 0.79 with SHAP-based regulator documentation.",
+                "<b>Early-warning survival model (KB, 2024)</b> — 38-day "
+                "lead time over the rules-based baseline.",
+            ],
+        ),
+    ]
+
+
+def _marek_blocks(school: str) -> list[CVBlock]:
+    """Builds CV blocks for Adam Marek with the school string injected.
+
+    09 vs 09b differ only in this one parameter so the T20 bias smoke test
+    can attribute any score delta to the school signal alone.
+    """
+
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "Research Scientist with 12 years spanning academic ML "
+                "research and applied work at the Česká spořitelna research "
+                "lab. PyTorch Lightning research codebase, NeurIPS workshop "
+                "track publication, and one industrial collaboration with "
+                "T-Mobile CZ on time-series anomaly detection.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "<b>Research Scientist — Česká spořitelna AI Lab, Prague</b><br/>"
+                "June 2021 – present (5 years)<br/>"
+                "Owns the bank's deep-learning research agenda for "
+                "tabular-time-series problems: payment-fraud detection, "
+                "anti-money-laundering case prioritisation, and customer "
+                "lifetime-value forecasting. PyTorch Lightning 2.2 research "
+                "codebase shared across 3 research scientists.",
+                "Led the T-Mobile CZ collaboration project on cell-tower "
+                "anomaly detection (2023), shipping a transformer-based "
+                "model that reduced false-positive alerts by 31% over the "
+                "prior LSTM baseline. Joint publication at the NeurIPS 2023 "
+                "Time-Series Workshop.",
+                "<b>Postdoctoral Researcher — Institute of Computer Science, AS CR, Prague</b><br/>"
+                "September 2018 – May 2021<br/>"
+                "Researched representation learning for irregular medical "
+                "time-series in collaboration with Motol University Hospital. "
+                "Published 4 papers (1 main-track ICML, 3 workshop). Wrote "
+                "the lab's first standardised eval harness for medical "
+                "time-series benchmarks.",
+                "<b>Ph.D. Researcher (graduate)</b><br/>"
+                "September 2014 – June 2018<br/>"
+                "Dissertation on Bayesian non-parametric methods for "
+                "hierarchical time-series. Advisor: prof. Bartoš. "
+                "Teaching assistant for 'Probabilistic Graphical Models' "
+                "(2 semesters).",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                f"<b>Ph.D. in Computer Science — {school}</b><br/>"
+                "2014 – 2018, dissertation on Bayesian non-parametric "
+                "methods for hierarchical time-series.",
+                "<b>Mgr. (M.Sc.) in Mathematics — MUNI Brno</b><br/>"
+                "2012 – 2014, focus on probability and statistics.",
+                "<b>Bc. (B.Sc.) in Mathematics — MUNI Brno</b><br/>2009 – 2012.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "Python 3.11, PyTorch 2.3, PyTorch Lightning 2.2, "
+                "transformers 4.41, JAX 0.4, NumPyro 0.13, scikit-learn 1.5, "
+                "pandas 2.2, LaTeX, Git.",
+                "Research workflow: experiment tracking via Weights & Biases, "
+                "literature triage, peer review for ICML/NeurIPS workshops.",
+                "Languages: Czech (native), English (C2), Russian (B1).",
+            ],
+        ),
+        CVBlock(
+            "Selected projects",
+            [
+                "<b>T-Mobile CZ cell-tower anomaly project (2023)</b> — "
+                "transformer model; 31% reduction in false-positive alerts; "
+                "joint publication at the NeurIPS 2023 Time-Series Workshop.",
+                "<b>Medical time-series eval harness (AS CR, 2020)</b> — "
+                "standardised benchmark across 4 hospital datasets.",
+            ],
+        ),
+    ]
+
+
+def _zemanova_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Summary",
+            [
+                "Head of Data with 15 years across Czech retail (Rohlik) and "
+                "banking (ČSOB). Built the Rohlik data org from 4 to 22 "
+                "people over 4 years; owns the data-platform roadmap and "
+                "board-level reporting.",
+            ],
+        ),
+        CVBlock(
+            "Experience",
+            [
+                "Head of Data — Rohlik Group, Prague",
+                "April 2022 – present (4 years)",
+                "Built the Rohlik data organisation from 4 to 22 people "
+                "across Analytics Engineering, Data Science, and ML "
+                "Platform. Reports to the COO; presents quarterly to the "
+                "board on data-driven margin levers.",
+                "Led the migration from a Snowflake-only warehouse to a "
+                "Snowflake + dbt + Airflow 2.9 stack with a Feast 0.40 "
+                "feature store on top — 18-month programme delivered on "
+                "budget; cut warehouse compute spend by 27%.",
+                "Owns the data-org performance review framework, hiring "
+                "rubric, and on-call rotation policy.",
+                "Director of Data Science — ČSOB, Prague",
+                "September 2018 – March 2022",
+                "Owned the credit-risk and customer-360 modelling programmes "
+                "across a 14-person team. Migrated the legacy SAS scorecards "
+                "to Python on a Kubernetes serving stack in partnership with "
+                "the ML platform team.",
+                "Authored the bank's first model-risk-management policy "
+                "covering documentation, monitoring, and challenger-model "
+                "review — adopted by the model-risk committee in 2020.",
+                "Head of Analytics — Mall.cz, Prague",
+                "May 2015 – August 2018",
+                "Built the analytics function for the retail business from "
+                "scratch (3 analysts → 9 analysts). Owned the weekly "
+                "executive scorecard reviewed by the CEO.",
+                "Senior Analyst — Komerční banka, Prague",
+                "March 2011 – April 2015",
+                "Owned the SME-portfolio analytics workstream; built the "
+                "first cohort-based attrition dashboard for the SME segment.",
+            ],
+        ),
+        CVBlock(
+            "Education",
+            [
+                "Ing. (M.Sc.) in Statistics — VŠE Prague",
+                "2008 – 2010, thesis on hierarchical Bayesian models for "
+                "retail demand forecasting.",
+                "Bc. (B.Sc.) in Economics and Management — VŠE Prague",
+                "2005 – 2008.",
+            ],
+        ),
+        CVBlock(
+            "Skills",
+            [
+                "Leadership: org design (built 22-person data org from 4), "
+                "board-level reporting, hiring rubrics, performance review.",
+                "Stack literacy: Snowflake, dbt 1.7, Airflow 2.9, Feast "
+                "0.40, Kubernetes, Python 3.11, SQL.",
+                "Cross-functional: model-risk policy, regulator-facing "
+                "documentation, vendor selection.",
+                "Languages: Czech (native), English (C2), German (B2).",
+            ],
+        ),
+    ]
+
+
+# ---------- Persona builders (one per fixture) ----------
+
+
+def build_svoboda_pdf(out_path: Path) -> None:
+    _build_clean_pdf(
+        out_path,
+        _svoboda_blocks(),
+        name="Petra Svobodová",
+        role="Data Analyst · Prague, Czech Republic",
+        contact="petra.svobodova@example.cz · +420 776 102 244 · linkedin.com/in/petrasvobodovacz",
+    )
+
+
+def build_horak_pdf(out_path: Path) -> None:
+    _build_clean_pdf(
+        out_path,
+        _horak_blocks(),
+        name="Lukáš Horák",
+        role="Data Scientist · Prague, Czech Republic",
+        contact="lukas.horak@example.cz · +420 605 318 921 · linkedin.com/in/lukashorakds",
+    )
+
+
+def build_kralova_docx(out_path: Path) -> None:
+    _build_docx(
+        out_path,
+        _kralova_blocks(),
+        name="Jana Králová",
+        role="Machine Learning Engineer — Brno, Czech Republic",
+        contact="jana.kralova@example.cz | +420 731 224 556 | linkedin.com/in/janakralovaml",
+    )
+
+
+def build_benes_pdf(out_path: Path) -> None:
+    _build_messy_pdf(
+        out_path,
+        _benes_blocks(),
+        name="Marek Beneš",
+        role="MLOps / Platform Engineer · Brno, Czech Republic",
+        contact="marek.benes@example.cz · +420 608 441 207 · linkedin.com/in/marekbenesmlops",
+        footer_left="CV — last updated March 2026",
+        footer_cruft=("© Marek Beneš 2026 · prepared for internal review · do not redistribute"),
+    )
+
+
+def build_pokorna_docx(out_path: Path) -> None:
+    _build_docx(
+        out_path,
+        _pokorna_blocks(),
+        name="Eva Pokorná",
+        role="Senior NLP Data Scientist — Prague, Czech Republic",
+        contact="eva.pokorna@example.cz | +420 723 916 044 | linkedin.com/in/evapokornanlp",
+    )
+
+
+def build_holub_pdf(out_path: Path) -> None:
+    _build_clean_pdf(
+        out_path,
+        _holub_blocks(),
+        name="David Holub",
+        role="Senior Data Scientist · Prague, Czech Republic",
+        contact="david.holub@example.cz · +420 602 778 119 · linkedin.com/in/davidholubds",
+    )
+
+
+def build_marek_pdf(out_path: Path, *, school: str) -> None:
+    _build_clean_pdf(
+        out_path,
+        _marek_blocks(school),
+        name="Adam Marek",
+        role="Research Scientist · Prague, Czech Republic",
+        contact="adam.marek@example.cz · +420 777 503 188 · linkedin.com/in/adammarekresearch",
+    )
+
+
+def build_zemanova_docx(out_path: Path) -> None:
+    _build_docx(
+        out_path,
+        _zemanova_blocks(),
+        name="Eliška Zemanová",
+        role="Head of Data — Prague, Czech Republic",
+        contact=(
+            "eliska.zemanova@example.cz | +420 602 119 488 | linkedin.com/in/eliskazemanovadata"
+        ),
+    )
+
+
 # ---------- Golden .txt extraction ----------
 
 
@@ -335,21 +1078,59 @@ def extract_docx_text(path: Path) -> str:
 def main() -> None:
     FIXTURES.mkdir(parents=True, exist_ok=True)
 
-    junior_docx = FIXTURES / "01_junior_da_novotny.docx"
-    senior_pdf = FIXTURES / "08_staff_ml_engineer_dvorak.pdf"
-    junior_txt = FIXTURES / "01_junior_da_novotny.txt"
-    senior_txt = FIXTURES / "08_staff_ml_engineer_dvorak.txt"
+    # (stem, format, build_callable). Format drives which extractor produces
+    # the golden .txt. Marek 09/09b call the same builder with different
+    # school strings — the ONE controlled variable for the T20 bias smoke test.
+    builds: list[tuple[str, str, Callable[[Path], None]]] = [
+        ("01_junior_da_novotny", "docx", build_junior_docx),
+        ("02_da_svoboda", "pdf", build_svoboda_pdf),
+        ("03_ds_horak", "pdf", build_horak_pdf),
+        ("04_mle_kralova", "docx", build_kralova_docx),
+        ("05_mlops_benes", "pdf", build_benes_pdf),
+        ("06_nlp_ds_pokorna", "docx", build_pokorna_docx),
+        ("07_senior_ds_holub", "pdf", build_holub_pdf),
+        ("08_staff_ml_engineer_dvorak", "pdf", build_senior_pdf),
+        (
+            "09_research_phd_marek",
+            "pdf",
+            lambda p: build_marek_pdf(p, school="MFF UK / Charles University, Prague"),
+        ),
+        (
+            "09b_research_phd_marek_anon",
+            "pdf",
+            lambda p: build_marek_pdf(p, school="[REDACTED UNIVERSITY]"),
+        ),
+        ("10_head_of_data_zemanova", "docx", build_zemanova_docx),
+    ]
 
-    build_junior_docx(junior_docx)
-    build_senior_pdf(senior_pdf)
+    for stem, fmt, builder in builds:
+        out_path = FIXTURES / f"{stem}.{fmt}"
+        txt_path = FIXTURES / f"{stem}.txt"
+        builder(out_path)
+        extractor = extract_pdf_text if fmt == "pdf" else extract_docx_text
+        txt_path.write_text(extractor(out_path).rstrip("\n") + "\n", encoding="utf-8")
+        print(f"wrote {out_path}")
+        print(f"wrote {txt_path}")
 
-    junior_txt.write_text(extract_docx_text(junior_docx) + "\n", encoding="utf-8")
-    senior_txt.write_text(extract_pdf_text(senior_pdf) + "\n", encoding="utf-8")
+    _assert_bias_pair_invariant()
 
-    print(f"wrote {junior_docx}")
-    print(f"wrote {senior_pdf}")
-    print(f"wrote {junior_txt}")
-    print(f"wrote {senior_txt}")
+
+def _assert_bias_pair_invariant() -> None:
+    """T20 contract: 09 and 09b extracted text differ on exactly the school line."""
+    import difflib
+
+    nine = (FIXTURES / "09_research_phd_marek.txt").read_text().splitlines()
+    nineb = (FIXTURES / "09b_research_phd_marek_anon.txt").read_text().splitlines()
+    diff_lines = [
+        line
+        for line in difflib.unified_diff(nine, nineb, lineterm="")
+        if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
+    ]
+    if len(diff_lines) != 2:
+        raise AssertionError(
+            f"bias pair invariant broken: {len(diff_lines)} differing lines, "
+            "expected 2 (one - one +)"
+        )
 
 
 if __name__ == "__main__":
