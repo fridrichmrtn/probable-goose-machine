@@ -5,17 +5,15 @@ on:
   push:
     branches: [main]
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  check:
+  static:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
-      JOBFIT_MODEL_PROFILE: ci
+    # Cancel stale PR pushes for fast feedback, but never cancel a `main` build —
+    # reviewers always need a definitive pass/fail signal on the trunk.
+    concurrency:
+      group: ci-static-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,5 +35,34 @@ jobs:
       - name: Mypy (strict, src/jobfit)
         run: uv run mypy src/
 
-      - name: Pytest (not slow)
-        run: uv run pytest -m "not slow" -v
+      - name: Pytest (fast)
+        run: uv run pytest -m fast --strict-markers -v
+
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: static
+    # Fork PRs cannot access secrets — skip the job entirely instead of failing on a missing key.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Single global queue across all refs/PRs — serialize against shared MiniMax + DDG quota.
+    # `cancel-in-progress: false` keeps in-flight live runs alive when a new one queues.
+    concurrency:
+      group: ci-live
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Pytest (live)
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          JOBFIT_MODEL_PROFILE: ci
+        run: uv run pytest -m live --strict-markers -v
