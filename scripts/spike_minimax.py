@@ -18,15 +18,16 @@ Provider exceptions (auth, network, rate-limit, 5xx) bubble as tracebacks.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import statistics
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from jobfit import obs
 from jobfit.llm import LLMClient
@@ -50,6 +51,8 @@ EXTRACT_SYSTEM = (
     "- `anchor_quote` MUST be a verbatim substring copied from the CV — at least "
     "6 consecutive words, case-preserved, punctuation-preserved. No paraphrasing. "
     "No ellipses. No edits.\n"
+    "- Pick a quote that appears in the CV only once. If you cannot guarantee "
+    "uniqueness, copy 8 or more consecutive words.\n"
     "- If you cannot find a 6+ word literal substring that supports a skill, drop "
     "that skill entirely. Do not fabricate.\n"
     "- `years_experience` is the candidate's total professional years across "
@@ -57,18 +60,23 @@ EXTRACT_SYSTEM = (
 )
 
 SCORE_SYSTEM = (
-    "You score a candidate's skills strength for a generic mid-level data/ML "
-    "role.\n\n"
+    "You score a candidate's absolute skills strength on a seniority scale.\n\n"
     "Return JSON only matching this schema:\n"
     '  {"name": "skills", "score_0_100": int, "anchor_quote": str}\n\n'
     "Rules:\n"
     '- `name` is the literal string "skills".\n'
-    "- `score_0_100` reflects skills strength: 0–30 = junior with narrow "
-    "exposure, 31–60 = solid mid-level, 61–85 = senior with breadth, "
-    "86–100 = staff/principal with deep platform impact.\n"
+    "- `score_0_100` is an absolute seniority bucket:\n"
+    "    0–30  = junior / entry-level (narrow exposure, early career)\n"
+    "    31–60 = mid-level (solid working competence, multiple shipped projects)\n"
+    "    61–85 = senior (breadth across stack, mentors others, owns systems)\n"
+    "    86–100 = staff / principal (deep platform impact, org-wide leverage)\n"
+    "- Place the candidate on this absolute scale based on the CV evidence. Do "
+    "not center on 50.\n"
     "- `anchor_quote` MUST be a verbatim substring of at least 6 consecutive "
     "words from the CV that justifies the score. Case- and punctuation-preserved. "
-    "No paraphrasing."
+    "No paraphrasing.\n"
+    "- Pick a quote that appears in the CV only once. If you cannot guarantee "
+    "uniqueness, copy 8 or more consecutive words."
 )
 
 
@@ -114,15 +122,26 @@ def _count_anchor_hits(extract: SpikeExtract, cv_text: str) -> tuple[int, int]:
     return verified, len(extract.skills)
 
 
-def _stage_events(events: list[dict[str, Any]], stage: str) -> list[dict[str, Any]]:
-    return [e for e in events if e.get("event") == "llm_call" and e.get("stage") == stage]
+def _stage_duration_ms(events: list[dict[str, Any]], stage: str) -> int:
+    return sum(
+        int(e["duration_ms"])
+        for e in events
+        if e.get("event") == "llm_call" and e.get("stage") == stage
+    )
 
 
-def _format_row(label: str, hits: int, total: int, score: int, latency_s: float) -> str:
+def _format_row(
+    label: str,
+    hits: int,
+    total: int,
+    score: int | None,
+    latency_s: float,
+) -> str:
     pct = round(100 * hits / total) if total else 0
+    score_str = "FAIL" if score is None else str(score)
     return (
         f"{label:7} extract: {hits}/{total} anchors verified ({pct:>3}%)  "
-        f"|  score: {score}  |  latency p50: {latency_s:.1f}s"
+        f"|  score: {score_str}  |  latency avg: {latency_s:.1f}s"
     )
 
 
@@ -137,94 +156,87 @@ async def main() -> int:
     client = LLMClient()
     events: list[dict[str, Any]] = []
 
+    async def _call_extract(stage: str, cv: str) -> SpikeExtract | None:
+        with _stage(stage):
+            try:
+                parsed = await client.complete_json(
+                    system=EXTRACT_SYSTEM,
+                    user=f"CV:\n\n{cv}",
+                    schema=SpikeExtract,
+                    model="reasoning",
+                    temperature=0.0,
+                    max_retries=0,
+                )
+            except (ValidationError, json.JSONDecodeError):
+                return None
+        return cast(SpikeExtract, parsed)
+
+    async def _call_score(stage: str, cv: str) -> SpikeScore | None:
+        with _stage(stage):
+            try:
+                parsed = await client.complete_json(
+                    system=SCORE_SYSTEM,
+                    user=f"CV:\n\n{cv}",
+                    schema=SpikeScore,
+                    model="reasoning",
+                    temperature=0.0,
+                    max_retries=0,
+                )
+            except (ValidationError, json.JSONDecodeError):
+                return None
+        return cast(SpikeScore, parsed)
+
     with obs.subscribe(events.append):
-        with _stage("spike.junior.extract"):
-            junior_extract_raw = await client.complete_json(
-                system=EXTRACT_SYSTEM,
-                user=f"CV:\n\n{junior_cv}",
-                schema=SpikeExtract,
-                model="reasoning",
-                temperature=0.0,
-                max_retries=1,
-            )
-        with _stage("spike.junior.score"):
-            junior_score_raw = await client.complete_json(
-                system=SCORE_SYSTEM,
-                user=f"CV:\n\n{junior_cv}",
-                schema=SpikeScore,
-                model="reasoning",
-                temperature=0.0,
-                max_retries=1,
-            )
-        with _stage("spike.senior.extract"):
-            senior_extract_raw = await client.complete_json(
-                system=EXTRACT_SYSTEM,
-                user=f"CV:\n\n{senior_cv}",
-                schema=SpikeExtract,
-                model="reasoning",
-                temperature=0.0,
-                max_retries=1,
-            )
-        with _stage("spike.senior.score"):
-            senior_score_raw = await client.complete_json(
-                system=SCORE_SYSTEM,
-                user=f"CV:\n\n{senior_cv}",
-                schema=SpikeScore,
-                model="reasoning",
-                temperature=0.0,
-                max_retries=1,
-            )
+        junior_extract = await _call_extract("spike.junior.extract", junior_cv)
+        junior_score = await _call_score("spike.junior.score", junior_cv)
+        senior_extract = await _call_extract("spike.senior.extract", senior_cv)
+        senior_score = await _call_score("spike.senior.score", senior_cv)
 
-    assert isinstance(junior_extract_raw, SpikeExtract)
-    assert isinstance(junior_score_raw, SpikeScore)
-    assert isinstance(senior_extract_raw, SpikeExtract)
-    assert isinstance(senior_score_raw, SpikeScore)
-    junior_extract = junior_extract_raw
-    junior_score = junior_score_raw
-    senior_extract = senior_extract_raw
-    senior_score = senior_score_raw
-
-    j_extract_events = _stage_events(events, "spike.junior.extract")
-    j_score_events = _stage_events(events, "spike.junior.score")
-    s_extract_events = _stage_events(events, "spike.senior.extract")
-    s_score_events = _stage_events(events, "spike.senior.score")
-
-    per_call_durations_ms = [
-        sum(int(e["duration_ms"]) for e in j_extract_events),
-        sum(int(e["duration_ms"]) for e in j_score_events),
-        sum(int(e["duration_ms"]) for e in s_extract_events),
-        sum(int(e["duration_ms"]) for e in s_score_events),
+    call_results: list[tuple[str, BaseModel | None]] = [
+        ("spike.junior.extract", junior_extract),
+        ("spike.junior.score", junior_score),
+        ("spike.senior.extract", senior_extract),
+        ("spike.senior.score", senior_score),
     ]
-    per_call_event_counts = [
-        len(j_extract_events),
-        len(j_score_events),
-        len(s_extract_events),
-        len(s_score_events),
-    ]
+    failure_count = sum(1 for _, r in call_results if r is None)
+    json_survival = (4 - failure_count) / 4
 
-    junior_hits, junior_total = _count_anchor_hits(junior_extract, junior_cv)
-    senior_hits, senior_total = _count_anchor_hits(senior_extract, senior_cv)
+    successful_durations_ms = [
+        _stage_duration_ms(events, stage) for stage, result in call_results if result is not None
+    ]
+    p50_s = statistics.median(successful_durations_ms) / 1000 if successful_durations_ms else 0.0
+
+    def _avg_latency_s(stages: list[str]) -> float:
+        ms = [_stage_duration_ms(events, s) for s in stages]
+        return statistics.mean(ms) / 1000 if ms else 0.0
+
+    junior_latency_s = _avg_latency_s(["spike.junior.extract", "spike.junior.score"])
+    senior_latency_s = _avg_latency_s(["spike.senior.extract", "spike.senior.score"])
+
+    if junior_extract is not None:
+        junior_hits, junior_total = _count_anchor_hits(junior_extract, junior_cv)
+    else:
+        junior_hits, junior_total = 0, 0
+    if senior_extract is not None:
+        senior_hits, senior_total = _count_anchor_hits(senior_extract, senior_cv)
+    else:
+        senior_hits, senior_total = 0, 0
 
     total_anchors = junior_total + senior_total
     verified_anchors = junior_hits + senior_hits
     anchor_rate = verified_anchors / total_anchors if total_anchors else 0.0
 
-    spread = senior_score.score_0_100 - junior_score.score_0_100
-
-    first_try_count = sum(1 for c in per_call_event_counts if c == 1)
-    json_survival = first_try_count / 4
-
-    p50_s = statistics.median(per_call_durations_ms) / 1000
-
-    junior_latency_s = statistics.median(per_call_durations_ms[:2]) / 1000
-    senior_latency_s = statistics.median(per_call_durations_ms[2:]) / 1000
+    if junior_score is not None and senior_score is not None:
+        spread: int | None = senior_score.score_0_100 - junior_score.score_0_100
+    else:
+        spread = None
 
     print(
         _format_row(
             "junior",
             junior_hits,
             junior_total,
-            junior_score.score_0_100,
+            junior_score.score_0_100 if junior_score is not None else None,
             junior_latency_s,
         )
     )
@@ -233,25 +245,31 @@ async def main() -> int:
             "senior",
             senior_hits,
             senior_total,
-            senior_score.score_0_100,
+            senior_score.score_0_100 if senior_score is not None else None,
             senior_latency_s,
         )
     )
-    print(f"JSON-mode failures: {4 - first_try_count}/4 calls")
+    print(f"JSON-mode failures: {failure_count}/4 calls")
 
     gates: list[tuple[str, bool]] = [
         ("anchor-rate", anchor_rate >= ANCHOR_RATE_FLOOR),
-        ("spread", spread >= SCORE_SPREAD_FLOOR),
+        ("spread", spread is not None and spread >= SCORE_SPREAD_FLOOR),
         ("json-survival", json_survival >= JSON_SURVIVAL_FLOOR),
-        ("p50-latency", p50_s <= P50_LATENCY_CEILING_S),
+        ("p50-latency", bool(successful_durations_ms) and p50_s <= P50_LATENCY_CEILING_S),
     ]
     gate_labels = {
-        "anchor-rate": "anchor-rate >=70%?",
-        "spread": "spread >=20?",
-        "json-survival": "json-survival >=90%?",
-        "p50-latency": "p50 <=8s?",
+        "anchor-rate": "anchor-rate ≥70%?",
+        "spread": "spread ≥20?",
+        "json-survival": "json-survival ≥90%?",
+        "p50-latency": "p50 ≤8s?",
     }
-    summary = "  |  ".join(f"{gate_labels[name]} {'YES' if ok else 'NO'}" for name, ok in gates)
+    p50_suffix = f" ({p50_s:.1f}s)" if successful_durations_ms else " (n/a)"
+    parts = []
+    for name, ok in gates:
+        verdict = "YES" if ok else "NO"
+        suffix = p50_suffix if name == "p50-latency" else ""
+        parts.append(f"{gate_labels[name]} {verdict}{suffix}")
+    summary = "  |  ".join(parts)
     print(f"GATES: {summary}")
 
     for name, ok in gates:
