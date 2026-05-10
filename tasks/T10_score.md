@@ -1,6 +1,6 @@
 # T10 — L4a seniority scorer
 
-Status: todo
+Status: done
 Owner: ai-ml-engineer
 Depends on: T02, T05 (gate)
 Unblocks: T15
@@ -41,4 +41,4 @@ uv run pytest -m live tests/test_score.py -v
 
 ## Outcome
 
-(fill in when done — actual scores per fixture, calibration variance)
+Shipped `src/jobfit/prompts/score.md`, `src/jobfit/score.py`, `tests/test_score.py`; fast suite green (2 passed, 3 live deselected); live junior/senior bands and calibration variance pending MINIMAX_API_KEY-equipped run (covered by T17 acceptance).
