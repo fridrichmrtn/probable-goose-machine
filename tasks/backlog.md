@@ -94,3 +94,15 @@ Report: tasks/T22_deploy.md (Outcome section)
 ### Nits
 - [software-engineer] `tasks/T22_deploy.md` Outcome's "Token note" paragraph duplicates the token-rotation Should-fix above. Drop the Outcome bullet when the rotation lands, or accept the duplication as intentional cross-reference.
 - [software-engineer] `.gitattributes` carries HF's full LFS filter set (38 lines) for a project that ships no LFS-tracked binaries. Defensible for forward-compat (T16 may add fixture binaries) but a one-line `# kept for HF parity even though we ship no LFS today` comment would justify it for the next reader.
+
+## implement-t05-minimax-capability-spike — 2026-05-10T15:39Z
+Report: tasks/T05_dev-report.md (in dev/implement-t05-minimax-capability-spike)
+
+### Nits
+- [hiring-manager] scripts/spike_minimax.py — fixture paths assumed cwd=repo root (`Path("tests/fixtures/cvs/...")`). Pin to `Path(__file__).resolve().parent.parent / "tests/fixtures/cvs/..."` so re-running the spike from a worktree subdir or another cwd still finds the fixtures.
+- [hiring-manager] scripts/spike_minimax.py — `TOTAL_CALLS = 4` is implicit. Define a module-level constant or compute as `len(cvs) * 2` and divide by it in gate computation; currently a magic 4 in the json_survival denominator.
+- [ai-ml-engineer] scripts/spike_minimax.py — extract/score prompts have no few-shot examples. The 70% anchor-rate gate is reachable without them (M2.7 is a strong instruction-follower) but adding 1 worked example per stage is the cheapest insurance against gate flakiness in T05 reruns.
+- [hiring-manager] scripts/spike_minimax.py — no .env auto-loading. Operator must `export MINIMAX_API_KEY=...` before running; consider `python-dotenv` or a `# Tip:` line in the preflight error so the next runner doesn't get tripped.
+- [hiring-manager] src/jobfit/py.typed — added in this branch as a marker file so `mypy --strict scripts/spike_minimax.py` resolves the local `jobfit` package. Mention in the upstream PR description so reviewers don't read it as accidental.
+- [ai-ml-engineer] src/jobfit/obs.py — the `_stage` contextmanager defined inline in `scripts/spike_minimax.py` is a manual `current_stage` setter. If T07/T08 also need a "set stage but let exceptions propagate" helper (vs `stage_boundary` which swallows), promote it to `obs.py` rather than duplicating.
+- [ai-ml-engineer] scripts/spike_minimax.py — the "≥6 consecutive words" instruction in extract/score prompts duplicates the constant in `src/jobfit/verify.py`. Risk of drift if the floor moves. Either import the constant or add a `# kept in sync with verify.py:_MIN_QUOTE_WORDS` comment in both places.
