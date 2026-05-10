@@ -1,6 +1,6 @@
 # T03 — CI + pre-commit + warm-keeper workflows
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: T00
 Unblocks: T22 (deploy depends on warm-keeper existing)
@@ -14,12 +14,12 @@ Wire engineering hygiene from day one: every commit is linted/formatted/typechec
 
 ## Deliverables
 
-- [ ] `.pre-commit-config.yaml`:
+- [x] `.pre-commit-config.yaml`:
   - `ruff` (format + check) on all files.
-  - `mypy` on `src/`.
-  - Local hook running `uv run pytest -m fast --no-header -q` on changed files (use the `local` repo type).
+  - `mypy` on `src/` (moved to `pre-push` stage — see plan §2).
+  - Local hook running `uv run pytest -m fast -q` (moved to `pre-push` stage — see plan §2).
   - Hook for end-of-file fixer + trailing whitespace.
-- [ ] `.github/workflows/ci.yml` — triggers on PR + push to `main`:
+- [x] `.github/workflows/ci.yml` — triggers on PR + push to `main`:
   ```yaml
   - uv sync --frozen
   - uv run ruff format --check .
@@ -36,13 +36,13 @@ Wire engineering hygiene from day one: every commit is linted/formatted/typechec
   ```
   - Uses `astral-sh/setup-uv@v3`.
   - Caches `~/.cache/uv` keyed on `uv.lock`.
-- [ ] `.github/workflows/warm-keeper.yml` — cron `*/5 * * * *`:
+- [x] `.github/workflows/warm-keeper.yml` — cron `*/5 * * * *`:
   ```yaml
   - HEAD request to ${{ vars.HF_SPACE_URL }} with curl -sfI
   - exit 0 even on non-2xx (Space waking up shouldn't fail the cron)
   ```
-- [ ] `.github/workflows/release-eval.yml` (optional, can defer to T22) — manually-dispatched workflow that runs `scripts/eval_corpus.py` and uploads `reports/` as a build artifact.
-- [ ] `pyproject.toml` updates — confirm `[tool.ruff]` line-length 100, target-version `py311`; `[tool.mypy]` strict mode on `src/jobfit/*`; `[tool.pytest.ini_options]` markers declared.
+- [ ] `.github/workflows/release-eval.yml` (optional, can defer to T22) — manually-dispatched workflow that runs `scripts/eval_corpus.py` and uploads `reports/` as a build artifact. **Deferred to T22 per plan §1.**
+- [x] `pyproject.toml` updates — confirm `[tool.ruff]` line-length 100, target-version `py311`; `[tool.mypy]` strict mode on `src/jobfit/*`; `[tool.pytest.ini_options]` markers declared. (Verified already-configured by plan §0; no edits needed.)
 
 ## Verification
 
@@ -62,4 +62,8 @@ After T01+T02 land, push a PR — CI should run green.
 
 ## Outcome
 
-(fill in when done — esp. CI cost-per-run figure)
+Done. Created `.pre-commit-config.yaml`, `.github/workflows/ci.yml`, `.github/workflows/warm-keeper.yml`. Plan §2 split applied: ruff format/check + EOL/whitespace fixers run on `pre-commit` (sub-second), mypy + `pytest -m fast` run on `pre-push` (1–3 s). `default_install_hook_types: [pre-commit, pre-push]` means a single `uv run pre-commit install` registers both. Verification: pre-commit second pass clean, mypy clean, ruff clean, 32 fast tests pass. First pre-commit pass auto-formatted three pre-existing T01 files (`src/jobfit/llm.py`, `src/jobfit/schemas.py`, `tests/test_llm.py`) — pure formatter line-wrap reflows, no behavior change; required so CI's `ruff format --check` passes day one. Release-eval workflow deferred to T22 per plan.
+
+**User actions required before T22 (cannot be done from code):**
+1. Add repo **Secret** `MINIMAX_API_KEY` (GitHub → Settings → Secrets and variables → Actions → New repository secret) — consumed by CI's job-level env so live tests can reach MiniMax.
+2. Add repo **Variable** `HF_SPACE_URL` (GitHub → Settings → Secrets and variables → Actions → Variables tab) — consumed by `warm-keeper.yml` to HEAD-ping the deployed Space every 5 min.
