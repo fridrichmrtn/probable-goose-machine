@@ -4,7 +4,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## Foundation (sequential)
 - [x] **T00** — Project bootstrap (`tasks/T00_bootstrap.md`)
-- [ ] **T01** — Schemas + StageFailure (`tasks/T01_schemas.md`)
+- [x] **T01** — Schemas + StageFailure (`tasks/T01_schemas.md`)
 - [ ] **T02** — Cross-cutting utils (`tasks/T02_utils.md`)
 - [ ] **T03** — CI + pre-commit + warm-keeper (`tasks/T03_ci_precommit.md`) — *parallel with T01/T02 after T00*
 
