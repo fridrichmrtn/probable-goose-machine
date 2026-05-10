@@ -108,7 +108,7 @@ class LLMClient:
         usd_cost = 0.0
         try:
             current_user = user
-            last_err: ValidationError | None = None
+            last_err: ValidationError | json.JSONDecodeError | None = None
             for attempt in range(max_retries + 1):
                 if attempt > 0 and last_err is not None:
                     current_user = (
@@ -122,7 +122,7 @@ class LLMClient:
                 try:
                     parsed = json.loads(text)
                     return schema.model_validate(parsed)
-                except ValidationError as err:
+                except (ValidationError, json.JSONDecodeError) as err:
                     last_err = err
                     if attempt >= max_retries:
                         raise

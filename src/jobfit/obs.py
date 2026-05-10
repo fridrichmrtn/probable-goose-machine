@@ -40,7 +40,17 @@ def emit(stage: str | None, event: str, **kv: Any) -> None:
     record: dict[str, Any] = {"stage": stage, "event": event, **kv}
     _logger.info(event, stage=stage, **kv)
     for callback in _subscribers.get():
-        callback(record)
+        try:
+            callback(record)
+        except Exception as cb_err:
+            # A broken UI/progress subscriber must not turn a handled stage
+            # failure into an unhandled exception.
+            _logger.warning(
+                "subscriber_error",
+                stage=stage,
+                origin_event=event,
+                error=repr(cb_err),
+            )
 
 
 @contextmanager

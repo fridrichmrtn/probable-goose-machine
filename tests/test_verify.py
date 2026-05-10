@@ -69,6 +69,18 @@ class _Item(BaseModel):
     anchor: Anchor
 
 
+def test_section_resolves_under_h1_header() -> None:
+    src = "# Experience\nLed migration from monolith to microservices across three quarters.\n"
+    quote = "led migration from monolith to microservices"
+    assert verify_quote(quote, src, section="experience") is True
+
+
+def test_section_resolves_under_h3_header() -> None:
+    src = "### Experience\nLed migration from monolith to microservices across three quarters.\n"
+    quote = "led migration from monolith to microservices"
+    assert verify_quote(quote, src, section="experience") is True
+
+
 def test_drop_unverified_filters_correctly() -> None:
     items = [
         _Item(

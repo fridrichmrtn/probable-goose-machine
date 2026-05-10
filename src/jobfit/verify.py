@@ -6,7 +6,9 @@ from typing import TypeVar
 T = TypeVar("T")
 
 _WS = re.compile(r"\s+")
-_HEADER = re.compile(r"^##\s+(.+)$", flags=re.MULTILINE)
+# Accept any markdown header level (H1–H6); the section vocabulary is
+# author-driven, not depth-driven.
+_HEADER = re.compile(r"^#{1,6}\s+(.+)$", flags=re.MULTILINE)
 
 
 def _normalize(text: str) -> str:

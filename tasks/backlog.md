@@ -38,3 +38,25 @@ Report: tasks/dev-report.md (in dev/t01-schemas)
 - [hiring-manager] src/jobfit/schemas.py — Reorder so `Anchor`/`ProfileItem`/`Component` cluster together (the "claim-with-evidence" group).
 - [hiring-manager] tests/test_schemas.py:19-25 — `# type: ignore[arg-type]` could be avoided by exporting a `ComponentName = Literal[...]` alias from `schemas.py` and using it in test helpers.
 
+## t02-utils — 2026-05-10T14:30Z
+Report: tasks/T02_dev-report.md (in dev/t02-utils)
+
+### Should-fix
+- [codex] src/jobfit/llm.py:119 — Retry attempts overwrite `prompt_tokens` / `completion_tokens`; `finally`-emitted telemetry reports only the last attempt, undercounting usage and cost. Accumulate across attempts before emitting.
+- [ai-ml-engineer] src/jobfit/llm.py — Anthropic prompt caching not enabled. PLAN §"Cold-start mitigation" notes Anthropic fallback only — but if we ever ship it as primary, missing `cache_control` markers on the system prompt is a 90%+ cost regression. Add a `# T05/T22:` TODO at the Anthropic branch.
+- [ai-ml-engineer] src/jobfit/llm.py:31 — `_ANTHROPIC_MODEL = "claude-sonnet-4-6"` is unverified against Anthropic's published model IDs. Confirm before T05 fallback path is exercised; if ID is wrong, fallback fails on first call.
+- [ai-ml-engineer] src/jobfit/verify.py — Quote/source not Unicode-NFC-normalized; CV text from PDFs frequently mixes pre-composed and decomposed accents (CZ corpus → á vs á). Add `unicodedata.normalize("NFC", ...)` in `_normalize`.
+- [ai-ml-engineer] src/jobfit/verify.py — Substring match has no word-boundary guard: a 6-word quote like "data engineer with five years of" would match inside "metadata engineer..." . Acceptable for L0 but flag for T07/T09.
+- [ai-ml-engineer] src/jobfit/verify.py — `drop_unverified` uses `getattr(item, anchor_attr)` with no fallback; raises `AttributeError` on items missing the anchor field. Either gate with `hasattr` + skip, or document the contract that callers must pre-filter.
+- [ux-engineer] src/jobfit/obs.py — `subscribe()` is sync-context only; Gradio's UI loop wants an async-iterable / queue for progress events. Wrap with an `async_subscribe()` that pushes onto an `asyncio.Queue` before T16 wires the UI.
+- [ux-engineer] src/jobfit/errors.py — `StageFailure.user_message = str(exc) or type(exc).__name__` will leak raw Python exception strings to the UI. Add a comment requiring T15/T16 callers to overwrite with PRD §4.6 copy.
+- [hiring-manager] src/jobfit/llm.py — `_chat_json` / `_chat_text` use `Any`-typed clients to dodge the OpenAI/Anthropic type divergence. Acceptable but flag a `# typing: provider dispatch` TODO so future readers know it's deliberate.
+- [hiring-manager] tests/test_llm.py — Single live test only; no coverage for the JSON-retry path (would need a stub provider). Add a `MockAsyncOpenAI` fixture under T05 to exercise retry-on-ValidationError without burning tokens.
+- [product-owner] src/jobfit/llm.py — `MODEL_PRICES` dated 2026-05-10 in a comment; consider a `# Re-verify after:` field with an explicit 90-day TTL so cost reports don't drift silently.
+- [product-owner] src/jobfit/llm.py — `complete_text` always uses `cheap` model default; PLAN §L4c judge needs `reasoning` for the calibration leg. Either swap the default or document the per-call override at T12.
+
+### Nits
+- [codex] src/jobfit/verify.py:52 — `str.count()` ignores overlapping occurrences; for 6–7 word "unique" checks this is technically wrong but practically benign (overlapping 6-word repeats are vanishingly rare in CV prose). Leave as-is unless T17 acceptance flags it.
+- [ai-ml-engineer] src/jobfit/obs.py — `_subscribers` uses immutable tuple (good for asyncio.gather), but mutation is O(n) per subscribe. Fine at expected fan-out (≤5 subscribers); flag if T16 hits more.
+- [ai-ml-engineer] src/jobfit/llm.py — JSON-mode fallback for Anthropic uses prompt-injection ("Return JSON only, no prose."), not native tool-use. Switch to `tools=[{...}]` if Anthropic becomes primary.
+
