@@ -1,6 +1,6 @@
 # T01 — Schemas + StageFailure
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: T00
 Unblocks: T02, T14, every stage worker
@@ -59,4 +59,4 @@ uv run mypy src/jobfit/schemas.py src/jobfit/errors.py
 
 ## Outcome
 
-(fill in when done)
+Schemas + StageFailure landed exactly per `tasks/dev-plan.md`: 8 fast tests pass (parametrized StageFailure-in-each-block expanded the 4 deliverable tests to 8 collected items), `mypy --strict` clean on `schemas.py` + `errors.py`, ruff clean across all three files. No deltas vs. plan. mypy 2.0.0, Pydantic 2.x via `uv run`.
