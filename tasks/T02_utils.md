@@ -1,6 +1,6 @@
 # T02 — Cross-cutting utilities
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: T01
 Unblocks: T05, T07–T13
@@ -62,4 +62,4 @@ uv run pytest -m live tests/test_llm.py -v
 
 ## Outcome
 
-(fill in when done — esp. MiniMax JSON-mode quirks)
+Landed `verify.verify_quote`/`drop_unverified`, `obs.emit`/`subscribe`/`current_stage` (tuple ContextVar for asyncio.gather sibling isolation), `LLMClient` with MiniMax default + Anthropic fallback and always-on `llm_call` telemetry via try/finally, and wired `stage_boundary` to set/reset `current_stage` and emit an `error` event on caught exceptions; 19/19 fast tests + 10/10 schemas regression green, mypy strict + ruff clean. Live MiniMax test deferred (no `MINIMAX_API_KEY` available); JSON-mode quirks unverified. Optional `[project.optional-dependencies] anthropic` extras step skipped — the fallback path may never ship and the import is already gated at runtime with a clear install hint.
