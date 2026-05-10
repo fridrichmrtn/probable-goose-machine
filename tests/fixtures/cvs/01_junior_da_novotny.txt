@@ -1,0 +1,18 @@
+Jan Novotný
+Junior Data Analyst — Prague, Czech Republic
+jan.novotny@example.cz | +420 777 123 456 | linkedin.com/in/jannovotnycz
+Summary
+Junior Data Analyst with 1 year of professional experience at Mall.cz, focused on retail analytics and reporting automation in SQL and Python. Comfortable with PostgreSQL, dbt 1.7, Looker and basic pandas workflows. Looking to grow into a Data Scientist role over the next two years.
+Experience
+Junior Data Analyst — Mall.cz, Prague
+June 2025 – present (1 year)
+Built daily revenue and margin dashboards in Looker covering 4 product categories, replacing a manual Excel process and reducing reporting turnaround from 2 days to 4 hours.
+Owned the dbt model layer for the marketing mart: 18 dbt 1.7 models on PostgreSQL 15, with column-level tests covering 92% of business-critical fields.
+Wrote ad-hoc Python (pandas 2.2) analyses for the merchandising team — weekly cohort retention, basket-size segmentation, and a one-off churn investigation that flagged a 6.4% drop in repeat purchases among the Home & Garden segment.
+Took over the on-call data-quality rotation in November 2025 (1 week per month); resolved 11 alerts during my first rotation without escalation.
+Education
+Bachelor of Economics and Management — VŠE Prague
+2022 – 2025; thesis on revenue forecasting using Prophet
+Skills
+SQL (PostgreSQL 15, BigQuery), Python 3.11 (pandas 2.2, numpy), dbt 1.7, Looker, Git, basic Airflow 2.9 DAG maintenance.
+Languages: Czech (native), English (C1, FCE 2021).

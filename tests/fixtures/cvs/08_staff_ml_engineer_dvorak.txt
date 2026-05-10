@@ -1,0 +1,85 @@
+Tomáš Dvořák
+Staff Machine Learning Engineer · Prague, Czech Republic
+tomas.dvorak@example.cz · +420 602 555 100 · linkedin.com/in/tomasdvorakml
+CV — last updated April 2026
+Page 1
+Summary
+Staff Machine Learning Engineer
+with 13 years of experience across
+consumer security (Avast), travel
+(Kiwi.com) and retail banking
+(ČSOB). Tech-lead for two ML
+platforms serving 40M+ daily
+inferences. Currently responsible for
+the ML inference platform at ČSOB
+Prague, leading a team of 6 engineers
+and 2 data scientists.
+Experience
+Staff ML Engineer — ČSOB,
+Prague
+January 2023 – present
+Tech lead for the ML inference
+platform serving 12M+ daily scoring
+calls across fraud, credit-risk and
+customer-360 use cases. Migrated
+the legacy SAS scoring stack to a
+Python 3.11 / FastAPI service running
+on Kubernetes 1.29, cutting median
+inference latency from 240 ms to 38
+ms and reducing infra cost by 41%.
+Founded the ML platform guild (8
+engineers across 3 squads) to
+standardise feature stores and
+evaluation harnesses. Authored the
+internal RFC on shadow-deployment
+and online-eval that is now the
+default release path for credit-risk
+models.
+Senior ML Engineer — Kiwi.com,
+Brno
+March 2018 – December 2022
+Owned the ranking pipeline for the
+flight-search product (28M monthly
+active users). Replaced an XGBoost
+0.9 ranker with a two-tower
+TensorFlow 2.8
+retrieval-then-ranking architecture,
+lifting click-through on the top-3
+results by 17.4% on a 90-day A/B test
+(p < 0.001).
+Mentored 4 junior ML engineers, ran
+the bi-weekly modelling review, and
+wrote the team's first eval playbook covering offline
+AUC parity, online holdout, and post-launch latency
+budgets.
+Machine Learning Engineer — Avast, Prague
+September 2013 – February 2018
+Built the gradient-boosted malware classifier for the
+Avast Free Antivirus Windows engine, processing 4.2
+billion file scans per month at peak. Reduced
+false-positive rate from 0.32% to 0.11% while
+holding recall flat, using a calibrated LightGBM 2.1
+model with weekly retraining.
+Education
+Ing. (M.Sc.) in Computer Science — ČVUT FIT,
+Prague
+2011 – 2013, focus on machine learning and pattern
+recognition.
+Bc. (B.Sc.) in Computer Science — VUT Brno
+2008 – 2011.
+Skills
+Python 3.11, TensorFlow 2.8, PyTorch 2.3,
+LightGBM 2.1, scikit-learn 1.5, FastAPI, Kubernetes
+1.29, Argo Workflows, MLflow 2.10, Feast 0.40,
+BigQuery, PostgreSQL, Kafka 3.7.
+Leadership: tech lead (6 engineers + 2 DS), guild
+founder, RFC author, cross-team incident
+commander.
+Languages: Czech (native), English (C2), Slovak
+(fluent).
+Selected projects
+Project Hermes (ČSOB, 2024) — real-time
+fraud-scoring service, 38 ms p50, deployed across 3
+EU regions; reduced manual review queue by 24%.
+Two-tower ranker (Kiwi.com, 2021) — see
+Experience; presented at MLPrague 2022.
