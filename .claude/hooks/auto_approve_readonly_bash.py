@@ -148,6 +148,7 @@ SAFE_COMMANDS = {
 # Used when the leading command itself is too coarse (e.g. `git` writes too).
 SAFE_SUBCOMMANDS = {
     "git": {
+        # Read-only
         "status",
         "log",
         "diff",
@@ -167,6 +168,15 @@ SAFE_SUBCOMMANDS = {
         "for-each-ref",
         "worktree",
         "stash",
+        # Local-write workflow ops (force/delete variants are in HARD_DENY).
+        # `push`, `checkout`, `restore` deliberately excluded — they overlap
+        # with `ask` rules for force/delete/discard variants.
+        "add",
+        "commit",
+        "fetch",
+        "switch",
+        "merge",
+        "pull",
     },
     "gh": {"pr", "issue", "run", "workflow", "repo", "release", "auth"},
     "docker": {"ps", "images", "logs", "inspect"},
