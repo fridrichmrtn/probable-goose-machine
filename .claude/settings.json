@@ -70,6 +70,26 @@
       "Bash(gh issue create *)",
       "Bash(gh issue comment *)",
 
+      "Bash(hf auth whoami)",
+      "Bash(hf auth list)",
+      "Bash(hf auth switch *)",
+      "Bash(hf auth logout *)",
+      "Bash(hf download *)",
+      "Bash(hf repo ls*)",
+      "Bash(hf repo list*)",
+      "Bash(hf repo info*)",
+      "Bash(hf cache *)",
+      "Bash(hf jobs list*)",
+      "Bash(hf jobs ps*)",
+      "Bash(hf jobs logs*)",
+      "Bash(hf jobs inspect*)",
+      "Bash(hf skills *)",
+      "Bash(hf env)",
+      "Bash(hf version)",
+      "Bash(hf --version)",
+      "Bash(hf --help)",
+      "Bash(hf * --help)",
+
       "Bash(echo *)",
       "Bash(true)",
       "Bash(false)",
@@ -84,6 +104,7 @@
       "Bash(cd *)",
       "Bash(cd * && uv run *)",
       "Bash(cd * && uv *)",
+      "Bash(cd * && hf *)",
       "Bash(cd * && pytest *)",
       "Bash(cd * && pre-commit *)",
       "Bash(cd * && ruff *)",
@@ -150,6 +171,15 @@
       "Bash(gh api -X PATCH *)",
       "Bash(gh api -X DELETE *)",
 
+      "Bash(hf auth login*)",
+      "Bash(hf auth login *)",
+      "Bash(hf upload *)",
+      "Bash(hf repo create *)",
+      "Bash(hf repo tag *)",
+      "Bash(hf jobs run *)",
+      "Bash(hf jobs cancel *)",
+      "Bash(hf jobs uv *)",
+
       "Bash(rm -rf *)",
       "Bash(rm -fr *)",
       "Bash(rm -r *)"
@@ -171,7 +201,10 @@
       "Bash(git push origin +main*)",
       "Bash(git push * +main*)",
       "Bash(git push origin :main)",
-      "Bash(git push * :main)"
+      "Bash(git push * :main)",
+
+      "Bash(hf repo delete *)",
+      "Bash(hf cache delete*)"
     ]
   },
   "env": {
