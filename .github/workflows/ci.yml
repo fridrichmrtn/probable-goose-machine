@@ -73,4 +73,9 @@ jobs:
         # (verified-quote ratio sits near the 80% floor; one retry drops the
         # cross-fixture flake rate from ~50% to ~10%). Applies to live only —
         # fast/slow suites must stay deterministic.
-        run: uv run pytest -m live --strict-markers --reruns 1 --reruns-delay 2 -v
+        #
+        # -n 4 --dist=loadgroup parallelizes the I/O-bound async tests
+        # (MiniMax HTTPS dominates wall time). The DDG-touching salary test
+        # carries @pytest.mark.xdist_group("ddg") so loadgroup pins it to a
+        # single worker — concurrent DDG search from one runner IP rate-limits.
+        run: uv run pytest -m live --strict-markers --reruns 1 --reruns-delay 2 -n 4 --dist=loadgroup -v
