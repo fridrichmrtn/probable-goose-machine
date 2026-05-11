@@ -1,6 +1,6 @@
 # T12 — L4c confidence judge (recompute-then-compare)
 
-Status: todo
+Status: done
 Owner: ai-ml-engineer
 Depends on: T02, T05 (gate)
 Unblocks: T15, T19
@@ -56,4 +56,4 @@ uv run pytest -m fast tests/test_confidence_unit.py -v
 
 ## Outcome
 
-(fill in when done)
+Shipped 2026-05-11. `judge(sources, low, high, currency, period) -> Confidence | StageFailure` (signature widened for parity with T10/T11; structural-isolation test still pins parameter keys). Step A's user payload is sources-only by construction (`json.dumps([s.model_dump(mode="json") for s in sources])`); `low`/`high`/`currency`/`period` are interpolated into Step B's user message exclusively. Both steps use `model="cheap"` which currently resolves to MiniMax-M2.7-highspeed via `_PROFILE_MODELS` — same model as the estimator, so the "different model distribution" property promised by `tasks/PLAN.md §L4c` is degraded to "different prompt + temperature isolation"; documented in code header and backlog. Step B's regenerate-once-on-Low path now appends a corrective hint to the retry's user message (so temp=0.0 retries are not byte-identical no-ops); if the second draft still lacks the `insufficient|disagree` marker, the code substitutes `_LOW_FALLBACK_RATIONALE` ("The underlying market data is insufficient or in disagreement, so treat this estimate as provisional.") and emits `confidence_low_fallback_used` — Low tier is never paired with confidently-positive prose. PRD §4.6 user copy pinned via module-level `_FAILURE_MSG = "Could not generate this section reliably"`; both LLM calls and the post-`complete_json` type-check route through explicit `StageFailure` returns rather than letting `stage_boundary` build `user_message=str(exc)`. 6 fast tests pass: signature isolation, Step A no-leak (low/high/currency/period substrings absent from Step A's user payload), Step B cannot override + regenerate path that ends in fallback, regenerate path that recovers when the second draft contains the marker, no-regenerate-when-marker-present, StageFailure-path when `complete_json` raises. See `tasks/T12_dev-report.md` for review burst details (5 reviewers including codex; 2 below-bar pre-heal; single heal pass closed all 8 must-fix items, the load-bearing one being the Low-tier-honesty fix #2/#8). Should-fix and nit residuals captured in `tasks/backlog.md`.

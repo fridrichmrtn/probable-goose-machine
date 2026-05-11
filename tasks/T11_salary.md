@@ -1,6 +1,6 @@
 # T11 — L4b salary search + estimator (CZ-localized)
 
-Status: todo
+Status: done
 Owner: ai-ml-engineer
 Depends on: T02, T05 (gate)
 Unblocks: T15
@@ -52,4 +52,4 @@ uv run pytest -m live tests/test_salary.py -v
 
 ## Outcome
 
-(fill in when done — DDG rate-limit observations, query phrasing iterations)
+Shipped 2026-05-10. `build_queries` returns 3 CZ-local queries (platy.cz / profesia.cz, `mzda CZK 2025`, glassdoor czech republic) plus a 4th senior EUR cross-check when `years≥10`; non-CZ branch returns 2-3. `search` runs sync DDG via `asyncio.to_thread`, retries each call with `tenacity(stop_after_attempt(2), wait_exponential_jitter(1, 3))`, dedupes by URL, raises `RuntimeError(_INSUFFICIENT_DATA_MSG)` when fewer than 2 sources land. `estimate_salary` calls `LLMClient.complete_json` (model="reasoning" → MiniMax-M2.7-highspeed), validates URL-subset / currency / currency-period iff-coupling / range, returns `SalaryEstimate | StageFailure`. All five logical-failure branches surface PRD §4.6 verbatim copy ("Insufficient market data for this profile") with structured `debug_detail` + `stage_failure.reason` event for differentiation. 5 fast tests pass; 1 live+slow test guarded by `MINIMAX_API_KEY`. See `tasks/T11_dev-report.md` for review burst details (3/5 reviewers + codex returned below-bar pre-heal; single heal pass closed all 8 must-fix items including the URL-grounding test which was the load-bearing reliability check). Should-fix and nit residuals captured in `tasks/backlog.md`.
