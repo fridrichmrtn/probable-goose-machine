@@ -163,3 +163,27 @@ Report: tasks/T12_dev-report.md (in feat/block-b-late-stages)
 - [ai-ml-engineer] src/jobfit/confidence.py:30-35 — prompts loaded at import time; broken install / stripped wheel causes import failure rather than clean stage failure. T11 has the same pattern (consistency wins), but it's a latent footgun for both.
 - [qa-engineer] tasks/T12_confidence.md:42 — task lists two fast tests; code ships six. Update the task contract to list the full set or move the strengthening into a checked deliverable.
 - 4 additional minor naming/convention nits surfaced across reviewers — not enumerated.
+
+
+## T13 — 2026-05-11T03:57Z
+Report: tasks/T13_dev-report.md (in feat/block-b-late-stages)
+
+### Should-fix
+- [ai-ml-engineer] src/jobfit/growth.py:155 — `model="reasoning"` resolves to MiniMax-M2.7-highspeed under current `_PROFILE_MODELS` (same as confidence/salary). The original PLAN §L5 intent was a reasoning-tier distinct from the cheap path; revisit once T05 confirms a genuinely distinct reasoning provider, or accept the convergence in PRD §4.4 documentation.
+- [ai-ml-engineer] src/jobfit/growth.py:52 — `_BASELINE_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "growth_baseline.json"` couples runtime code to the tests directory layout. T17 owns the fixture content; consider moving baseline JSON into `src/jobfit/data/` or making the path injection-friendly via a module-level setter before T17 lands.
+- [qa-engineer] src/jobfit/growth.py:213-217 + 232-239 — `growth_actions_truncated.dropped` and `growth_anti_slop_check.dropped` both use the key `dropped` with different semantics (truncation overflow vs. ban/verify drops). Cross-stage rename pass for telemetry keys before T15 wires events into the renderer (echoes the T11/T12 naming-drift entry).
+- [qa-engineer] tests/test_growth_unit.py — parametrized ban-phrase test reuses three non-banned actions across each case verbatim. A `_three_clean_actions()` helper would dedupe ~80 lines without obscuring what each parameter is testing.
+- [product-owner] src/jobfit/growth.py:51 — `_BOILERPLATE_JACCARD_THRESHOLD = 0.6` is unverified against the corpus T17 will produce. Threshold sensitivity should be re-evaluated against the T17 baseline before T19 acceptance.
+- [product-owner] src/jobfit/prompts/growth.md:30 — "every `what` MUST reference a specific element from the candidate's CV" is unenforced by the post-LLM code path (only the anchor's verbatim substring is checked). A future tightener could add a Jaccard check between the `what` and the anchor quote, or accept the gap as covered by verify_quote + ban list.
+- [hiring-manager] src/jobfit/growth.py:144-273 — the inner-and-outer try/except gives two cascading failure paths with overlapping reasons (`llm_error` vs `unexpected_error`). Acceptable for the §4.6 guarantee but worth a docstring note describing the fallthrough order.
+- [hiring-manager] src/jobfit/growth.py:33 — system prompt loaded at module-import time. Same pattern as T11 and T12; broken install causes import failure rather than a clean stage failure. Worth a cross-stage refactor (`_load_prompt_lazy()`) before T22 deploy.
+
+### Must-fix (remaining — exhaustion)
+
+None. Single heal iteration closed all 10 items.
+
+### Nits
+- [ai-ml-engineer] src/jobfit/growth.py:274 — unreachable `return StageFailure(..., debug_detail="unreachable")` exists solely for mypy; flagged so the next reader knows it's not dead code in the runtime sense.
+- [ai-ml-engineer] src/jobfit/growth.py:43-49 — `_BAN_PHRASES` substring-matches inside longer words ("phd" inside "phdcandidate"); intentional and documented in the module docstring. Future tightener should not add word boundaries without checking the prompt-mirror invariant.
+- [qa-engineer] tests/test_growth_unit.py — no direct test that the truncate event's `count_before` equals the actual model-emitted action count (only verified at 7). Add a parametrized 6/7/8/9-survivor case if regressions on the boundary become a concern.
+- [hiring-manager] tests/test_growth_unit.py — fast tests do not include a CV with no Education section to exercise `section=None` survivor handling end-to-end (only the unverified-anchor branch uses `section=None`). Defer to T17 fixture diversity.
