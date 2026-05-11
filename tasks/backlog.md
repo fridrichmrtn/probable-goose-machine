@@ -117,6 +117,37 @@ Report: tasks/T05_spike.md (Outcome section)
 - [ai-ml-engineer] scripts/spike_minimax.py:43-46 — p50 latency gate relaxed 8s → 20s because MiniMax-M2.x catalog is reasoning-only (no non-reasoning sibling per platform.minimax.io docs). Measured ~16s p50. Acceptable for prototype, but if user-visible latency becomes pain in T15 UI, evaluate Gemini Flash or another non-reasoning provider and revisit the gate.
 
 
+## T08-implement-l2-pii-redaction — 2026-05-10T19:00Z
+Report: tasks/T08_dev-report.md (in feat/block-a-early-stages)
+
+### Should-fix
+- [codex] src/jobfit/redact.py:294 — audit-log spans drift when later passes shorten text before earlier replacements; spans point at wrong final-output offsets in multi-pass cases.
+- [product-owner] src/jobfit/redact.py:228-276 — header-name pass bails on common single-line headers like `Jan Novotný | +420 777 …` (digit/comma in first line). Real CV layout, silent miss.
+- [product-owner] src/jobfit/redact.py:34-45 — `_PHONE` requires separators for the 9-10 digit local branch; bare `777123456` is not matched.
+- [product-owner] PRD §4.7 lists "address" as PII; redaction covers only CZ postcode digits. Bare street lines (`Korunní 12, Praha 4` without postcode) leave the address intact.
+- [product-owner] tasks/T08_redact.md:75-82 — Outcome §Known limitations omits the header-name bail-out and the address coverage gap; reads more confident than the implementation warrants.
+- [hiring-manager] src/jobfit/redact.py:12-13 — audit-log `span` is recorded OUTPUT-relative; the design choice makes spans useless to consumers who want to highlight redacted regions on input. Input-relative spans were trivially available.
+- [hiring-manager] src/jobfit/redact.py:154-183 — postcode `original` is only the digit run; the comma+city envelope that triggered the redaction is dropped, so an auditor can't see why this `110 00` was redacted when another wasn't.
+- [hiring-manager] src/jobfit/redact.py:34-45 — `_PHONE` third alternative `\d{3}[\s-]\d{3}[\s-]\d{3,4}` can eat digit runs that resemble date sequences; risk not disclosed in Outcome §Known limitations.
+- [hiring-manager] tests/test_redact.py:80-89 — the test labelled "idempotency_existing_markers" only verifies non-duplication in a single pass. The two-pass test below it is the real idempotency check; the first is misnamed.
+- [hiring-manager] src/jobfit/redact.py:269 — `original=stripped` for the header-name path records the whole stripped line as the matched name; coupling to structural validation is implicit.
+- [qa-engineer] tests/test_redact.py:91-104 — `audit_log == []` on second pass is over-strict; asserts an implementation detail (zero new entries) rather than the contract (no double-redaction). A future audit refinement could break this test for no user-visible reason.
+- [qa-engineer] tests/test_redact.py — no negative tests for email/URL/phone: `email@` (no TLD), `https:foo` (malformed URL), `123456` or `EMP-12-345-6789` (should NOT match phone). Boundary guards in the regex are unpinned.
+- [qa-engineer] tests/test_redact.py — no regression test for the documented phone limitations (`(420) 777 …`, `+1.555.…`, `00420 …`); the limitation is undefended against accidental over-matching.
+- [qa-engineer] tests/test_redact.py — `_YEAR_BARE` is never exercised by a test; a bare `2018` outside a date context should be kept, but no assertion pins that boundary. Year over-redaction is the most likely regression target.
+- [qa-engineer] tasks/T08_redact.md:23 — task contract still says spans are recorded with `original, replacement, span`; outcome clarifies OUTPUT-relative + "informational", but no test asserts `result.text[span[0]:span[1]] == replacement`. Downstream consumers (T15) need that pinned.
+
+### Nits
+- [product-owner] src/jobfit/redact.py:60-63 — Czech month names (`leden`, `únor`, …) not in `_MONTH`; CZ-language CVs get years masked only via the range branch.
+- [product-owner] src/jobfit/redact.py:111-151 — schema `Redaction.span` has no docstring stating output-relative; a consumer reading the schema in isolation will assume input-relative.
+- [hiring-manager] src/jobfit/redact.py:321-322 — `assert cm.failure is not None; return cm.failure` is defensive copy from `ingest.py`; the contract is already in `stage_boundary`.
+- [hiring-manager] src/jobfit/redact.py:60-63 — `Sept` listed after `Sep` in `_MONTH` alternation; works only because of regex backtracking.
+- [hiring-manager] src/jobfit/redact.py:198 — `year_m` and `m` in the same function with similar purpose; minor naming friction.
+- [hiring-manager] tests/test_redact.py:186-191 — `test_fixture_corpus_present` is slow-marked but doesn't do IO worth marking; would be more useful as a fast test that fails CI without `-m slow`.
+- [hiring-manager] src/jobfit/redact.py:302-318 — counts dict keyed by string; if `RedactionKind` ever gains a member, the count silently misses.
+- [qa-engineer] tests/test_redact.py:80-89 — mixes existing-marker and fresh-PII inputs in one test; two separate tests would localize failure.
+
+
 ## T09-senior-fixture-anchor-survival — 2026-05-11T00:00Z
 Report: tasks/T09_extract.md (Outcome section)
 
