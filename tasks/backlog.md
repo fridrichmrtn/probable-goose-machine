@@ -116,6 +116,25 @@ Report: tasks/T05_spike.md (Outcome section)
 ### Should-fix
 - [ai-ml-engineer] scripts/spike_minimax.py:43-46 — p50 latency gate relaxed 8s → 20s because MiniMax-M2.x catalog is reasoning-only (no non-reasoning sibling per platform.minimax.io docs). Measured ~16s p50. Acceptable for prototype, but if user-visible latency becomes pain in T15 UI, evaluate Gemini Flash or another non-reasoning provider and revisit the gate.
 
+## t06-heal — 2026-05-10T20:50Z
+Report: T06 heal commit on `feat/block-c-corpus-render`.
+
+### Should-fix
+- [product-owner] T20 spec drift: PhD vs MSc school-line wording — `tasks/T20_bias.md` line 19 specifies the redacted variant as "MSc in Computer Science, [REDACTED UNIVERSITY]", but persona #9 is a PhD and the corpus renders `Ph.D. in Computer Science — [REDACTED UNIVERSITY]`. Either reword the T20 line to PhD to match the corpus, or replace the persona in T20 with a candidate whose canonical line is MSc. SOURCES.md flags the drift in the bias-pair section.
+
+## t14-heal — 2026-05-10
+Report: T14 commit on `feat/block-c-corpus-render`.
+
+### Should-fix
+- [ux-engineer] T14 spec drift — `tasks/T14_render.md` references `statuses["ingest"]` / `statuses["redact"]` and pill labels `Parse · Redact · Score · Salary · Plan`, none of which exist in `schemas.StageName` (`profile / score / salary / confidence / growth`); the schema's `_require_exact_status_keys` validator rejects unknown keys. Renderer (T14) maps the 5 schema stages to display labels `Profile / Score / Salary / Confidence / Plan` and treats `report.profile = StageFailure` as the top-level short-circuit. Owner: T14 spec author. File: `tasks/T14_render.md`.
+- [ai-ml-engineer] Anchor/justification visual separation — `src/jobfit/report.py:163-170` renders `<p>justification</p>` immediately followed by `<blockquote>quote</blockquote>` with no visual hierarchy distinguishing model commentary from grounding evidence. Polish belongs in the CSS host. Owner: T16 — add `.evidence-label` and a contrasting border for `<blockquote>` inside `<details>`.
+- [ai-ml-engineer] §4.6 strings not pinned as constants — PRD §4.6 user-facing failure copy ("Unable to read this file…", "Insufficient market data for this profile", "Could not generate this section reliably") is set per-call by upstream stages with no central registry; a string-drift regression has no test coverage. Cross-task: belongs to whichever task owns each stage worker (T07 ingest, T11 salary, etc.) — pin the strings as module-level constants and assert on them in the per-stage tests.
+- [ai-ml-engineer] Top-level callout MD vs HTML inconsistency — `src/jobfit/report.py:245` short-circuit returns an HTML `<div class="jobfit-callout">` while every other failure path returns a markdown `> ⚠ …` blockquote. Works under Gradio's mixed renderer today but will surprise the next maintainer. Decision: when T16 wires the UI host, settle on one shape end-to-end (likely HTML for both) and align.
+- [product-owner] Footer callout CSS glyph — `src/jobfit/report.py:98` — `.jobfit-callout::before` prepends `⚠` via CSS. The markdown variant (`_failure_callout_md`) prepends a literal `⚠` in the rendered text. If T16's host applies the CSS class to the markdown-rendered blockquote as well, both glyphs would stack. Verify no double-glyph when T16 wires the UI.
+- [software-engineer] Cost/latency footer placeholder — `src/jobfit/report.py:222-234` — footer carries `_(cost / latency totals — populated by T15)_` until T15 lands `total_cost_usd` / `total_duration_ms` aggregate fields on `Report`. Tracked here AND in the existing t01-schemas should-fix at `backlog.md:6`.
+
+### Resolved
+- [codex / copilot] Markdown injection across user-controllable body fields (PR #1 comments 3215370284, 3215370286, 3215372762, 3215372771, 3215372785, 3215372790) — `src/jobfit/report.py` now routes every user string flowing into a markdown context through `_md()` (HTML escape then markdown-metacharacter escape: `\` `` ` `` `*` `_` `[` `]` `(` `)` `!`); `_failure_callout_md()` quotes every line with `> ⚠` (first) / `> ` (subsequent) so multi-line `StageFailure.user_message` cannot leak markdown; `_assert_bias_pair_invariant()` reads with `encoding="utf-8"` and asserts exactly one `-` and one `+` line; SOURCES.md bias-pair section uses the actual `[REDACTED UNIVERSITY]` string; `tasks/T14_render.md` Outcome reflects the actual test counts. Subsumes the prior "`Source.domain` not validated against `]`" entry — the renderer now escapes `]` defensively regardless of upstream validation.
 
 ## T11 — 2026-05-10T18:30Z
 Report: tasks/T11_dev-report.md (in feat/block-b-late-stages)

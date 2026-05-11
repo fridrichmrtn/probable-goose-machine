@@ -1,0 +1,31 @@
+Eliška Zemanová
+Head of Data — Prague, Czech Republic
+eliska.zemanova@example.cz | +420 602 119 488 | linkedin.com/in/eliskazemanovadata
+Summary
+Head of Data with 15 years across Czech retail (Rohlik) and banking (ČSOB). Built the Rohlik data org from 4 to 22 people over 4 years; owns the data-platform roadmap and board-level reporting.
+Experience
+Head of Data — Rohlik Group, Prague
+April 2022 – present (4 years)
+Built the Rohlik data organisation from 4 to 22 people across Analytics Engineering, Data Science, and ML Platform. Reports to the COO; presents quarterly to the board on data-driven margin levers.
+Led the migration from a Snowflake-only warehouse to a Snowflake + dbt + Airflow 2.9 stack with a Feast 0.40 feature store on top — 18-month programme delivered on budget; cut warehouse compute spend by 27%.
+Owns the data-org performance review framework, hiring rubric, and on-call rotation policy.
+Director of Data Science — ČSOB, Prague
+September 2018 – March 2022
+Owned the credit-risk and customer-360 modelling programmes across a 14-person team. Migrated the legacy SAS scorecards to Python on a Kubernetes serving stack in partnership with the ML platform team.
+Authored the bank's first model-risk-management policy covering documentation, monitoring, and challenger-model review — adopted by the model-risk committee in 2020.
+Head of Analytics — Mall.cz, Prague
+May 2015 – August 2018
+Built the analytics function for the retail business from scratch (3 analysts → 9 analysts). Owned the weekly executive scorecard reviewed by the CEO.
+Senior Analyst — Komerční banka, Prague
+March 2011 – April 2015
+Owned the SME-portfolio analytics workstream; built the first cohort-based attrition dashboard for the SME segment.
+Education
+Ing. (M.Sc.) in Statistics — VŠE Prague
+2008 – 2010, thesis on hierarchical Bayesian models for retail demand forecasting.
+Bc. (B.Sc.) in Economics and Management — VŠE Prague
+2005 – 2008.
+Skills
+Leadership: org design (built 22-person data org from 4), board-level reporting, hiring rubrics, performance review.
+Stack literacy: Snowflake, dbt 1.7, Airflow 2.9, Feast 0.40, Kubernetes, Python 3.11, SQL.
+Cross-functional: model-risk policy, regulator-facing documentation, vendor selection.
+Languages: Czech (native), English (C2), German (B2).
