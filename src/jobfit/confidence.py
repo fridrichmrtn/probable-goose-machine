@@ -55,6 +55,16 @@ class _TierOnly(BaseModel):
     rationale_short: str
 
 
+def _render_step_b(
+    tier: str,
+    low: int,
+    high: int,
+    currency: str,
+    period: Literal["month", "year"],
+) -> str:
+    return f"Step A tier: {tier}\nProduced range: {low}-{high} {currency}/{period}"
+
+
 async def judge(
     sources: list[Source],
     low: int,
@@ -105,9 +115,7 @@ async def judge(
             sources_count=len(sources),
         )
 
-        step_b_user = (
-            f"Step A tier: {tier_obj.tier}\nProduced range: {low}-{high} {currency}/{period}"
-        )
+        step_b_user = _render_step_b(tier_obj.tier, low, high, currency, period)
         try:
             rationale = await client.complete_text(
                 system=_STEP_B_PROMPT,
