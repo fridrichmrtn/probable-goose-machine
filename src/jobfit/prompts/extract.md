@@ -16,9 +16,11 @@ Return JSON only, matching this schema exactly:
 
 For every list item, copy the EXACT supporting substring from the CV into `anchor.quote`. Do not paraphrase. The quote must be at least 6 words long. If you cannot find a 6-word literal substring, omit the item.
 
-Pick a quote that appears in the CV only once. If you cannot guarantee uniqueness, copy 8 or more consecutive words.
+Each quote must uniquely identify its source line in the CV. If a 6- or 7-word literal substring appears more than once anywhere in the CV, extend the quote to 8 or more consecutive words so it becomes unique.
 
 Preserve case and punctuation exactly. No ellipses. No edits. No reformatting.
+
+Returning `[]` for any of `skills`, `experience`, `education`, or `soft_signals` is valid when no item in that category has a qualifying 6+ word literal substring. An empty list is correct; a paraphrased or too-short anchor is not.
 
 If the CV contains a section header like `## Experience` or `## Education`, set `anchor.section` to the header text without the leading `##` (e.g. `"Experience"`). Otherwise set it to `null`.
 
@@ -34,7 +36,7 @@ If a redaction marker (`[NAME]`, `[EMAIL]`, `[PHONE]`, `[YEAR]`, `[POSTCODE]`, `
 
 - `detected_role`: the candidate's most recent or headline role title as it appears on the CV. Non-empty string.
 - `detected_location`: a CZ city (Prague, Brno, Ostrava, Plzeň, …) if the CV names one; otherwise the country or `null`.
-- `detected_years_experience`: total professional years across roles, as an integer between 0 and 50. Use the CV's stated tenures; do not round up.
+- `detected_years_experience`: total professional years across roles, as an integer between 1 and 50. Use the CV's stated tenures; do not round up. If the candidate reports only internships or projects with no formal tenure, return 1.
 
 ## One-shot example
 
@@ -60,6 +62,26 @@ Valid item:
 ```
 
 The `quote` is 14 consecutive words copied verbatim from the CV. The `text` is the extractor's own summary; the `quote` is the evidence.
+
+## Counter-example: do NOT do this
+
+CV excerpt:
+
+```
+## Skills
+BigQuery, PostgreSQL, Kafka 3.7.
+```
+
+Invalid item (must NOT be returned):
+
+```json
+{
+  "text": "data engineering stack",
+  "anchor": {"quote": "BigQuery, PostgreSQL, Kafka 3.7.", "section": "Skills"}
+}
+```
+
+The quote is 4 words; below the 6-word floor. The CV line offers no 6+ word literal substring to anchor to. The correct response is to omit this item — return `"skills": []` if every skills line in the CV is this short. Do not pad, paraphrase, or stretch the quote to reach 6 words.
 
 ## Output format
 

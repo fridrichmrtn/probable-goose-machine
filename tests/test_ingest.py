@@ -165,9 +165,18 @@ def test_annotate_does_not_double_annotate() -> None:
 @pytest.mark.fast
 def test_observability_emits_start_and_done_for_docx_fixture() -> None:
     fixture = _FIXTURE_DIR / "01_junior_da_novotny.docx"
+    data = fixture.read_bytes()
+    # Fail loudly on unresolved LFS pointers (fresh checkout w/o `git lfs pull`
+    # or CI without `lfs: true`). Otherwise the test would surface as a cryptic
+    # zip-parse failure inside extract_text. — Copilot PR #2 finding.
+    if data.startswith(b"version https://git-lfs.github.com/"):
+        pytest.fail(
+            f"{fixture.name} is an unresolved LFS pointer. "
+            "Run `git lfs pull` (CI uses `actions/checkout@v4` with `lfs: true`)."
+        )
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        result = extract_text(fixture.read_bytes(), fixture.name)
+        result = extract_text(data, fixture.name)
     assert isinstance(result, str)
 
     starts = [e for e in events if e["event"] == "start" and e["stage"] == "ingest"]

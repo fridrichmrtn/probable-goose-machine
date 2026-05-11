@@ -209,6 +209,85 @@ def test_name_label_does_not_consume_newline_into_name_group() -> None:
     assert "Name:" in result.text
 
 
+@pytest.mark.fast
+def test_label_marker_line_does_not_block_name_redaction() -> None:
+    """Codex P1: a labelled contact line ('Email: [EMAIL]') must NOT stop the
+    header-name scan — the real name on the next line has to survive into a
+    [NAME] redaction."""
+    cv = "Email: jan.novotny@example.com\nJane Smith\nSome content"
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    assert "Jane Smith" not in result.text
+    assert "[NAME]" in result.text
+    assert "[EMAIL]" in result.text
+
+
+@pytest.mark.fast
+def test_single_line_header_with_phone_redacts_name() -> None:
+    """T08 PO backlog: a single-line CV header like 'Jan Novotný | +420 …' is
+    the most common real-world layout. After the phone pass leaves a marker,
+    the header-name pass must recover the name from the marker-decorated
+    residue and redact it (keeping the [PHONE] marker intact)."""
+    cv = "Jan Novotný | +420 777 123 456\nSenior Engineer"
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    assert "Jan Novotný" not in result.text
+    assert "[NAME]" in result.text
+    assert "[PHONE]" in result.text
+
+
+@pytest.mark.fast
+def test_all_caps_section_header_is_not_redacted_as_name() -> None:
+    """Codex P2: '_is_title_word' must reject fully-uppercase tokens, or
+    headings like 'PROFESSIONAL SUMMARY' get masked as [NAME] (corrupting
+    content AND preventing the real name from being caught later)."""
+    cv = "PROFESSIONAL SUMMARY\nJan Novotný\njan@example.com"
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    assert "PROFESSIONAL SUMMARY" in result.text
+    assert "Jan Novotný" not in result.text
+    assert "[NAME]" in result.text
+    # Only one name redaction — not the heading.
+    name_audits = [r for r in result.audit_log if r.kind == "name"]
+    assert len(name_audits) == 1
+    assert name_audits[0].original == "Jan Novotný"
+
+
+@pytest.mark.fast
+def test_labelled_url_line_does_not_match_label_as_name() -> None:
+    """A 'LinkedIn https://…' line, after the URL pass, becomes
+    'LinkedIn [URL]'. The residue ('LinkedIn') is a contact label and must NOT
+    be redacted as a name on its own."""
+    cv = "LinkedIn https://linkedin.com/in/jan-novotny\nJan Novotný"
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    assert "LinkedIn" in result.text
+    assert "[URL]" in result.text
+    assert "[NAME]" in result.text
+    assert "Jan Novotný" not in result.text
+
+
+@pytest.mark.fast
+def test_bare_cz_phone_without_separators_is_redacted() -> None:
+    """T08 PO backlog: '777123456' (9 digits, no separators) is a common CZ
+    bare-phone shape and must be caught by the CZ-bare branch of `_PHONE`."""
+    result = redact("Reach me at 777123456 today.")
+    assert isinstance(result, RedactedCV)
+    assert "777123456" not in result.text
+    assert "[PHONE]" in result.text
+    assert any(r.kind == "phone" for r in result.audit_log)
+
+
+@pytest.mark.fast
+def test_bare_cz_phone_branch_skips_zero_padded_runs() -> None:
+    """The CZ-bare branch requires a non-zero leading digit so 0-padded order
+    numbers / sequence IDs don't get masked as phone."""
+    result = redact("Order 012345678 shipped on time.")
+    assert isinstance(result, RedactedCV)
+    assert "012345678" in result.text
+    assert "[PHONE]" not in result.text
+
+
 class _BoomPattern:
     """Drop-in for `re.Pattern` whose `finditer` raises with a fixed message.
 
