@@ -209,13 +209,41 @@ _LIVE_FIXTURES = sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glo
     os.environ.get("MINIMAX_API_KEY") is None,
     reason="live tests require MINIMAX_API_KEY",
 )
+def test_live_corpus_is_present() -> None:
+    """Copilot PR #2: when MINIMAX_API_KEY is set, surface a missing/empty
+    fixture corpus or an unresolved LFS pointer as a loud failure instead of
+    a silently-empty parametrized test."""
+    fixtures = sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glob("*.docx")))
+    assert fixtures, (
+        f"No .pdf/.docx fixtures in {_FIXTURE_DIR}. Run `git lfs pull` "
+        "(CI uses `actions/checkout@v4` with `lfs: true`)."
+    )
+    for p in fixtures:
+        head = p.read_bytes()[:60]
+        assert not head.startswith(b"version https://git-lfs.github.com/"), (
+            f"{p.name} is an unresolved LFS pointer. Run `git lfs pull`."
+        )
+
+
+@pytest.mark.live
+@pytest.mark.skipif(
+    os.environ.get("MINIMAX_API_KEY") is None,
+    reason="live tests require MINIMAX_API_KEY",
+)
 @pytest.mark.parametrize(
     "fixture_path",
     _LIVE_FIXTURES,
     ids=lambda p: p.name,
 )
 async def test_extract_profile_on_fixtures(fixture_path: Path) -> None:
-    ingested = extract_text(fixture_path.read_bytes(), fixture_path.name)
+    data = fixture_path.read_bytes()
+    # Loud guard against an unresolved LFS pointer reaching extract_text.
+    if data.startswith(b"version https://git-lfs.github.com/"):
+        pytest.fail(
+            f"{fixture_path.name} is an unresolved LFS pointer. "
+            "Run `git lfs pull` (CI uses `actions/checkout@v4` with `lfs: true`)."
+        )
+    ingested = extract_text(data, fixture_path.name)
     if isinstance(ingested, StageFailure):
         pytest.fail(f"ingest failed on {fixture_path.name}: {ingested.user_message}")
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import cast
 
 from jobfit import obs
 from jobfit.errors import StageFailure, stage_boundary
@@ -47,7 +46,9 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             schema=Profile,
             model="reasoning",
         )
-        profile = cast(Profile, raw)
+        if not isinstance(raw, Profile):
+            raise TypeError(f"complete_json returned {type(raw).__name__}, expected Profile")
+        profile = raw
 
         total_dropped = 0
         total_kept = 0

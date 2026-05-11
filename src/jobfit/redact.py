@@ -6,8 +6,15 @@ is intentionally deferred (PLAN.md cuts).
 
 Limitations (known and accepted for v1):
   * Phone formats like `(420) 777 123 456` or `+1.555.123.4567` do not match.
+  * Bare phone numbers are caught only in CZ shape (9 digits, first digit
+    non-zero). Other-country bare runs without separators are missed.
+  * The 9-10 digit local-separator branch can collide with non-phone digit
+    runs like `2024-2026 123` if separated by space/dash; boundary guards
+    prevent overlap with adjacent digits but not with adjacent dashes from
+    date ranges.
   * Postcode detection requires nearby "comma + city-like word" context; bare
-    `110 00` strings are left alone.
+    `110 00` strings are left alone. Street addresses without a postcode
+    (PRD §4.7 names "address" as PII) are not covered — backlogged.
   * Year tokens are masked only when in date context (month name or range).
   * The audit-log `span` is recorded against the OUTPUT text (post-substitution),
     not the input — downstream consumers treat it as informational.
@@ -29,15 +36,19 @@ _URL: Final = re.compile(r"https?://\S+")
 
 _EMAIL: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
-# Phone — three alternatives, longest-first so CZ wins over generic int'l.
-# Boundary guards keep us out of longer digit runs (employee IDs, etc).
+# Phone — four alternatives, longest-first so CZ explicit wins over generic.
+# Boundary guards keep us out of longer digit runs (employee IDs, etc). The
+# bare 9-digit branch requires a non-zero leading digit so CZ mobile numbers
+# (start in 6/7/9) and CZ landlines (start in 2/3/4/5) match without dragging
+# in 0-padded order numbers / sequence IDs.
 _PHONE: Final = re.compile(
     r"""
-    (?<!\d)
+    (?<![\d-])
     (?:
         \+420[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{3}                  # CZ explicit
       | \+\d{1,3}[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{3,4}            # generic international
-      | \d{3}[\s-]\d{3}[\s-]\d{3,4}                             # 9-10 digit local
+      | \d{3}[\s-]\d{3}[\s-]\d{3,4}                             # 9-10 digit local with separators
+      | [1-9]\d{8}                                              # CZ bare 9-digit
     )
     (?!\d)
     """,
@@ -58,6 +69,31 @@ _POSTCODE: Final = re.compile(
 _POSTCODE_DIGITS: Final = re.compile(r"\b\d{3}\ ?\d{2}\b")
 
 _MARKER_ONLY_LINE: Final = re.compile(r"^\s*\[(EMAIL|PHONE|URL|POSTCODE|YEAR|NAME)\]\s*$")
+_MARKER_TOKEN: Final = re.compile(r"\[(?:EMAIL|PHONE|URL|POSTCODE|YEAR|NAME)\]")
+# Decorative separators commonly used in single-line CV header rows
+# (e.g. "Jan Novotný | +420 …", "Jan Novotný · prague@…").
+_HEADER_SEPARATORS: Final = ("|", "·", "•", "—", "–")
+# Contact-label words that, when they're the only residue after stripping
+# markers/separators, mean the line was already-redacted contact info, not a
+# name candidate (e.g. "LinkedIn [URL]" → residue "LinkedIn").
+_CONTACT_LABELS: Final = frozenset(
+    {
+        "email",
+        "phone",
+        "tel",
+        "mobile",
+        "linkedin",
+        "github",
+        "gitlab",
+        "website",
+        "url",
+        "twitter",
+        "x",
+        "portfolio",
+        "address",
+        "contact",
+    }
+)
 
 _MONTH: Final = (
     r"(?:January|February|March|April|May|June|July|August|September|October|"
@@ -223,10 +259,40 @@ def _replace_year(text: str, audit: list[Redaction]) -> str:
 
 
 def _is_title_word(word: str) -> bool:
-    """Accept 'Novotný', "O'Brien", 'Jean-Luc'; reject 'PhD', 'MUDr.'."""
+    """Accept 'Novotný', "O'Brien", 'Jean-Luc'; reject 'PhD', 'MUDr.', 'PROFESSIONAL'."""
     if not word or not word[0].isupper():
         return False
+    if len(word) > 1 and word.isupper():
+        return False
     return all(c.isalpha() or c in "'’-" for c in word[1:])
+
+
+def _name_residue_from_mixed_line(stripped: str) -> str | None:
+    """Recover a name candidate from a line mixing markers and separators.
+
+    Returns the residue if it looks like a name, else None. Returns None for
+    labelled contact lines ("Email: [EMAIL]"), pure label+marker rows
+    ("LinkedIn [URL]"), and rows whose residue still carries structural noise
+    (digits, commas, stray brackets).
+    """
+    # Labelled contact lines never carry a name in the value position.
+    if ":" in stripped:
+        return None
+    residue = _MARKER_TOKEN.sub(" ", stripped)
+    for sep in _HEADER_SEPARATORS:
+        residue = residue.replace(sep, " ")
+    residue = " ".join(residue.split())
+    if not residue:
+        return None
+    # Residual structural noise → not a clean name candidate.
+    if "[" in residue or "]" in residue or "," in residue:
+        return None
+    if any(ch.isdigit() for ch in residue):
+        return None
+    words = residue.split()
+    if len(words) == 1 and words[0].lower() in _CONTACT_LABELS:
+        return None
+    return residue
 
 
 def _redact_header_name(text: str, audit: list[Redaction]) -> str:
@@ -234,9 +300,11 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
 
     Skips obvious section headers (denylist) so a CV starting with "Curriculum
     Vitae" still gets its real name redacted from a later line. Skips lines
-    that are entirely a redaction marker (earlier passes may have replaced an
-    email/phone/URL on the first non-blank line). Bails on any non-marker line
-    containing structural disqualifiers (commas, digits, stray `[`).
+    that are entirely a redaction marker, and continues past mixed lines made
+    of label+marker decoration (e.g. "Email: [EMAIL]", "LinkedIn [URL]").
+    For lines that mix a name with markers/separators (e.g.
+    "Jan Novotný | [PHONE]"), extracts the name residue and masks only that
+    span.
     """
     lines = text.split("\n")
     for i, line in enumerate(lines):
@@ -245,11 +313,46 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
             continue
         if _MARKER_ONLY_LINE.match(stripped):
             continue
-        # Bail on anything that already contains a marker, comma, digit, or
-        # other structural disqualifier.
+
+        has_marker = bool(_MARKER_TOKEN.search(stripped))
+        if has_marker:
+            residue = _name_residue_from_mixed_line(stripped)
+            if residue is None:
+                # Labelled / decoration-only contact line — keep scanning.
+                continue
+            if residue.lower() in _HEADER_DENYLIST:
+                continue
+            words = residue.split()
+            if not (1 <= len(words) <= 4) or not all(_is_title_word(w) for w in words):
+                continue
+            # Mask only the residue span inside the line; leave markers intact.
+            idx = line.find(residue)
+            if idx < 0:
+                continue
+            new_line = line[:idx] + "[NAME]" + line[idx + len(residue) :]
+            prefix_lines = lines[:i]
+            prefix_text = "\n".join(prefix_lines)
+            prefix_len = len(prefix_text) + (1 if prefix_lines else 0)
+            name_span_start = prefix_len + idx
+            audit.append(
+                Redaction(
+                    kind="name",
+                    original=residue,
+                    replacement="[NAME]",
+                    span=(name_span_start, name_span_start + len("[NAME]")),
+                )
+            )
+            lines[i] = new_line
+            return "\n".join(lines)
+
+        # No markers on this line — original strict gate.
         if "[" in stripped or "," in stripped or any(ch.isdigit() for ch in stripped):
             return text
         if stripped.lower() in _HEADER_DENYLIST:
+            continue
+        # All-uppercase lines (e.g. "PROFESSIONAL SUMMARY") are section
+        # headings, not names; skip past them rather than bailing the scan.
+        if stripped.isupper():
             continue
         words = stripped.split()
         if not (1 <= len(words) <= 4):
@@ -257,17 +360,13 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
         if not all(_is_title_word(w) for w in words):
             return text
 
-        # Compute the span of the name within the line (preserving any leading
-        # whitespace), then rewrite the line.
         leading_ws_len = len(line) - len(line.lstrip())
         name_start_in_line = leading_ws_len
         name_end_in_line = name_start_in_line + len(stripped)
         new_line = line[:name_start_in_line] + "[NAME]" + line[name_end_in_line:]
 
-        # Reconstruct full text and compute audit span (output-relative).
         prefix_lines = lines[:i]
         prefix_text = "\n".join(prefix_lines)
-        # +1 for the newline separator after prefix_lines (only if non-empty).
         prefix_len = len(prefix_text) + (1 if prefix_lines else 0)
         name_span_start = prefix_len + name_start_in_line
         audit.append(
