@@ -1,0 +1,25 @@
+Jana Králová
+Machine Learning Engineer — Brno, Czech Republic
+jana.kralova@example.cz | +420 731 224 556 | linkedin.com/in/janakralovaml
+Summary
+Machine Learning Engineer with 6 years of experience taking DS prototypes into production at Slido and Avast. Owns the training-to-serving handoff: model packaging, online inference, monitoring, and rollback.
+Experience
+Machine Learning Engineer — Slido (Cisco), Brno
+April 2022 – present (4 years)
+Owns the real-time poll-classification service powering the Slido Q&A moderation feature for 40k concurrent attendees. Stack: PyTorch 2.3, FastAPI, Kubernetes 1.29, deployed via Argo Rollouts with automatic canary on online accuracy.
+Migrated the training pipeline from notebooks to a Kubeflow Pipelines 2.1 setup, cutting retrain wall-clock from 9 hours to 70 minutes and giving the DS team self-serve rollback.
+Wrote the team's first online-eval playbook covering shadow traffic, A/B power-analysis, and rollback criteria.
+Machine Learning Engineer — Avast, Prague
+September 2020 – March 2022
+Built the model-packaging tooling for the threat-intel team: a Python 3.10 CLI wrapping ONNX export, signature checks, and Docker image build. Cut the median model-to-staging lead time from 6 days to 11 hours.
+Junior ML Engineer — Avast, Prague
+July 2019 – August 2020
+On-call rotation for the malware-classifier serving stack; wrote the first runbook for the 'classifier latency spike' incident class.
+Education
+Ing. (M.Sc.) in Computer Science — ČVUT FEL, Prague
+2017 – 2019, focus on distributed systems.
+Bc. (B.Sc.) in Computer Science — ČVUT FEL, Prague
+2014 – 2017.
+Skills
+Python 3.11, PyTorch 2.3, FastAPI, Kubernetes 1.29, Argo Rollouts, Kubeflow Pipelines 2.1, ONNX, Docker, PostgreSQL, Prometheus, Grafana.
+Languages: Czech (native), English (C1), Slovak (fluent).

@@ -1,0 +1,27 @@
+Eva Pokorná
+Senior NLP Data Scientist — Prague, Czech Republic
+eva.pokorna@example.cz | +420 723 916 044 | linkedin.com/in/evapokornanlp
+Summary
+NLP-focused Data Scientist with 8 years of experience fine-tuning Czech and English language models for information-extraction and classification tasks. Owns the labelling-to-deployment loop end-to-end.
+Experience
+Senior NLP Data Scientist — Datamole, Prague
+May 2022 – present (4 years)
+Leads the Czech NER fine-tuning programme on top of the Seznam-released Small-E-Czech BERT base — domain-specific models for agritech invoices and pharma adverse-event reports. F1 on the agritech holdout: 0.918 (baseline 0.74).
+Built the labelling-platform integration with Label Studio 1.13 and the export-to-HuggingFace-datasets pipeline; cut the median labelling-to-training-set lead time from 11 days to 3 days.
+Mentored 2 junior NLP engineers and ran the bi-weekly model review.
+NLP Data Scientist — Seznam.cz, Prague
+February 2020 – April 2022
+Owned the Search-Suggest reranker model on top of the Seznam fulltext index; combined a BM25 baseline with a fine-tuned XLM-R model, lifting suggest-acceptance rate by 8.4% over a 60-day A/B test.
+Data Scientist — Seznam.cz, Prague
+October 2018 – January 2020
+Built the spam-classifier retraining pipeline for Email.cz (spaCy 3.0 + scikit-learn 1.0). Reduced false-positive rate from 1.8% to 0.9%.
+Education
+Ph.D. (incomplete, 2 years) in Computational Linguistics — MUNI Brno, 2016 – 2018; left to take the Seznam.cz role.
+Mgr. (M.A.) in Computational Linguistics — MUNI Brno
+2014 – 2016.
+Bc. (B.A.) in Linguistics — MUNI Brno
+2011 – 2014.
+Skills
+Python 3.11, HuggingFace transformers 4.41, spaCy 3.7, PyTorch 2.3, scikit-learn 1.5, Label Studio 1.13, MLflow 2.10, PostgreSQL, BigQuery.
+Czech NLP specifics: Small-E-Czech BERT, RobeCzech, Czech-language NER and POS tagging.
+Languages: Czech (native), English (C2), German (B2), Slovak (fluent).

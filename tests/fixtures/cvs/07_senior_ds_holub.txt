@@ -1,0 +1,48 @@
+David Holub
+Senior Data Scientist · Prague, Czech Republic
+david.holub@example.cz · +420 602 778 119 · linkedin.com/in/davidholubds
+Summary
+Senior Data Scientist with 10 years of experience in Czech banking and insurance: credit-risk,
+survival analysis, and model-explainability for regulator-facing reports. Currently leads a
+4-person DS team at Komerční banka.
+Experience
+Senior Data Scientist — Komerční banka, Prague
+March 2021 – present (5 years)
+Leads a 4-person Data Science team owning the SME credit-risk scorecard programme.
+Migrated the legacy logistic scorecard to a LightGBM 3.3 stack with SHAP explanations,
+retaining model interpretability for the CNB regulator while lifting AUC from 0.72 to 0.79.
+Built the survival-analysis model for early-warning signals on the SME portfolio (lifelines 0.27,
+Cox PH), flagging at-risk accounts 38 days earlier on average than the previous rules-based
+system.
+Owns the model-documentation template the risk-management team submits to the regulator;
+co-authored with the chief risk officer.
+Data Scientist — Generali Česká, Prague
+September 2017 – February 2021
+Built the motor-insurance pricing model (GLM + GBM ensemble, scikit-learn 0.24) for the
+Czech retail book; improved combined ratio by 2.1 pp over the prior pricing engine on a
+12-month holdout.
+Mentored 2 junior data scientists.
+Junior Data Scientist — Generali Česká, Prague
+October 2015 – August 2017
+Built the fraud-detection rule-mining tooling on top of PostgreSQL; flagged a recurring
+staged-collision pattern that recovered 4.2 MCZK in disallowed claims in 2016.
+Education
+Ing. (M.Sc.) in Statistics and Econometrics — VŠE Prague
+2013 – 2015, thesis on survival analysis for retail credit.
+Bc. (B.Sc.) in Quantitative Methods — VŠE Prague
+2010 – 2013.
+Skills
+Python 3.11, scikit-learn 1.5, LightGBM 3.3, XGBoost 1.7, SHAP 0.45, lifelines 0.27,
+statsmodels 0.14, PostgreSQL, SAS (legacy), Git.
+Leadership: team lead (4 DS), regulator-facing documentation, model-risk-management
+partnership.
+Languages: Czech (native), English (C1), German (A2).
+Selected projects
+
+David Holub
+Senior Data Scientist · Prague, Czech Republic
+david.holub@example.cz · +420 602 778 119 · linkedin.com/in/davidholubds
+SME scorecard migration (KB, 2023) — see Experience; AUC 0.72 → 0.79 with
+SHAP-based regulator documentation.
+Early-warning survival model (KB, 2024) — 38-day lead time over the rules-based
+baseline.

@@ -1,0 +1,37 @@
+Lukáš Horák
+Data Scientist · Prague, Czech Republic
+lukas.horak@example.cz · +420 605 318 921 · linkedin.com/in/lukashorakds
+Summary
+Data Scientist with 5 years of mid-level experience across Czech e-commerce and search.
+Owns end-to-end model lifecycle from problem framing to monitoring; comfortable shipping
+classical ML in production and partnering with ML engineers on the platform side.
+Experience
+Data Scientist — Mall.cz, Prague
+August 2023 – present
+Led the customer churn model retraining for Mall.cz, reducing 30-day churn by 11% on the
+loyalty-program cohort via a re-targeted email-frequency policy. Stack: Python 3.11,
+scikit-learn 1.4, MLflow 2.7, PostgreSQL 15.
+Built the basket-level demand-forecasting model for the grocery vertical (LightGBM 3.3,
+weekly retraining on Airflow 2.9), cutting forecast MAPE on top-200 SKUs from 24% to 17%.
+Data Scientist — Seznam.cz, Prague
+June 2021 – July 2023
+Owned the click-prediction model for the Zboží.cz product feed (XGBoost 1.7, 220M rows
+daily). Lifted top-3 CTR by 6.8% in a 30-day A/B against the previous logistic baseline.
+Ran the weekly modelling review and onboarded 2 junior data scientists.
+Junior Data Scientist — Seznam.cz, Prague
+September 2020 – May 2021
+Built the spam-classifier evaluation harness for the Email.cz inbox-zero feature; flagged a
+labelling drift in the held-out set that the senior team had been chasing for two sprints.
+Education
+Ing. (M.Sc.) in Computer Science — ČVUT FIT, Prague
+2018 – 2020, focus on machine learning.
+Bc. (B.Sc.) in Computer Science — ČVUT FIT, Prague
+2015 – 2018.
+Skills
+Python 3.11, scikit-learn 1.4, XGBoost 1.7, LightGBM 3.3, MLflow 2.7, PostgreSQL 15,
+BigQuery, Airflow 2.9, Git, Docker.
+Languages: Czech (native), English (C1), German (B1).
+Selected projects
+Churn 2024 (Mall.cz) — see Experience; 11% 30-day churn reduction on the loyalty cohort.
+Zboží click-ranker (Seznam.cz, 2022) — XGBoost retraining pipeline; +6.8% top-3 CTR on
+the product feed.
