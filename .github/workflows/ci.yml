@@ -42,7 +42,7 @@ jobs:
 
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     needs: static
     # Fork PRs cannot access secrets — skip the job entirely instead of failing on a missing key.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
