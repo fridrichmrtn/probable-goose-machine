@@ -222,3 +222,53 @@ None.
 
 ### Nits
 None.
+## T08-implement-l2-pii-redaction — 2026-05-10T19:00Z
+Report: tasks/T08_dev-report.md (in feat/block-a-early-stages)
+
+### Should-fix
+- [codex] src/jobfit/redact.py:294 — audit-log spans drift when later passes shorten text before earlier replacements; spans point at wrong final-output offsets in multi-pass cases.
+- [RESOLVED 2026-05-11 — PR-burst heal] [product-owner] src/jobfit/redact.py:228-276 — header-name pass bails on common single-line headers like `Jan Novotný | +420 777 …` (digit/comma in first line). Real CV layout, silent miss. → `_redact_header_name` now extracts a name residue from marker-decorated lines via `_name_residue_from_mixed_line`; pinned by `test_single_line_header_with_phone_redacts_name`.
+- [RESOLVED 2026-05-11 — PR-burst heal] [product-owner] src/jobfit/redact.py:34-45 — `_PHONE` requires separators for the 9-10 digit local branch; bare `777123456` is not matched. → Added CZ-bare branch `[1-9]\d{8}` (non-zero leading digit to skip 0-padded IDs); pinned by `test_bare_cz_phone_without_separators_is_redacted` + `test_bare_cz_phone_branch_skips_zero_padded_runs`.
+- [product-owner] PRD §4.7 lists "address" as PII; redaction covers only CZ postcode digits. Bare street lines (`Korunní 12, Praha 4` without postcode) leave the address intact.
+- [product-owner] tasks/T08_redact.md:75-82 — Outcome §Known limitations omits the header-name bail-out and the address coverage gap; reads more confident than the implementation warrants.
+- [hiring-manager] src/jobfit/redact.py:12-13 — audit-log `span` is recorded OUTPUT-relative; the design choice makes spans useless to consumers who want to highlight redacted regions on input. Input-relative spans were trivially available.
+- [hiring-manager] src/jobfit/redact.py:154-183 — postcode `original` is only the digit run; the comma+city envelope that triggered the redaction is dropped, so an auditor can't see why this `110 00` was redacted when another wasn't.
+- [hiring-manager] src/jobfit/redact.py:34-45 — `_PHONE` third alternative `\d{3}[\s-]\d{3}[\s-]\d{3,4}` can eat digit runs that resemble date sequences; risk not disclosed in Outcome §Known limitations.
+- [hiring-manager] tests/test_redact.py:80-89 — the test labelled "idempotency_existing_markers" only verifies non-duplication in a single pass. The two-pass test below it is the real idempotency check; the first is misnamed.
+- [hiring-manager] src/jobfit/redact.py:269 — `original=stripped` for the header-name path records the whole stripped line as the matched name; coupling to structural validation is implicit.
+- [qa-engineer] tests/test_redact.py:91-104 — `audit_log == []` on second pass is over-strict; asserts an implementation detail (zero new entries) rather than the contract (no double-redaction). A future audit refinement could break this test for no user-visible reason.
+- [qa-engineer] tests/test_redact.py — no negative tests for email/URL/phone: `email@` (no TLD), `https:foo` (malformed URL), `123456` or `EMP-12-345-6789` (should NOT match phone). Boundary guards in the regex are unpinned.
+- [qa-engineer] tests/test_redact.py — no regression test for the documented phone limitations (`(420) 777 …`, `+1.555.…`, `00420 …`); the limitation is undefended against accidental over-matching.
+- [qa-engineer] tests/test_redact.py — `_YEAR_BARE` is never exercised by a test; a bare `2018` outside a date context should be kept, but no assertion pins that boundary. Year over-redaction is the most likely regression target.
+- [qa-engineer] tasks/T08_redact.md:23 — task contract still says spans are recorded with `original, replacement, span`; outcome clarifies OUTPUT-relative + "informational", but no test asserts `result.text[span[0]:span[1]] == replacement`. Downstream consumers (T15) need that pinned.
+
+### Nits
+- [product-owner] src/jobfit/redact.py:60-63 — Czech month names (`leden`, `únor`, …) not in `_MONTH`; CZ-language CVs get years masked only via the range branch.
+- [product-owner] src/jobfit/redact.py:111-151 — schema `Redaction.span` has no docstring stating output-relative; a consumer reading the schema in isolation will assume input-relative.
+- [hiring-manager] src/jobfit/redact.py:321-322 — `assert cm.failure is not None; return cm.failure` is defensive copy from `ingest.py`; the contract is already in `stage_boundary`.
+- [hiring-manager] src/jobfit/redact.py:60-63 — `Sept` listed after `Sep` in `_MONTH` alternation; works only because of regex backtracking.
+- [hiring-manager] src/jobfit/redact.py:198 — `year_m` and `m` in the same function with similar purpose; minor naming friction.
+- [hiring-manager] tests/test_redact.py:186-191 — `test_fixture_corpus_present` is slow-marked but doesn't do IO worth marking; would be more useful as a fast test that fails CI without `-m slow`.
+- [hiring-manager] src/jobfit/redact.py:302-318 — counts dict keyed by string; if `RedactionKind` ever gains a member, the count silently misses.
+- [qa-engineer] tests/test_redact.py:80-89 — mixes existing-marker and fresh-PII inputs in one test; two separate tests would localize failure.
+
+
+## T09-senior-fixture-anchor-survival — 2026-05-11T00:00Z
+Report: tasks/T09_extract.md (Outcome section)
+
+### Should-fix
+- [RESOLVED 2026-05-11 — PR-burst heal] [ai-ml-engineer] src/jobfit/prompts/extract.md — senior fixture anchor-survival rate is unstable on MiniMax-M2.7-highspeed at 0-temperature: 5 runs returned 60% / 85% / 85% / 92% / 100%. The 60% outlier comes from the model emitting 4-word skill summaries (e.g. `"BigQuery, PostgreSQL, Kafka 3.7."`) that violate the prompt's 6-word literal-substring rule. → Added an explicit counter-example block to `extract.md` showing the exact failure mode (a 4-word skill quote) and the correct response (omit / return `[]`). 5-run re-measurement is a follow-up; tracked here.
+
+### Defer (cross-cutting)
+- [qa-engineer] cross-cutting — failure path should emit a duration event. `stage_boundary` currently emits only an `error` event on failure, no matching `done`/`duration_ms`. T07/T08/T09 all follow the same pattern. Address uniformly at the boundary, not per-stage.
+
+### Defer (T09 reviewer findings, must-fix not in heal scope)
+- [RESOLVED 2026-05-11 — PR-burst heal] [ai-ml-engineer] src/jobfit/prompts/extract.md — prompt nits: `[]` empty-list clause added; uniqueness wording softened to "extend to 8+ words if a 6-7 word substring repeats"; years range reconciled to 1-50 with explicit guidance for internship-only candidates (matches the test's `0 < years < 50` gate).
+- [RESOLVED 2026-05-11 — PR-burst heal] [hiring-manager] src/jobfit/extract.py:50 — `cast(Profile, raw)` removed; replaced with an `isinstance(raw, Profile)` runtime guard that raises `TypeError` on mismatch (so mypy gets the narrowing AND the failure surfaces as a `StageFailure` via `stage_boundary`).
+- [RESOLVED 2026-05-11 — PR-burst heal] [hiring-manager] tests/test_extract.py:155 — added `test_live_corpus_is_present` which fails loudly when `MINIMAX_API_KEY` is set but the fixture directory is empty or contains LFS pointers; the parametrized test also gains a per-file LFS-pointer guard.
+
+### PR-burst items (2026-05-11)
+- [RESOLVED 2026-05-11] [codex P1 — PR #2] src/jobfit/redact.py:251 — `_redact_header_name` now distinguishes labelled-marker lines (skip) from name+marker mixed lines (extract residue, redact only the name). Pinned by `test_label_marker_line_does_not_block_name_redaction`, `test_single_line_header_with_phone_redacts_name`, `test_labelled_url_line_does_not_match_label_as_name`.
+- [RESOLVED 2026-05-11] [codex P2 — PR #2] src/jobfit/redact.py:229 — `_is_title_word` now rejects fully-uppercase multi-char tokens; outer header-name scan now `continue`s past all-caps lines instead of bailing. Pinned by `test_all_caps_section_header_is_not_redacted_as_name`.
+- [RESOLVED 2026-05-11] [copilot — PR #2] tests/test_ingest.py:166 — `test_observability_emits_start_and_done_for_docx_fixture` now fails with an explicit "unresolved LFS pointer" message instead of a cryptic zip-parse error on local fresh-checkouts. CI already has `lfs: true`.
+- [RESOLVED 2026-05-11] [copilot — PR #2] tests/test_extract.py — new `test_live_corpus_is_present` plus per-file LFS-pointer guard inside `test_extract_profile_on_fixtures`. Silent empty-glob is now a loud failure when `MINIMAX_API_KEY` is set.
