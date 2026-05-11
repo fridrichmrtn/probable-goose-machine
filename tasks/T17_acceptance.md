@@ -31,7 +31,7 @@ Encode PRD §5 in `pytest tests/test_acceptance.py`. If this passes against the 
   - `test_score_calibration(reports)` — *separate from the session fixture*: re-runs the mid CV 3× with `temperature=0`, asserts `max(scores) - min(scores) <= 5`.
   - `test_all_claims_substring_verified(reports)` — walks every `anchor.quote` in every report (Profile items, Score components, Growth actions); each must pass `verify_quote` against the corresponding source CV's redacted text.
   - `test_per_run_cost_budget(reports)` — sum of `usd_cost` events per pipeline run is < $0.05 (or < $0.02 when `JOBFIT_MODEL_PROFILE=ci`). README quotes both numbers.
-- [ ] After acceptance tests run successfully once, **save the growth-plan items** of the 3 fixtures to `tests/fixtures/growth_baseline.json` (used by T13's runtime n-gram smoke check).
+- [ ] After acceptance tests run successfully once, **save the growth-plan items** of the 3 fixtures to `src/jobfit/data/growth_baseline.json` (used by T13's runtime n-gram smoke check; baseline lives inside the package so wheel installs keep the check wired).
 
 ## Verification
 

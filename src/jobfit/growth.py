@@ -49,7 +49,10 @@ _BAN_PHRASES: tuple[str, ...] = (
 )
 
 _BOILERPLATE_JACCARD_THRESHOLD = 0.6
-_BASELINE_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "growth_baseline.json"
+# Baseline lives inside the package so a wheel install keeps the smoke check wired.
+# T17 owns the contents (writes the file after acceptance tests run); the runtime
+# treats a missing file as "no baseline" via the `growth_baseline_missing` event.
+_BASELINE_PATH = Path(__file__).parent / "data" / "growth_baseline.json"
 
 
 class _GrowthList(BaseModel):

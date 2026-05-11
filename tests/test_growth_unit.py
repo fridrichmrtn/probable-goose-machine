@@ -864,3 +864,18 @@ async def test_plan_growth_returns_stage_failure_on_unexpected_error(
     assert result.user_message == "Could not generate this section reliably"
     failure_evt = next(e for e in events if e["event"] == "stage_failure")
     assert failure_evt["reason"] == "unexpected_error"
+
+
+@pytest.mark.fast
+def test_baseline_path_lives_inside_package() -> None:
+    """The smoke-check baseline must live inside `src/jobfit/` so a packaged
+    wheel install keeps the path resolvable. Pointing at `tests/fixtures/...`
+    would silently lose the boilerplate check on any non-source distribution.
+    Closes Copilot finding on growth.py:53.
+    """
+    baseline = growth_mod._BASELINE_PATH
+    assert baseline.name == "growth_baseline.json"
+    assert baseline.parent.name == "data"
+    assert baseline.parent.parent.name == "jobfit"
+    # tests/ directory must NOT appear anywhere in the runtime path.
+    assert "tests" not in baseline.parts
