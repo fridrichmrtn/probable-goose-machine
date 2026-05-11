@@ -3,10 +3,13 @@ from __future__ import annotations
 import inspect
 import os
 import re
+from typing import Any
 
 import pytest
 
-from jobfit.confidence import _render_step_b, judge
+from jobfit.confidence import _STEP_B_PROMPT, _render_step_b, judge
+from jobfit.errors import StageFailure
+from jobfit.obs import subscribe
 from jobfit.schemas import Confidence, Source
 
 _LIVE_SKIPIF = pytest.mark.skipif(
@@ -67,18 +70,30 @@ def _sources_three_disagreeing() -> list[Source]:
 
 @pytest.mark.fast
 def test_judge_signature_is_isolated() -> None:
-    params = set(inspect.signature(judge).parameters.keys())
+    sig = inspect.signature(judge)
+    params = set(sig.parameters.keys())
     assert params == {"sources", "low", "high", "currency", "period"}, (
         "judge() must not accept estimator reasoning, profile, or score — leakage channel"
     )
+    for p in sig.parameters.values():
+        assert p.kind not in (
+            inspect.Parameter.VAR_KEYWORD,
+            inspect.Parameter.VAR_POSITIONAL,
+        ), f"judge() must not accept **kwargs/*args — leakage channel via {p.name}"
 
 
 @pytest.mark.fast
 def test_step_b_does_not_see_estimator_reasoning() -> None:
     rendered = _render_step_b("Low", 100000, 200000, "CZK", "month").lower()
-    assert "estimator" not in rendered
-    assert "reasoning" not in rendered
-    assert "profile" not in rendered
+    for token in ("estimator", "reasoning", "profile"):
+        assert token not in rendered, f"{token!r} leaked into Step B user message"
+    # The system prompt is a static template; it must not name the upstream
+    # leakage channels ("estimator", "profile"). "reasoning" is excluded here
+    # because the prompt legitimately describes Step A as a "reasoning step"
+    # (meta-reference to the prior LLM call, not estimator content).
+    system = _STEP_B_PROMPT.lower()
+    for token in ("estimator", "profile"):
+        assert token not in system, f"{token!r} leaked into Step B system prompt"
 
 
 @pytest.mark.live
@@ -90,6 +105,9 @@ async def test_step_a_high_with_three_agreeing_sources() -> None:
         high=110000,
         currency="CZK",
         period="month",
+    )
+    assert not isinstance(result, StageFailure), (
+        f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"
     )
     assert isinstance(result, Confidence)
     assert result.tier == "High"
@@ -105,6 +123,9 @@ async def test_step_a_low_with_one_source() -> None:
         currency="CZK",
         period="month",
     )
+    assert not isinstance(result, StageFailure), (
+        f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"
+    )
     assert isinstance(result, Confidence)
     assert result.tier == "Low"
 
@@ -119,6 +140,9 @@ async def test_step_a_low_with_disagreeing_sources() -> None:
         currency="CZK",
         period="month",
     )
+    assert not isinstance(result, StageFailure), (
+        f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"
+    )
     assert isinstance(result, Confidence)
     assert result.tier == "Low"
 
@@ -126,13 +150,23 @@ async def test_step_a_low_with_disagreeing_sources() -> None:
 @pytest.mark.live
 @_LIVE_SKIPIF
 async def test_step_b_cannot_override_step_a_low() -> None:
-    result = await judge(
-        sources=_sources_single(),
-        low=100000,
-        high=110000,
-        currency="CZK",
-        period="month",
+    # The regenerate-or-fallback path means _LOW_FALLBACK_RATIONALE also contains
+    # "insufficient", so the keyword check alone cannot prove Step B actually ran.
+    # We subscribe to obs events and require a `confidence_step_b` event so an
+    # upstream short-circuit (Step A only) would fail this test.
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await judge(
+            sources=_sources_single(),
+            low=100000,
+            high=110000,
+            currency="CZK",
+            period="month",
+        )
+    assert not isinstance(result, StageFailure), (
+        f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"
     )
     assert isinstance(result, Confidence)
     assert result.tier == "Low"
     assert re.search(r"insufficient|disagree", result.rationale, re.I)
+    next(e for e in events if e["event"] == "confidence_step_b")
