@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -18,19 +19,25 @@ from jobfit.schemas import Profile, SalaryEstimate, Source
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "salary.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 
-_CZ_MARKERS = ("czech", "cz", "praha", "prague", "brno", "ostrava")
+# Word-boundary token match — substring "cz" inside "Aczland" or "Czeladz" must
+# not flip CZ detection. Tokens are matched case-insensitively against any
+# letter-bounded run in the location string.
+_CZ_TOKEN_PATTERN = re.compile(
+    r"\b(?:czech|cz|praha|prague|brno|ostrava)\b",
+    re.IGNORECASE,
+)
 
-# PRD §4.6 canonical user-facing copy for any salary failure. The four logical
-# failure branches differ only in their structured event reason + debug_detail;
-# the reviewer-visible string is always this one.
+# PRD §4.6 canonical user-facing copy for any salary failure. Every escape
+# branch (search transport error, LLM transport error, parse failure, logical
+# failure) surfaces this string; differentiation lives in structured
+# `stage_failure.reason` events + `debug_detail`.
 _INSUFFICIENT_DATA_MSG = "Insufficient market data for this profile"
 
 
 def _is_cz_location(location: str | None) -> bool:
     if not location:
         return True
-    lower = location.lower()
-    return any(marker in lower for marker in _CZ_MARKERS)
+    return bool(_CZ_TOKEN_PATTERN.search(location))
 
 
 def build_queries(profile: Profile) -> list[str]:
@@ -128,7 +135,25 @@ async def search(queries: list[str]) -> list[Source]:
 async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
     async with stage_boundary("salary") as cm:
         queries = build_queries(profile)
-        sources = await search(queries)
+
+        try:
+            sources = await search(queries)
+        except Exception as exc:
+            # Catches every search escape path (tenacity-exhausted transport errors,
+            # the deliberate `<2 sources` RuntimeError, anything else) so the
+            # user-facing string never falls back to `stage_boundary`'s `str(exc)`
+            # default, which would leak ddgs/tenacity internals.
+            emit(
+                "salary",
+                "stage_failure",
+                reason="search_error",
+                exc_type=type(exc).__name__,
+            )
+            return StageFailure(
+                stage="salary",
+                user_message=_INSUFFICIENT_DATA_MSG,
+                debug_detail=f"{type(exc).__name__}: {exc}",
+            )
 
         client = LLMClient()
         user_payload = json.dumps(
@@ -141,13 +166,26 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 "results": [s.model_dump(mode="json") for s in sources],
             }
         )
-        estimate = await client.complete_json(
-            system=_SYSTEM_PROMPT,
-            user=user_payload,
-            schema=SalaryEstimate,
-            model="reasoning",
-            temperature=0.0,
-        )
+        try:
+            estimate = await client.complete_json(
+                system=_SYSTEM_PROMPT,
+                user=user_payload,
+                schema=SalaryEstimate,
+                model="reasoning",
+                temperature=0.0,
+            )
+        except Exception as exc:
+            emit(
+                "salary",
+                "stage_failure",
+                reason="llm_error",
+                exc_type=type(exc).__name__,
+            )
+            return StageFailure(
+                stage="salary",
+                user_message=_INSUFFICIENT_DATA_MSG,
+                debug_detail=f"{type(exc).__name__}: {exc}",
+            )
         if not isinstance(estimate, SalaryEstimate):
             emit(
                 "salary",
@@ -161,8 +199,19 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 debug_detail=f"complete_json returned {type(estimate).__name__}",
             )
 
-        input_urls = {str(s.url) for s in sources}
-        kept = [s for s in estimate.sources if str(s.url) in input_urls]
+        # Verify every emitted source against the inputs by URL AND replace the
+        # snippet/domain with the actual DDG-returned values. The LLM is allowed
+        # to surface a subset of the input URLs, but it can never invent the
+        # snippet text or domain field — those flow back from `sources` so that
+        # `confidence.judge` downstream consumes only data the search actually
+        # produced. Closes the fabrication channel flagged by codex P1.
+        input_sources_by_url = {str(s.url): s for s in sources}
+        kept: list[Source] = []
+        for est_src in estimate.sources:
+            matched = input_sources_by_url.get(str(est_src.url))
+            if matched is None:
+                continue
+            kept.append(matched)
         dropped = len(estimate.sources) - len(kept)
         if dropped:
             emit(

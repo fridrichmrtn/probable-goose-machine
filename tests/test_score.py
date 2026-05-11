@@ -137,6 +137,79 @@ async def test_score_returns_stage_failure_when_anchor_unverifiable(
     assert failure_evt["missing"] == ["education"]
 
 
+@pytest.mark.fast
+async def test_score_returns_stage_failure_when_llm_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redacted = RedactedCV(text="## Skills\nPython, PyTorch, async pipelines.\n", audit_log=[])
+    item = ProfileItem(text="x", anchor=Anchor(quote="x"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="engineer",
+        detected_location=None,
+        detected_years_experience=5,
+    )
+
+    async def raising_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        raise RuntimeError("minimax 429 throttled")
+
+    monkeypatch.setattr(LLMClient, "complete_json", raising_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(redacted, profile)
+
+    # PRD §4.6 verbatim copy for generation failures — the bare `assert isinstance`
+    # used to smuggle the LLM's exception text into the user_message via
+    # stage_boundary's `str(exc)` default. Closes Copilot finding on score.py:51.
+    assert isinstance(result, StageFailure)
+    assert result.stage == "score"
+    assert result.user_message == "Could not generate this section reliably"
+
+    failure_evt = next(e for e in events if e["event"] == "stage_failure")
+    assert failure_evt["stage"] == "score"
+    assert failure_evt["reason"] == "llm_error"
+    assert failure_evt["exc_type"] == "RuntimeError"
+
+
+@pytest.mark.fast
+async def test_score_returns_stage_failure_on_invalid_llm_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redacted = RedactedCV(text="## Skills\nPython, PyTorch.\n", audit_log=[])
+    item = ProfileItem(text="x", anchor=Anchor(quote="x"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="engineer",
+        detected_location=None,
+        detected_years_experience=5,
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return {"components": []}  # plain dict, not a `_ComponentList`
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(redacted, profile)
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "score"
+    assert result.user_message == "Could not generate this section reliably"
+    failure_evt = next(e for e in events if e["event"] == "stage_failure")
+    assert failure_evt["reason"] == "invalid_llm_output"
+    assert failure_evt["got_type"] == "dict"
+
+
 @pytest.mark.live
 async def test_junior_fixture_scores_below_40() -> None:
     cv_text = JUNIOR_FIXTURE.read_text(encoding="utf-8")

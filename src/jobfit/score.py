@@ -13,6 +13,11 @@ from jobfit.verify import verify_quote
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "score.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 
+# PRD §4.6 verbatim copy for model-output failures (transport error, parse failure).
+# The logical `missing_categories` path keeps its more specific message because it
+# describes a CV/model alignment problem, not a generation failure.
+_GENERATION_FAILURE_MSG = "Could not generate this section reliably"
+
 
 class _ComponentList(BaseModel):
     """LLM response envelope: ``{"components": [Component, ...]}``.
@@ -40,14 +45,38 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
         client = LLMClient()
         user_message = _build_user_message(redacted, profile)
 
-        raw = await client.complete_json(
-            system=_SYSTEM_PROMPT,
-            user=user_message,
-            schema=_ComponentList,
-            model="reasoning",
-            temperature=0.0,
-        )
-        assert isinstance(raw, _ComponentList)
+        try:
+            raw = await client.complete_json(
+                system=_SYSTEM_PROMPT,
+                user=user_message,
+                schema=_ComponentList,
+                model="reasoning",
+                temperature=0.0,
+            )
+        except Exception as exc:
+            emit(
+                "score",
+                "stage_failure",
+                reason="llm_error",
+                exc_type=type(exc).__name__,
+            )
+            return StageFailure(
+                stage="score",
+                user_message=_GENERATION_FAILURE_MSG,
+                debug_detail=f"{type(exc).__name__}: {exc}",
+            )
+        if not isinstance(raw, _ComponentList):
+            emit(
+                "score",
+                "stage_failure",
+                reason="invalid_llm_output",
+                got_type=type(raw).__name__,
+            )
+            return StageFailure(
+                stage="score",
+                user_message=_GENERATION_FAILURE_MSG,
+                debug_detail=f"complete_json returned {type(raw).__name__}",
+            )
 
         verified: dict[str, Component] = {}
         dropped = 0
