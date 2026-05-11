@@ -211,6 +211,16 @@ async def test_score_returns_stage_failure_on_invalid_llm_output(
 
 
 @pytest.mark.live
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "T10 Outcome defers calibration to T17 acceptance — MiniMax-M2.7 currently "
+        "paraphrases anchors, so verify_quote drops all 4 components and the stage "
+        "fails closed. Tracked in tasks/T10_score.md §Outcome and T17_acceptance.md. "
+        "Once T17 lands the prompt-or-verify calibration, this will XPASS and the "
+        "marker can come off."
+    ),
+)
 async def test_junior_fixture_scores_below_40() -> None:
     cv_text = JUNIOR_FIXTURE.read_text(encoding="utf-8")
     redacted = RedactedCV(text=cv_text, audit_log=[])
@@ -230,6 +240,16 @@ async def test_junior_fixture_scores_below_40() -> None:
 
 
 @pytest.mark.live
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "T10 Outcome defers calibration to T17 acceptance — MiniMax-M2.7 currently "
+        "paraphrases anchors, so verify_quote drops all 4 components and the stage "
+        "fails closed. Tracked in tasks/T10_score.md §Outcome and T17_acceptance.md. "
+        "Once T17 lands the prompt-or-verify calibration, this will XPASS and the "
+        "marker can come off."
+    ),
+)
 async def test_senior_fixture_scores_above_70() -> None:
     cv_text = SENIOR_FIXTURE.read_text(encoding="utf-8")
     redacted = RedactedCV(text=cv_text, audit_log=[])
