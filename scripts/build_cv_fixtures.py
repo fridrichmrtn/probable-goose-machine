@@ -1116,20 +1116,30 @@ def main() -> None:
 
 
 def _assert_bias_pair_invariant() -> None:
-    """T20 contract: 09 and 09b extracted text differ on exactly the school line."""
+    """T20 contract: 09 and 09b extracted text differ on exactly the school line.
+
+    Asserts exactly one `-` line and one `+` line in the unified diff (not just
+    a total of 2), so a degenerate `(2 deletes, 0 inserts)` or `(0 deletes, 2
+    inserts)` diff cannot satisfy the check. UTF-8 read is explicit because
+    fixtures intentionally contain Czech diacritics; relying on the platform's
+    default `locale.getpreferredencoding()` would break on non-UTF-8 hosts.
+    """
     import difflib
 
-    nine = (FIXTURES / "09_research_phd_marek.txt").read_text().splitlines()
-    nineb = (FIXTURES / "09b_research_phd_marek_anon.txt").read_text().splitlines()
+    nine = (FIXTURES / "09_research_phd_marek.txt").read_text(encoding="utf-8").splitlines()
+    nineb = (FIXTURES / "09b_research_phd_marek_anon.txt").read_text(encoding="utf-8").splitlines()
     diff_lines = [
         line
         for line in difflib.unified_diff(nine, nineb, lineterm="")
         if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
     ]
-    if len(diff_lines) != 2:
+    minus = [line for line in diff_lines if line.startswith("-")]
+    plus = [line for line in diff_lines if line.startswith("+")]
+    if len(minus) != 1 or len(plus) != 1:
         raise AssertionError(
-            f"bias pair invariant broken: {len(diff_lines)} differing lines, "
-            "expected 2 (one - one +)"
+            "bias pair invariant broken: "
+            f"{len(minus)} '-' line(s), {len(plus)} '+' line(s); "
+            "expected exactly one of each (the school line swap)"
         )
 
 

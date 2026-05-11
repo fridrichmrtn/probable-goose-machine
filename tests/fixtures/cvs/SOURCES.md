@@ -268,9 +268,9 @@ the **one** controlled variable, the school line.
 The invariant the corpus owes T20:
 
 - Both CVs are rendered by the same `_marek_blocks(school)` factory in
-  `scripts/build_cv_fixtures.py`. The factory is called with the MFF UK
-  string for #9 and the generic "[redacted regional Czech technical
-  university]" string for #9b. Nothing else differs at the source level.
+  `scripts/build_cv_fixtures.py`. The factory is called with `"MFF UK /
+  Charles University, Prague"` for #9 and `"[REDACTED UNIVERSITY]"` for
+  #9b. Nothing else differs at the source level.
 - `diff 09_research_phd_marek.txt 09b_research_phd_marek_anon.txt` must
   return exactly one hunk and that hunk must be the school line. The T06
   verification step enforces this; if the diff ever shows more, the

@@ -213,7 +213,10 @@ def test_render_body_populated_contains_expected_content() -> None:
     # All four component display names render in the table headers.
     for label in ("Skills", "Experience", "Education", "Soft"):
         assert label in out
-    # First source's domain renders as `[domain]`, NOT as a bare URL.
+    # First source's domain renders as `[domain]`, NOT as a bare URL. The
+    # bracket characters in the template are literal; `_md()` only escapes
+    # bracket characters when they appear *inside* the user-controlled domain
+    # (covered by test_render_body_escapes_markdown_link_in_source_domain).
     assert "[platy.cz]" in out
     assert "https://platy.cz" not in out
     # First component <details> is opened so the reviewer sees a quote immediately.
@@ -494,6 +497,121 @@ def test_render_body_escapes_html_in_growth_action_fields() -> None:
     assert "<img" not in out
     assert "&lt;script&gt;" in out
     assert "&lt;img" in out
+
+
+# ---------- render_tracker — failed-pill fallback tooltip ----------
+
+
+# ---------- render_body — markdown-injection defence ----------
+
+
+@pytest.mark.fast
+def test_render_body_escapes_markdown_link_in_source_domain() -> None:
+    # A domain containing `]` would otherwise close the visual `[domain]`
+    # label and let `](javascript:alert(1))` forge a link target.
+    bad = Source(
+        url="https://example.com",
+        snippet="ok",
+        domain="evil](javascript:alert(1))",
+    )
+    salary = SalaryEstimate(
+        low=80_000,
+        high=120_000,
+        currency="CZK",
+        period="month",
+        sources=[bad],
+        reasoning="ok",
+    )
+    report = _make_report(salary=salary)
+    out = render_body(report)
+    # The escaped bracket sequence survives; the unescaped `](javascript:` form
+    # is gone, so no link target can be forged in the rendered markdown.
+    assert "](javascript:" not in out
+    assert "\\]\\(javascript:alert\\(1\\)\\)" in out
+
+
+@pytest.mark.fast
+def test_render_body_escapes_markdown_link_in_source_snippet() -> None:
+    bad = Source(
+        url="https://example.com",
+        snippet="see [docs](javascript:alert(1)) here",
+        domain="example.com",
+    )
+    salary = SalaryEstimate(
+        low=80_000,
+        high=120_000,
+        currency="CZK",
+        period="month",
+        sources=[bad],
+        reasoning="ok",
+    )
+    report = _make_report(salary=salary)
+    out = render_body(report)
+    assert "](javascript:" not in out
+    assert "\\[docs\\]\\(javascript:alert\\(1\\)\\)" in out
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "field",
+    ["reasoning", "rationale", "growth_what", "growth_mechanism"],
+)
+def test_render_body_escapes_markdown_link_payload_in_body_fields(field: str) -> None:
+    payload = "click [here](javascript:alert(1))"
+    kwargs: dict[str, object] = {}
+    if field == "reasoning":
+        kwargs["salary"] = SalaryEstimate(
+            low=80_000,
+            high=120_000,
+            currency="CZK",
+            period="month",
+            sources=[Source(url="https://example.com", snippet="ok", domain="example.com")],
+            reasoning=payload,
+        )
+    elif field == "rationale":
+        kwargs["confidence"] = Confidence(tier="High", rationale=payload)
+    elif field == "growth_what":
+        kwargs["growth"] = [
+            GrowthAction(
+                what=payload,
+                time_horizon_months=6,
+                mechanism="ok",
+                anchor=Anchor(quote="C++ background"),
+            )
+        ]
+    elif field == "growth_mechanism":
+        kwargs["growth"] = [
+            GrowthAction(
+                what="learn rust",
+                time_horizon_months=6,
+                mechanism=payload,
+                anchor=Anchor(quote="C++ background"),
+            )
+        ]
+    report = _make_report(**kwargs)  # type: ignore[arg-type]
+    out = render_body(report)
+    assert "](javascript:" not in out
+    assert "[here]" not in out
+
+
+@pytest.mark.fast
+def test_render_body_multiline_failure_message_stays_quoted() -> None:
+    # Every line of a multi-line user_message must remain inside the
+    # blockquote, otherwise lines starting with `#`, `-`, `*` etc. would break
+    # the callout and render as headings/lists below it.
+    failure = StageFailure(
+        stage="salary",
+        user_message="first line\n# rogue heading\n- rogue bullet",
+    )
+    report = _make_report(salary=failure, statuses=_statuses(salary="failed"))
+    out = render_body(report)
+    # All three lines are inside the blockquote.
+    assert "> ⚠ first line" in out
+    assert "> # rogue heading" in out
+    assert "> - rogue bullet" in out
+    # Lines do NOT appear unquoted (which would render as a real heading).
+    assert "\n# rogue heading" not in out
+    assert "\n- rogue bullet" not in out
 
 
 # ---------- render_tracker — failed-pill fallback tooltip ----------

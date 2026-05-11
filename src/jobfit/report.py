@@ -100,8 +100,41 @@ _CSS = """<style>
 </style>"""
 
 
+# Markdown metacharacters that can break out of an inline context when
+# interpolated mid-string. Backslash MUST come first so subsequent escapes are
+# not re-escaped. Set chosen to neutralise: `](payload)` link injection,
+# `*`/`_` emphasis, backtick code spans, `!` for `![alt](url)` images. Block-
+# level metacharacters (`#`, `+`, `-`, `|`) only have meaning at line-start;
+# user strings here are always interpolated mid-line so they stay raw.
+_MD_ESCAPE = str.maketrans(
+    {
+        "\\": "\\\\",
+        "`": "\\`",
+        "*": "\\*",
+        "_": "\\_",
+        "[": "\\[",
+        "]": "\\]",
+        "(": "\\(",
+        ")": "\\)",
+        "!": "\\!",
+    }
+)
+
+
 def _esc(text: str) -> str:
+    """HTML-escape only. Safe for interpolation inside HTML element bodies/attrs."""
     return escape(text, quote=True)
+
+
+def _md(text: str) -> str:
+    """Escape for markdown interpolation: HTML-escape, then escape md metacharacters.
+
+    Use for any user-controllable string flowing into a markdown context
+    (callouts, source lines, salary reasoning, confidence rationale, growth
+    actions). Content nested inside an HTML block (`<details>`, `<blockquote>`,
+    `<p>`) only needs `_esc` — CommonMark does not parse markdown inside HTML.
+    """
+    return escape(text, quote=True).translate(_MD_ESCAPE)
 
 
 def _pill_html(label: str, status: StageStatus, tooltip: str | None) -> str:
@@ -143,7 +176,11 @@ def _failure_callout_html(failure: StageFailure) -> str:
 
 def _failure_callout_md(failure: StageFailure) -> str:
     # Markdown blockquote; the warning glyph is literal U+26A0 per spec.
-    return f"> ⚠ {_esc(failure.user_message)}"
+    # Every line of user_message is prefixed with `> ` so a multi-line message
+    # cannot break out of the callout and inject headings/lists below it.
+    lines = failure.user_message.splitlines() or [""]
+    quoted = [f"> ⚠ {_md(lines[0])}"] + [f"> {_md(line)}" for line in lines[1:]]
+    return "\n".join(quoted)
 
 
 def _score_section(score: Score | StageFailure) -> str:
@@ -183,8 +220,11 @@ def _format_money(n: int) -> str:
 
 
 def _source_line(src: Source) -> str:
-    snippet = _esc(src.snippet)
-    domain = _esc(src.domain)
+    # `[{domain}] — "{snippet}"` lives in a markdown context where a literal
+    # `]` in domain or `](` in snippet would forge a link target. Route both
+    # through `_md` so the brackets/parens stay inert text.
+    snippet = _md(src.snippet)
+    domain = _md(src.domain)
     return f'- [{domain}] — "{snippet}"'
 
 
@@ -195,17 +235,17 @@ def _salary_section(salary: SalaryEstimate | StageFailure) -> str:
     period = salary.period
     range_line = (
         f"**{_format_money(salary.low)} – {_format_money(salary.high)} "
-        f"{_esc(salary.currency)} / {period}**"
+        f"{_md(salary.currency)} / {period}**"
     )
     sources_md = "\n".join(_source_line(s) for s in salary.sources) or "_(no sources)_"
-    return f"## Salary\n\n{range_line}\n\n{_esc(salary.reasoning)}\n\n### Sources\n\n{sources_md}"
+    return f"## Salary\n\n{range_line}\n\n{_md(salary.reasoning)}\n\n### Sources\n\n{sources_md}"
 
 
 def _confidence_section(conf: Confidence | StageFailure) -> str:
     if isinstance(conf, StageFailure):
         return "## Confidence\n\n" + _failure_callout_md(conf)
     badge = _CONFIDENCE_BADGE[conf.tier]
-    return f"## Confidence\n\n**{badge}** — {_esc(conf.rationale)}"
+    return f"## Confidence\n\n**{badge}** — {_md(conf.rationale)}"
 
 
 def _growth_section(growth: list[GrowthAction] | StageFailure) -> str:
@@ -217,9 +257,9 @@ def _growth_section(growth: list[GrowthAction] | StageFailure) -> str:
     for idx, action in enumerate(growth, start=1):
         # Literal asterisks per spec: **What** — *N months* — Mechanism.
         lines.append(
-            f"{idx}. **{_esc(action.what)}** — "
+            f"{idx}. **{_md(action.what)}** — "
             f"*{action.time_horizon_months} months* — "
-            f"{_esc(action.mechanism)}"
+            f"{_md(action.mechanism)}"
         )
     return "## Plan\n\n" + "\n".join(lines)
 
