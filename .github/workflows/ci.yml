@@ -16,6 +16,8 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
@@ -51,6 +53,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
