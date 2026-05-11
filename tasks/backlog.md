@@ -139,3 +139,27 @@ Report: tasks/T11_dev-report.md (in feat/block-b-late-stages)
 - [hiring-manager] src/jobfit/salary.py:14 — `_SYSTEM_PROMPT = _PROMPT_PATH.read_text(...)` at import time defeats hot-reload; comment intent or move into a function.
 - [ai-ml-engineer] src/jobfit/salary.py:124 — `>= 10` senior threshold is hardcoded with no comment.
 - 7 additional minor naming/convention nits surfaced across reviewers — not enumerated.
+
+
+## T12 — 2026-05-11T07:00Z
+Report: tasks/T12_dev-report.md (in feat/block-b-late-stages)
+
+### Should-fix
+- [product-owner + ai-ml-engineer] src/jobfit/confidence.py:13 — `model="cheap"` and `model="reasoning"` both resolve to `MiniMax-M2.7-highspeed` under current `_PROFILE_MODELS`, so the "different model distribution" property promised by `tasks/PLAN.md §L4c` is degraded to "different prompt + temperature isolation". Revisit once T05 confirms a genuinely distinct cheap-tier provider (`abab6.5s-chat` was the original intent) or accept the degradation in PRD §4.3 documentation.
+- [qa-engineer] src/jobfit/confidence.py:104 vs tasks/T12_dev-plan.md:97 — counter named `sources_count` in code, `n_sources` in plan. T11 also has a stage-local counter naming drift (`raw_results`, `dedup_results`). Audit cross-stage telemetry naming convention before T15 wires events into the renderer.
+- [qa-engineer] tests/test_confidence_unit.py — no test for Medium/High tier paths skipping the regenerate logic entirely. The marker check only fires on Low; a regression that ran the check on every tier would still pass current tests. Add a Medium-tier mock to lock in the no-regenerate branch.
+- [ai-ml-engineer] src/jobfit/prompts/confidence_step_a.md — rubric phrasing "deviation against the median of extracted snippet numbers" is unambiguous on paper but never live-tested. T19 golden tests should pin tier-stability across consecutive calls at temp=0 before this rubric is considered settled.
+- [codex] src/jobfit/confidence.py:37 — `_RATIONALE_LOW_REGEX = re.compile(r"insufficient|disagree", re.I)` substring-matches inside "insufficiently" / "disagreement" / "disagreeable". Dev-plan §8 explicitly allows this lexical-family behavior, but a future tightener could add `\b` boundaries by mistake and break the regenerate path. Add a code comment pinning the intentional substring-match.
+- [ai-ml-engineer] src/jobfit/prompts/confidence_step_b.md — no word/character cap on the rationale paragraph; combined with "3 to 5 sentences" can drift long. Add a soft ~80-word ceiling consistent with how the renderer will surface this string.
+- [ai-ml-engineer] src/jobfit/confidence.py:71-73 — Step B's user payload formats the produced range without validating that `low < high` or that `(currency, period)` is a coherent pair. T11 enforces these in `estimate_salary`; T12 trusts its caller. Document the contract in the docstring or fail-loud here.
+- [qa-engineer] tests/test_confidence_unit.py — no test for `sources=[]` empty-list edge. The signature accepts it, the prompt rubric says "Low if <2 sources", but a malicious/buggy upstream stage could pass `[]` and we have no probe.
+- [hiring-manager] src/jobfit/confidence.py:108-109 — the regenerate branch duplicates the `complete_text` call. A `async def _draft_rationale()` helper would dedupe and make the "draft, check lexicon, redraft once, fall back" intent more legible.
+- [codex] src/jobfit/prompts/confidence_step_b.md — register described as "Czech-English business" without defining whether the prose is in Czech or English. Tests + golden expectations are in English; spec the prompt to "English prose intended for a Czech-speaking reviewer" to remove the ambiguity.
+
+### Nits
+- [qa-engineer] tests/test_confidence_unit.py:78-85 — leak-channel assertion checks for substrings "low", "high", "month", "czk" but "low" appears in many ordinary English words (below, follow). Today's fixture snippets are controlled, but a future snippet edit could surface a confusing failure. Either use word boundaries or restrict to JSON key names.
+- [hiring-manager] tests/test_confidence_unit.py — test name `test_step_b_cannot_override_step_a_and_regenerates_on_low` conflates two assertions; split into `test_step_b_cannot_override_step_a` + `test_regenerate_falls_back_when_marker_still_missing` for sharper failure messages.
+- [product-owner] src/jobfit/prompts/confidence_step_b.md — example openings all start "Confidence in this estimate is X." Slightly bureaucratic but not load-bearing.
+- [ai-ml-engineer] src/jobfit/confidence.py:30-35 — prompts loaded at import time; broken install / stripped wheel causes import failure rather than clean stage failure. T11 has the same pattern (consistency wins), but it's a latent footgun for both.
+- [qa-engineer] tasks/T12_confidence.md:42 — task lists two fast tests; code ships six. Update the task contract to list the full set or move the strengthening into a checked deliverable.
+- 4 additional minor naming/convention nits surfaced across reviewers — not enumerated.
