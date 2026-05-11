@@ -1,6 +1,6 @@
 # T13 — L5 growth plan
 
-Status: todo
+Status: done
 Owner: ai-ml-engineer
 Depends on: T02, T05 (gate)
 Unblocks: T15
@@ -49,4 +49,4 @@ uv run pytest -m fast tests/test_growth_unit.py -v
 
 ## Outcome
 
-(fill in when done — note any anti-slop iteration)
+Signature widened to `plan_growth(redacted, profile, score, salary_midpoint, currency) -> list[GrowthAction] | StageFailure` so the stage can call `verify_quote` against the redacted CV and signal failure for the renderer the same way `score_profile` / `estimate_salary` do. LLM call uses `model="reasoning"` which resolves to MiniMax-M2.7-highspeed under the current `_PROFILE_MODELS`, at `temperature=0.0` for determinism (matches T10/T11/T12). The contractual `_BAN_PHRASES` tuple (`phd`, `found a startup`, `improve communication`, `learn more`, `network more`) is checked after lowercasing AND stripping `string.punctuation` so `"Ph.D."` → `"phd"` matches. A top-level `try/except Exception` wraps the entire stage body to surface PRD §4.6 verbatim `"Could not generate this section reliably"` from every escape path (LLM error, invalid output, verify-quote crash, unexpected); reasons live in structured `stage_failure` events. A 4-gram Jaccard boilerplate check runs against `tests/fixtures/growth_baseline.json` (content owned by T17) and emits `growth_possible_boilerplate` when overlap > 0.6; `growth_baseline_missing` is emitted when the fixture is absent. 21 fast tests pass — covering each ban phrase, the truncate event, both 3- and 5-survivor boundaries, baseline-missing, possible-boilerplate, invalid-LLM-output, unexpected-error, and user-payload contents. Golden and live-model coverage defer to T19. See `tasks/T13_dev-report.md` for review details.
