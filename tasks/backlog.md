@@ -115,3 +115,18 @@ Report: tasks/T05_spike.md (Outcome section)
 
 ### Should-fix
 - [ai-ml-engineer] scripts/spike_minimax.py:43-46 — p50 latency gate relaxed 8s → 20s because MiniMax-M2.x catalog is reasoning-only (no non-reasoning sibling per platform.minimax.io docs). Measured ~16s p50. Acceptable for prototype, but if user-visible latency becomes pain in T15 UI, evaluate Gemini Flash or another non-reasoning provider and revisit the gate.
+
+
+## T09-senior-fixture-anchor-survival — 2026-05-11T00:00Z
+Report: tasks/T09_extract.md (Outcome section)
+
+### Should-fix
+- [ai-ml-engineer] src/jobfit/prompts/extract.md — senior fixture anchor-survival rate is unstable on MiniMax-M2.7-highspeed at 0-temperature: 5 runs returned 60% / 85% / 85% / 92% / 100%. The 60% outlier comes from the model emitting 4-word skill summaries (e.g. `"BigQuery, PostgreSQL, Kafka 3.7."`) that violate the prompt's 6-word literal-substring rule. Live gate is the spec-mandated ≥80%, so the senior fixture can flake. Next experiment: add a negative one-shot example to `extract.md` showing a paraphrased / too-short skill being dropped, paired with the corrected literal-quote variant; re-measure survival over ≥5 runs before tightening further.
+
+### Defer (cross-cutting)
+- [qa-engineer] cross-cutting — failure path should emit a duration event. `stage_boundary` currently emits only an `error` event on failure, no matching `done`/`duration_ms`. T07/T08/T09 all follow the same pattern. Address uniformly at the boundary, not per-stage.
+
+### Defer (T09 reviewer findings, must-fix not in heal scope)
+- [ai-ml-engineer] src/jobfit/prompts/extract.md — prompt nits deferred from heal: mention that `[]` (empty list) is valid for any of the four list fields; relax the "unique" wording on `anchor.quote` (currently can read as forbidding any 6-word substring that appears twice when 8+ words would be fine); reconcile `detected_years_experience` schema range (prompt says 0–50, spec says (0, 50) — i.e. test asserts >0, prompt allows 0).
+- [hiring-manager] src/jobfit/extract.py:50 — `cast(Profile, raw)` is a typing-only no-op; `complete_json` already returns the schema type. Drop the cast or replace with `isinstance` runtime guard.
+- [hiring-manager] tests/test_extract.py:155 — `_LIVE_FIXTURES = sorted(...)` runs at import time and silently empties on a fresh checkout without fixtures. Move the glob into a fixture or assert non-empty when MINIMAX_API_KEY is set.

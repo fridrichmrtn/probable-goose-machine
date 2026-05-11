@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from jobfit.errors import StageFailure
 from jobfit.extract import extract_profile, load_prompt
 from jobfit.ingest import extract_text
 from jobfit.llm import LLMClient
 from jobfit.obs import subscribe
+from jobfit.redact import redact
 from jobfit.schemas import Anchor, Profile, ProfileItem, RedactedCV
 from jobfit.verify import verify_quote
 
@@ -138,15 +139,63 @@ async def test_stage_failure_returned_when_llm_raises(
     with subscribe(events.append):
         result = await extract_profile(redacted)
 
+    # T18 owns the curated-message contract; T09 only pins that stage_boundary captures
+    # stage+message+debug_detail.
     assert isinstance(result, StageFailure)
     assert result.stage == "extract"
-    assert result.user_message
+    assert result.user_message == "synthetic extract failure"
+    assert result.debug_detail is not None
+    assert result.debug_detail.startswith("RuntimeError(")
 
     errors = [e for e in events if e["event"] == "error" and e["stage"] == "extract"]
     assert errors, f"expected error event for extract stage, got {events!r}"
     assert errors[0]["exc_type"] == "RuntimeError"
     assert pii_email not in errors[0]["exc_message"]
     assert pii_name not in errors[0]["exc_message"]
+
+    verify_events = [e for e in events if e["event"] == "verify" and e["stage"] == "extract"]
+    assert not verify_events, "verify event must not fire on the failure path"
+
+
+@pytest.mark.fast
+async def test_validation_error_from_llm_becomes_stage_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PRD §4.6 model-output parse failure: bad-shape JSON → StageFailure, not crash."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    try:
+        Profile.model_validate({})
+    except ValidationError as e:
+        captured_validation_error = e
+
+    async def _bad_shape(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        raise captured_validation_error
+
+    monkeypatch.setattr(LLMClient, "complete_json", _bad_shape)
+
+    redacted = RedactedCV(text="Junior Data Analyst", audit_log=[])
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "extract"
+    assert result.debug_detail is not None
+    assert "validation error" in result.debug_detail
+
+    errors = [e for e in events if e["event"] == "error" and e["stage"] == "extract"]
+    assert errors, f"expected error event for extract stage, got {events!r}"
+    assert errors[0]["exc_type"] == "ValidationError"
 
     verify_events = [e for e in events if e["event"] == "verify" and e["stage"] == "extract"]
     assert not verify_events, "verify event must not fire on the failure path"
@@ -168,16 +217,20 @@ _LIVE_FIXTURES = sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glo
 async def test_extract_profile_on_fixtures(fixture_path: Path) -> None:
     ingested = extract_text(fixture_path.read_bytes(), fixture_path.name)
     if isinstance(ingested, StageFailure):
-        pytest.skip(f"ingest failed on {fixture_path.name}: {ingested.user_message}")
-    cv_text = ingested
-    redacted = RedactedCV(text=cv_text, audit_log=[])
+        pytest.fail(f"ingest failed on {fixture_path.name}: {ingested.user_message}")
+
+    redacted = redact(ingested)
+    if isinstance(redacted, StageFailure):
+        pytest.fail(f"redact failed on {fixture_path.name}: {redacted.user_message}")
+
+    cv_text = redacted.text
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
         result = await extract_profile(redacted)
 
     if isinstance(result, StageFailure):
-        pytest.skip(f"L3 failed on {fixture_path.name}: {result.user_message}")
+        pytest.fail(f"L3 failed on {fixture_path.name}: {result.user_message}")
 
     assert isinstance(result, Profile)
     assert result.detected_role.strip() != "", f"{fixture_path.name}: detected_role is empty"
@@ -214,7 +267,7 @@ async def test_extract_profile_on_fixtures(fixture_path: Path) -> None:
     returned_total = ve["kept"] + ve["dropped"]
     assert returned_total > 0, f"model returned zero items on {fixture_path.name}"
     survival_rate = ve["kept"] / returned_total
-    assert survival_rate >= 0.70, (
+    assert survival_rate >= 0.80, (
         f"{fixture_path.name}: anchor survival rate "
-        f"{ve['kept']}/{returned_total} = {survival_rate:.0%} below 70% gate"
+        f"{ve['kept']}/{returned_total} = {survival_rate:.0%} below 80% gate"
     )
