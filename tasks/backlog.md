@@ -133,9 +133,6 @@ Report: T14 commit on `feat/block-c-corpus-render`.
 - [product-owner] Footer callout CSS glyph — `src/jobfit/report.py:98` — `.jobfit-callout::before` prepends `⚠` via CSS. The markdown variant (`_failure_callout_md`) prepends a literal `⚠` in the rendered text. If T16's host applies the CSS class to the markdown-rendered blockquote as well, both glyphs would stack. Verify no double-glyph when T16 wires the UI.
 - [software-engineer] Cost/latency footer placeholder — `src/jobfit/report.py:222-234` — footer carries `_(cost / latency totals — populated by T15)_` until T15 lands `total_cost_usd` / `total_duration_ms` aggregate fields on `Report`. Tracked here AND in the existing t01-schemas should-fix at `backlog.md:6`.
 
-### Resolved
-- [codex / copilot] Markdown injection across user-controllable body fields (PR #1 comments 3215370284, 3215370286, 3215372762, 3215372771, 3215372785, 3215372790) — `src/jobfit/report.py` now routes every user string flowing into a markdown context through `_md()` (HTML escape then markdown-metacharacter escape: `\` `` ` `` `*` `_` `[` `]` `(` `)` `!`); `_failure_callout_md()` quotes every line with `> ⚠` (first) / `> ` (subsequent) so multi-line `StageFailure.user_message` cannot leak markdown; `_assert_bias_pair_invariant()` reads with `encoding="utf-8"` and asserts exactly one `-` and one `+` line; SOURCES.md bias-pair section uses the actual `[REDACTED UNIVERSITY]` string; `tasks/T14_render.md` Outcome reflects the actual test counts. Subsumes the prior "`Source.domain` not validated against `]`" entry — the renderer now escapes `]` defensively regardless of upstream validation.
-
 ## T11 — 2026-05-10T18:30Z
 Report: tasks/T11_dev-report.md (in feat/block-b-late-stages)
 
@@ -144,12 +141,10 @@ Report: tasks/T11_dev-report.md (in feat/block-b-late-stages)
 - [ai-ml-engineer] src/jobfit/salary.py:213 — URL-subset comparison is on the post-Pydantic-normalized form (`str(HttpUrl)`), not the raw DDG `href`. Document the matching invariant in code or prompt; add a unit test pinning normalization behavior on edge URLs (trailing slash, scheme casing).
 - [hiring-manager] src/jobfit/salary.py:78 — `search()` raises `RuntimeError` while `estimate_salary()` returns `StageFailure` for post-LLM logical failures. Pattern inconsistency vs T10 (which only returns). Consider migrating `search` to a sentinel-return + caller-checks-and-returns shape so the canonical user copy lives next to the structured failure.
 - [hiring-manager] src/jobfit/salary.py:107 — `profile.detected_role.strip() or "data scientist"` silently masks an empty role, which would be a T09 (profile) defect. Surface via StageFailure or at minimum emit telemetry.
-- ~~[hiring-manager] src/jobfit/salary.py:21 — `_CZ_MARKERS` includes `"cz"` which substring-matches in unrelated strings (e.g. "Aczland"). Use word-boundary matching or a normalized token set.~~ **RESOLVED 2026-05-11 in PR #3 heal #1** — replaced with `_CZ_TOKEN_PATTERN` regex using `\b` word boundaries; parametrized fast test covers "Aczland", "Czeladz", "Krakow, Poland" non-CZ cases.
 - [hiring-manager] tests/test_salary.py — DDG mock returns either `[]` or raises. Defensive `body`/`snippet` and `href`/`url` key fallback in `_to_source` is therefore untested. Add a populated-result fast test that exercises both key shapes.
 - [qa-engineer] tests/test_salary.py:173 — live test reads `cv_text` from senior fixture but only asserts truthiness — never pipes the CV through T09's parser → T10's redactor. Either drop the read or wire the upstream stages once T09 lands.
 - [qa-engineer] src/jobfit/salary.py — telemetry key naming (`raw_results`, `dedup_results`, `dropped_invalid_url`) is stage-local. Audit cross-stage convention once T12/T13 land; consider a one-line `obs.py` schema doc.
 - [qa-engineer] tasks/T11_salary.md — Verification block names commands but doesn't enumerate the events tests must assert on (`salary_search`, `salary_estimate`, `stage_failure`). Tighten when promoting T11 contract to durable doc.
-- ~~[codex] src/jobfit/salary.py:213 — Source snippets/domains are not verified against the matched input source; only URL is checked. Fabricated snippet text + correct URL would pass. Add a substring check that the LLM's emitted snippet appears in the matched input snippet.~~ **RESOLVED 2026-05-11 in PR #3 heal #1** — closed the fabrication channel by replacing each LLM-emitted source's snippet+domain with the matched DDG input source (URL is the join key). Fast test `test_estimate_salary_replaces_llm_snippets_with_input_snippets` pins the substitution.
 
 ### Nits
 - [hiring-manager] src/jobfit/salary.py:154 — single-letter loop var `q`; rename to `query`.
@@ -189,7 +184,6 @@ Report: tasks/T13_dev-report.md (in feat/block-b-late-stages)
 
 ### Should-fix
 - [ai-ml-engineer] src/jobfit/growth.py:155 — `model="reasoning"` resolves to MiniMax-M2.7-highspeed under current `_PROFILE_MODELS` (same as confidence/salary). The original PLAN §L5 intent was a reasoning-tier distinct from the cheap path; revisit once T05 confirms a genuinely distinct reasoning provider, or accept the convergence in PRD §4.4 documentation.
-- ~~[ai-ml-engineer] src/jobfit/growth.py:52 — `_BASELINE_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "growth_baseline.json"` couples runtime code to the tests directory layout. T17 owns the fixture content; consider moving baseline JSON into `src/jobfit/data/` or making the path injection-friendly via a module-level setter before T17 lands.~~ **RESOLVED 2026-05-11 in PR #3 heal #1** — moved baseline to `src/jobfit/data/growth_baseline.json` (package-internal). `tasks/T17_acceptance.md:34` updated to write the new location. Fast test `test_baseline_path_lives_inside_package` pins the invariant.
 - [qa-engineer] src/jobfit/growth.py:213-217 + 232-239 — `growth_actions_truncated.dropped` and `growth_anti_slop_check.dropped` both use the key `dropped` with different semantics (truncation overflow vs. ban/verify drops). Cross-stage rename pass for telemetry keys before T15 wires events into the renderer (echoes the T11/T12 naming-drift entry).
 - [qa-engineer] tests/test_growth_unit.py — parametrized ban-phrase test reuses three non-banned actions across each case verbatim. A `_three_clean_actions()` helper would dedupe ~80 lines without obscuring what each parameter is testing.
 - [product-owner] src/jobfit/growth.py:51 — `_BOILERPLATE_JACCARD_THRESHOLD = 0.6` is unverified against the corpus T17 will produce. Threshold sensitivity should be re-evaluated against the T17 baseline before T19 acceptance.
@@ -208,46 +202,11 @@ None. Single heal iteration closed all 10 items.
 - [hiring-manager] tests/test_growth_unit.py — fast tests do not include a CV with no Education section to exercise `section=None` survivor handling end-to-end (only the unverified-anchor branch uses `section=None`). Defer to T17 fixture diversity.
 
 
-## PR #3 heal #1 — 2026-05-11T07:00Z
-Report: PR https://github.com/fridrichmrtn/probable-goose-machine/pull/3 (review-comment heal — no separate /dev report)
-
-Heal driven by the GitHub PR review burst (codex P1+P2 + Copilot ×4). All 6 comments closed in one heal pass; 16 new fast tests added; pre-commit + ruff + mypy + 91 fast tests all green.
-
-### Must-fix (resolved this run)
-- [codex P1] src/jobfit/salary.py:165 — snippet/domain fabrication channel. Closed by substituting matched input `Source` for the LLM-emitted source after URL-join — model can never invent snippet text or domain that `confidence.judge` consumes downstream.
-- [codex P2] src/jobfit/salary.py:131 — upstream salary exceptions leaking via `stage_boundary`'s `str(exc)`. Closed by explicit `try/except Exception` around `search()` AND `complete_json()` with PRD §4.6 `_INSUFFICIENT_DATA_MSG` user copy + `stage_failure.reason="search_error"` / `"llm_error"` structured events.
-- [Copilot] src/jobfit/salary.py:151 — same defect as codex P2; closed by the same fix.
-- [Copilot] src/jobfit/salary.py:34 — `_is_cz_location` substring "cz" match. Closed by `_CZ_TOKEN_PATTERN = re.compile(r"\b(?:czech|cz|praha|prague|brno|ostrava)\b", re.I)`.
-- [Copilot] src/jobfit/score.py:51 — `assert isinstance(raw, _ComponentList)` smuggling `AssertionError` to user_message + bare `complete_json` call. Closed by mirroring the salary/confidence pattern: `try/except` with PRD §4.6 `_GENERATION_FAILURE_MSG = "Could not generate this section reliably"` + explicit isinstance branch.
-- [Copilot] src/jobfit/growth.py:53 — `_BASELINE_PATH` pointing at `tests/fixtures/` (breaks in wheel install). Closed by moving the path to `src/jobfit/data/growth_baseline.json`; `tasks/T17_acceptance.md` updated to write the new location.
-
-### Should-fix (deferred)
-None new — the heal closed only the must-fix items the PR reviewers raised.
-
-### Nits
-None new.
-
-
-## PR #3 heal #2 — 2026-05-11T07:20Z
-Report: PR https://github.com/fridrichmrtn/probable-goose-machine/pull/3 (CI-red heal — no separate /dev report)
-
-CI live job red on two pre-existing T10 calibration tests (`test_junior_fixture_scores_below_40` + `test_senior_fixture_scores_above_70`). MiniMax-M2.7 paraphrases anchors → `verify_quote` drops all 4 components → stage fails closed. The score code is behaving correctly per PRD §4.5 fail-closed contract; the score-band assertion is the deferred calibration work T10 Outcome already names as T17's. Marked both `@pytest.mark.xfail(strict=False)` with a reason linking to T10 Outcome + T17 acceptance. CI will go green; XPASS will surface once T17's calibration lands.
-
-### Must-fix (resolved this run)
-- [ci] tests/test_score.py — two `@pytest.mark.live` band tests xfailed pending T17 calibration. **T17 must remove the `@pytest.mark.xfail` markers after tuning the score prompt or `verify_quote` tolerance so MiniMax anchors verify on the junior/senior fixtures.**
-
-### Should-fix (deferred)
-None.
-
-### Nits
-None.
 ## T08-implement-l2-pii-redaction — 2026-05-10T19:00Z
 Report: tasks/T08_dev-report.md (in feat/block-a-early-stages)
 
 ### Should-fix
 - [codex] src/jobfit/redact.py:294 — audit-log spans drift when later passes shorten text before earlier replacements; spans point at wrong final-output offsets in multi-pass cases.
-- [RESOLVED 2026-05-11 — PR-burst heal] [product-owner] src/jobfit/redact.py:228-276 — header-name pass bails on common single-line headers like `Jan Novotný | +420 777 …` (digit/comma in first line). Real CV layout, silent miss. → `_redact_header_name` now extracts a name residue from marker-decorated lines via `_name_residue_from_mixed_line`; pinned by `test_single_line_header_with_phone_redacts_name`.
-- [RESOLVED 2026-05-11 — PR-burst heal] [product-owner] src/jobfit/redact.py:34-45 — `_PHONE` requires separators for the 9-10 digit local branch; bare `777123456` is not matched. → Added CZ-bare branch `[1-9]\d{8}` (non-zero leading digit to skip 0-padded IDs); pinned by `test_bare_cz_phone_without_separators_is_redacted` + `test_bare_cz_phone_branch_skips_zero_padded_runs`.
 - [product-owner] PRD §4.7 lists "address" as PII; redaction covers only CZ postcode digits. Bare street lines (`Korunní 12, Praha 4` without postcode) leave the address intact.
 - [product-owner] tasks/T08_redact.md:75-82 — Outcome §Known limitations omits the header-name bail-out and the address coverage gap; reads more confident than the implementation warrants.
 - [hiring-manager] src/jobfit/redact.py:12-13 — audit-log `span` is recorded OUTPUT-relative; the design choice makes spans useless to consumers who want to highlight redacted regions on input. Input-relative spans were trivially available.
@@ -275,19 +234,5 @@ Report: tasks/T08_dev-report.md (in feat/block-a-early-stages)
 ## T09-senior-fixture-anchor-survival — 2026-05-11T00:00Z
 Report: tasks/T09_extract.md (Outcome section)
 
-### Should-fix
-- [RESOLVED 2026-05-11 — PR-burst heal] [ai-ml-engineer] src/jobfit/prompts/extract.md — senior fixture anchor-survival rate is unstable on MiniMax-M2.7-highspeed at 0-temperature: 5 runs returned 60% / 85% / 85% / 92% / 100%. The 60% outlier comes from the model emitting 4-word skill summaries (e.g. `"BigQuery, PostgreSQL, Kafka 3.7."`) that violate the prompt's 6-word literal-substring rule. → Added an explicit counter-example block to `extract.md` showing the exact failure mode (a 4-word skill quote) and the correct response (omit / return `[]`). 5-run re-measurement is a follow-up; tracked here.
-
 ### Defer (cross-cutting)
 - [qa-engineer] cross-cutting — failure path should emit a duration event. `stage_boundary` currently emits only an `error` event on failure, no matching `done`/`duration_ms`. T07/T08/T09 all follow the same pattern. Address uniformly at the boundary, not per-stage.
-
-### Defer (T09 reviewer findings, must-fix not in heal scope)
-- [RESOLVED 2026-05-11 — PR-burst heal] [ai-ml-engineer] src/jobfit/prompts/extract.md — prompt nits: `[]` empty-list clause added; uniqueness wording softened to "extend to 8+ words if a 6-7 word substring repeats"; years range reconciled to 1-50 with explicit guidance for internship-only candidates (matches the test's `0 < years < 50` gate).
-- [RESOLVED 2026-05-11 — PR-burst heal] [hiring-manager] src/jobfit/extract.py:50 — `cast(Profile, raw)` removed; replaced with an `isinstance(raw, Profile)` runtime guard that raises `TypeError` on mismatch (so mypy gets the narrowing AND the failure surfaces as a `StageFailure` via `stage_boundary`).
-- [RESOLVED 2026-05-11 — PR-burst heal] [hiring-manager] tests/test_extract.py:155 — added `test_live_corpus_is_present` which fails loudly when `MINIMAX_API_KEY` is set but the fixture directory is empty or contains LFS pointers; the parametrized test also gains a per-file LFS-pointer guard.
-
-### PR-burst items (2026-05-11)
-- [RESOLVED 2026-05-11] [codex P1 — PR #2] src/jobfit/redact.py:251 — `_redact_header_name` now distinguishes labelled-marker lines (skip) from name+marker mixed lines (extract residue, redact only the name). Pinned by `test_label_marker_line_does_not_block_name_redaction`, `test_single_line_header_with_phone_redacts_name`, `test_labelled_url_line_does_not_match_label_as_name`.
-- [RESOLVED 2026-05-11] [codex P2 — PR #2] src/jobfit/redact.py:229 — `_is_title_word` now rejects fully-uppercase multi-char tokens; outer header-name scan now `continue`s past all-caps lines instead of bailing. Pinned by `test_all_caps_section_header_is_not_redacted_as_name`.
-- [RESOLVED 2026-05-11] [copilot — PR #2] tests/test_ingest.py:166 — `test_observability_emits_start_and_done_for_docx_fixture` now fails with an explicit "unresolved LFS pointer" message instead of a cryptic zip-parse error on local fresh-checkouts. CI already has `lfs: true`.
-- [RESOLVED 2026-05-11] [copilot — PR #2] tests/test_extract.py — new `test_live_corpus_is_present` plus per-file LFS-pointer guard inside `test_extract_profile_on_fixtures`. Silent empty-glob is now a loud failure when `MINIMAX_API_KEY` is set.
