@@ -13,6 +13,7 @@ callout because `report.profile` is a failure (see `report.py` line 290).
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -241,9 +242,9 @@ async def _stub_pipeline_run(file_bytes: bytes, filename: str) -> AsyncIterator[
     )
 
 
-try:
+if importlib.util.find_spec("jobfit.pipeline") is not None:
     from jobfit.pipeline import run as pipeline_run  # type: ignore[import-not-found]  # T15
-except ImportError:
+else:
     pipeline_run = _stub_pipeline_run
 
 
@@ -259,11 +260,21 @@ with gr.Blocks(title="Job Fit & Salary Estimator") as demo:
 
     async def handle(file_path: str | None) -> AsyncIterator[tuple[str, str]]:
         if file_path is None:
-            yield render_tracker(_initial_report()), "*Please upload a CV first.*"
+            yield (
+                render_tracker(_initial_report()),
+                "*No file selected. Upload a PDF or DOCX (max 10 MB) and click Generate report.*",
+            )
             return
         with open(file_path, "rb") as fh:
             file_bytes = fh.read()
         filename = Path(file_path).name
+
+        # Acknowledge the click before pipeline_run yields its first state — cold-start
+        # silence reads as breakage (PRD §8).
+        reading_report = _initial_report()
+        reading_report.statuses["profile"] = "running"
+        yield render_tracker(reading_report), "*Reading file…*"
+
         async for report in pipeline_run(file_bytes, filename):
             yield render_tracker(report), render_body(report)
 
