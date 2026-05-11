@@ -266,3 +266,16 @@ Report: tasks/T16_dev-report.md (in dev/t16-gradio-ui-stage-tracker)
 - [qa-engineer] tasks/T16_ui.md verification block — `curl -sf http://localhost:7860/ > /dev/null && echo "UI up"` proves a port bind, not that the Blocks app loaded or the click handler is registered. Acceptable given UI testing is deferred to T21, but the curl check should not be confused with evidence the UI works.
 - [qa-engineer] app.py stub — `_score()` uses `section="Work Experience"` on an `education` Component anchor. Renderer doesn't grade section-coherence so this is cosmetic; flagged because a reviewer eyeballing the stub output may notice.
 - [qa-engineer] app.py — `# type: ignore[import-not-found]` on the `from jobfit.pipeline import run` line is correctly gated by `find_spec` (post-heal). Once T15 lands, drop the ignore — mypy will then warn "unused type: ignore."
+## T19-judge-tests — 2026-05-11T16:15Z
+Report: tasks/T19_dev-report.md (in dev/T19-judge-tests)
+
+### Should-fix
+- [ai-ml-engineer] tests/test_confidence_judge.py:78 — parametrize the Step B render leakage check over `Low|Medium|High` (currently only `Low`); cheap insurance against tier-specific render branching slipping in later.
+- [hiring-manager] src/jobfit/confidence.py:58 — `_render_step_b` is leading-underscore private but is now part of the T19 test contract; either drop the underscore or add a docstring noting "Step A/Step B contract: adding params here is a leakage-channel change."
+- [ai-ml-engineer] tests/test_confidence_judge.py — live tests issue 2 MiniMax calls each (Step A + Step B); cost not budgeted in task Outcome. Note actual cost per run after first live exercise.
+- [hiring-manager] tasks/T19_judge_tests.md §Outcome — `judge()` return type widened to `Confidence | StageFailure` vs. T12 contract; flag the contract change in T19 Outcome when filled in.
+
+### Nits
+- [ai-ml-engineer] tests/test_confidence_judge.py:21,27,33 — `# type: ignore[arg-type]` for `HttpUrl` strings repeats; a `_src(url, snippet, domain)` factory would remove the noise. Acceptable in a 6-test file.
+- [hiring-manager] tests/test_confidence_judge.py:138 — add an inline note that the `insufficient|disagree` regex mirrors `_RATIONALE_LOW_REGEX` in the SUT, so the check is a protocol guard, not an LLM-behavior probe.
+- [ai-ml-engineer] tests/test_confidence_judge.py:35-43 — single-source test uses a snippet identical to one of the three-agreeing snippets; vary the body so "single source" is the dominant signal if Step A rubric drifts toward content scoring.
