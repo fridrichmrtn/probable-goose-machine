@@ -1,6 +1,6 @@
 # T15 — L6 pipeline orchestrator
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: T07, T08, T09, T10, T11, T12, T13, T14
 Unblocks: T16, T17, T18, T20, T21
@@ -65,4 +65,10 @@ uv run pytest -m live -k pipeline_smoke -v
 
 ## Outcome
 
-(fill in when done — observed end-to-end latency on the mid fixture)
+Shipped `src/jobfit/pipeline.py` with `run(file_bytes, filename) -> AsyncIterator[Report]`; sequential L1→L3, `asyncio.as_completed` fan-out for L4a/L4b, conditional L4c/L5, and an `obs.subscribe` cost/latency accumulator scoped to the run. 13 fast tests in `tests/test_pipeline_fast.py` cover initial yield, happy path, every failure cascade, salary-fail short-circuit of confidence (no LLM), score-or-salary-fail cascade of growth (Decision A — both required), cost accumulation, and concurrent fan-out (1ms-vs-50ms timing assertion). Live `tests/test_pipeline_smoke.py` exercises the orchestration plumbing without strong model-quality gating (T17 owns calibration).
+
+Spec drift closed in plan: `statuses["ingest"]/["redact"]` collapsed onto `profile=StageFailure` (T14 mapping); `Report` blocks made `T | StageFailure | None = None` and gained `total_cost_usd`/`total_latency_ms` fields; renderer footer interpolates them; renderer sections return `""` for `None` (pending) blocks; `plan_growth` signature uses real `(redacted, profile, score, mid, ccy)`; growth follows Decision A (cascade if either score or salary fails). Cross-task ripple stayed minimal — schema + renderer + their tests.
+
+Verification: 187 fast tests green; mypy clean on `src/`; ruff lint+format clean; pre-commit green; live smoke runs in degraded mode without LLM keys (every stage cascades to StageFailure, plumbing still produces a well-formed final Report). Real end-to-end latency on the mid fixture is not measured here — gated on `MINIMAX_API_KEY` and deferred to T17 acceptance / T18 partial-failure tests, both of which already own that surface.
+
+See `tasks/T15_dev-report.md` for details.
