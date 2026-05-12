@@ -183,7 +183,9 @@ def _failure_callout_md(failure: StageFailure) -> str:
     return "\n".join(quoted)
 
 
-def _score_section(score: Score | StageFailure) -> str:
+def _score_section(score: Score | StageFailure | None) -> str:
+    if score is None:
+        return ""
     if isinstance(score, StageFailure):
         return "## Score\n\n" + _failure_callout_md(score)
 
@@ -228,7 +230,9 @@ def _source_line(src: Source) -> str:
     return f'- [{domain}] — "{snippet}"'
 
 
-def _salary_section(salary: SalaryEstimate | StageFailure) -> str:
+def _salary_section(salary: SalaryEstimate | StageFailure | None) -> str:
+    if salary is None:
+        return ""
     if isinstance(salary, StageFailure):
         return "## Salary\n\n" + _failure_callout_md(salary)
 
@@ -241,14 +245,18 @@ def _salary_section(salary: SalaryEstimate | StageFailure) -> str:
     return f"## Salary\n\n{range_line}\n\n{_md(salary.reasoning)}\n\n### Sources\n\n{sources_md}"
 
 
-def _confidence_section(conf: Confidence | StageFailure) -> str:
+def _confidence_section(conf: Confidence | StageFailure | None) -> str:
+    if conf is None:
+        return ""
     if isinstance(conf, StageFailure):
         return "## Confidence\n\n" + _failure_callout_md(conf)
     badge = _CONFIDENCE_BADGE[conf.tier]
     return f"## Confidence\n\n**{badge}** — {_md(conf.rationale)}"
 
 
-def _growth_section(growth: list[GrowthAction] | StageFailure) -> str:
+def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
+    if growth is None:
+        return ""
     if isinstance(growth, StageFailure):
         return "## Plan\n\n" + _failure_callout_md(growth)
     if not growth:
@@ -264,17 +272,24 @@ def _growth_section(growth: list[GrowthAction] | StageFailure) -> str:
     return "## Plan\n\n" + "\n".join(lines)
 
 
-def _footer() -> str:
+def _footer(report: Report) -> str:
     weight_rows = "\n".join(
         f"- **{_COMPONENT_DISPLAY[name]}** — {int(weight * 100)}%"
         for name, weight in COMPONENT_WEIGHTS.items()
+    )
+    # Format with 4 decimals on cost (covers the 1e-4 USD floor of cheap-model
+    # MiniMax calls); latency rendered in ms so the reviewer can compare to the
+    # 60s budget without unit conversion.
+    totals_line = (
+        f"_Total cost: ${report.total_cost_usd:.4f} · "
+        f"Total latency: {report.total_latency_ms:,} ms_"
     )
     return (
         "<details>"
         "<summary>How is this scored?</summary>\n\n"
         "Component weights:\n\n"
         f"{weight_rows}\n\n"
-        "_(cost / latency totals — populated by T15)_\n\n"
+        f"{totals_line}\n\n"
         "</details>"
     )
 
@@ -284,9 +299,14 @@ def render_body(report: Report) -> str:
 
     Top-level short-circuit: when `report.profile` is a `StageFailure`, returns
     ONLY the failure callout — the rest of the pipeline depends on profile, so
-    rendering downstream blocks would be misleading. Stage failures further
-    down render inline as warning callouts and the rest of the body continues.
+    rendering downstream blocks would be misleading. When `report.profile is
+    None` (T15 pipeline initial state, before profile extraction completes),
+    returns an empty string — the tracker carries the pending state.
+    Stage failures further down render inline as warning callouts and the rest
+    of the body continues.
     """
+    if report.profile is None:
+        return ""
     if isinstance(report.profile, StageFailure):
         return _failure_callout_html(report.profile)
 
@@ -295,6 +315,8 @@ def render_body(report: Report) -> str:
         _salary_section(report.salary),
         _confidence_section(report.confidence),
         _growth_section(report.growth),
-        _footer(),
+        _footer(report),
     ]
-    return "\n\n".join(sections)
+    # Filter out empty sections so back-to-back blank lines don't accumulate
+    # when intermediate blocks are still None.
+    return "\n\n".join(s for s in sections if s)

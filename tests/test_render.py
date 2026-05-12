@@ -408,6 +408,77 @@ def test_render_body_footer_shows_component_weights() -> None:
         assert pct in out
 
 
+@pytest.mark.fast
+def test_render_body_footer_interpolates_cost_and_latency_totals() -> None:
+    # Pipeline (T15) populates total_cost_usd / total_latency_ms; footer must
+    # reflect them rather than the legacy "populated by T15" placeholder.
+    report = Report(
+        profile=_profile(),
+        score=_score(),
+        salary=_salary(),
+        confidence=_confidence(),
+        growth=_growth(),
+        statuses=_statuses(),
+        raw_cv_text="x",
+        total_cost_usd=0.0234,
+        total_latency_ms=12_345,
+    )
+    out = render_body(report)
+    assert "$0.0234" in out
+    assert "12,345 ms" in out
+    # Legacy placeholder gone.
+    assert "populated by T15" not in out
+
+
+# ---------- render_body — None = pending (T15 streaming) ----------
+
+
+@pytest.mark.fast
+def test_render_body_profile_none_returns_empty_string() -> None:
+    # Initial pipeline yield carries profile=None; tracker drives the UI,
+    # body has nothing to show yet.
+    report = Report(
+        statuses={
+            "profile": "pending",
+            "score": "pending",
+            "salary": "pending",
+            "confidence": "pending",
+            "growth": "pending",
+        },
+        raw_cv_text="",
+    )
+    assert render_body(report) == ""
+
+
+@pytest.mark.fast
+def test_render_body_skips_none_blocks_but_renders_completed_ones() -> None:
+    # Mid-pipeline: profile done, score done, downstream still pending.
+    report = Report(
+        profile=_profile(),
+        score=_score(),
+        salary=None,
+        confidence=None,
+        growth=None,
+        statuses={
+            "profile": "done",
+            "score": "done",
+            "salary": "running",
+            "confidence": "pending",
+            "growth": "pending",
+        },
+        raw_cv_text="x",
+    )
+    out = render_body(report)
+    # Score section rendered.
+    assert "## Score: 69/100" in out
+    # No salary/confidence/plan sections (None ⇒ skipped).
+    assert "## Salary" not in out
+    assert "## Confidence" not in out
+    assert "## Plan" not in out
+    # Footer still renders (it always does for a populated profile).
+    assert "How is this scored?" in out
+
+
 # ---------- render_body — empty growth ----------
 
 
