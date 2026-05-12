@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import gradio as gr
+from pydantic import HttpUrl
 
 from jobfit.errors import StageFailure
 from jobfit.report import render_body, render_tracker
@@ -111,7 +112,7 @@ async def _stub_pipeline_run(file_bytes: bytes, filename: str) -> AsyncIterator[
             period="month",
             sources=[
                 Source(
-                    url="https://platy.cz/path",  # type: ignore[arg-type]
+                    url=HttpUrl("https://platy.cz/path"),
                     snippet="median CZK 95k",
                     domain="platy.cz",
                 )
@@ -251,7 +252,7 @@ else:
 with gr.Blocks(title="Job Fit & Salary Estimator") as demo:
     gr.Markdown(
         "# Job Fit & Salary Estimator\n"
-        "*Upload a CV — PDF or DOCX, max 10 MB. Processed in-memory; not stored.*"
+        "*Upload a CV — PDF or DOCX, max 10 MB. Not retained after processing.*"
     )
     file_in = gr.File(file_types=[".pdf", ".docx"], label="CV", type="filepath")
     run_btn = gr.Button("Generate report", variant="primary")
@@ -265,8 +266,14 @@ with gr.Blocks(title="Job Fit & Salary Estimator") as demo:
                 "*No file selected. Upload a PDF or DOCX (max 10 MB) and click Generate report.*",
             )
             return
-        with open(file_path, "rb") as fh:
-            file_bytes = fh.read()
+        try:
+            file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
+        except OSError:
+            yield (
+                render_tracker(_initial_report()),
+                "*Could not read uploaded file. Please try again.*",
+            )
+            return
         filename = Path(file_path).name
 
         # Acknowledge the click before pipeline_run yields its first state — cold-start
@@ -276,7 +283,14 @@ with gr.Blocks(title="Job Fit & Salary Estimator") as demo:
         yield render_tracker(reading_report), "*Reading file…*"
 
         async for report in pipeline_run(file_bytes, filename):
-            yield render_tracker(report), render_body(report)
+            # render_body short-circuits to a failure callout when profile is still a
+            # StageFailure placeholder; hold neutral copy until profile is a real Profile.
+            body = (
+                render_body(report)
+                if isinstance(report.profile, Profile)
+                else "*Generating report — stages running…*"
+            )
+            yield render_tracker(report), body
 
     run_btn.click(handle, inputs=[file_in], outputs=[tracker_html, report_md])
 
