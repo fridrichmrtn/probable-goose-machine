@@ -3,14 +3,14 @@
 Owner: ux-engineer (Phase 2)
 Branch: `dev/t16-gradio-ui-stage-tracker`
 Contract: `tasks/T16_ui.md`
-Parallel dependency: T15 (`jobfit.pipeline.run`) — not present in this worktree; the plan accommodates a local throwaway stub.
+Parallel dependency: T15 (`gander.pipeline.run`) — not present in this worktree; the plan accommodates a local throwaway stub.
 
 ## 0. Pre-flight reads (Phase 2 must skim, not re-read in full)
 
 - `tasks/T16_ui.md` — contract, lines 15–46 (deliverables), 47–54 (manual smoke; ignore 50–54).
-- `src/jobfit/report.py:149–170` (`render_tracker` — reads only `report.statuses` + tooltip from `StageFailure.user_message` on failed pills) and `:282–300` (`render_body` — top-level short-circuit on `StageFailure` in `report.profile`).
-- `src/jobfit/schemas.py:139–157` (`Report` shape + `_require_exact_status_keys` validator) and `:16–26` (status / stage literals + `REPORT_STAGE_NAMES`).
-- `src/jobfit/errors.py:12–16` (`StageFailure` shape: `stage`, `user_message`, `debug_detail`).
+- `src/gander/report.py:149–170` (`render_tracker` — reads only `report.statuses` + tooltip from `StageFailure.user_message` on failed pills) and `:282–300` (`render_body` — top-level short-circuit on `StageFailure` in `report.profile`).
+- `src/gander/schemas.py:139–157` (`Report` shape + `_require_exact_status_keys` validator) and `:16–26` (status / stage literals + `REPORT_STAGE_NAMES`).
+- `src/gander/errors.py:12–16` (`StageFailure` shape: `stage`, `user_message`, `debug_detail`).
 - `pyproject.toml:8` (`gradio>=6.14.0`) — Gradio 6.14 surface is what we target.
 - `tests/test_render.py:32–141` for reference fixture constructors (`_profile`, `_score`, `_salary`, etc.). Do not import test code; use as a shape reference for the stub's final yield.
 
@@ -20,12 +20,12 @@ Touch as few files as possible. Target = 1 file modified, 0 new files.
 
 | Path | Action | Purpose |
 | --- | --- | --- |
-| `app.py` | replace stub | Gradio Blocks app, `_initial_report()`, throwaway `_stub_pipeline_run()`, fallback import of `jobfit.pipeline.run`, async handler. |
+| `app.py` | replace stub | Gradio Blocks app, `_initial_report()`, throwaway `_stub_pipeline_run()`, fallback import of `gander.pipeline.run`, async handler. |
 
 Do NOT create:
 
-- `src/jobfit/pipeline.py` — owned by T15.
-- `src/jobfit/ui.py` — contract mentions it as an option for `_initial_report` but the simpler placement is inside `app.py` for this round. T15 may relocate if needed.
+- `src/gander/pipeline.py` — owned by T15.
+- `src/gander/ui.py` — contract mentions it as an option for `_initial_report` but the simpler placement is inside `app.py` for this round. T15 may relocate if needed.
 - Any test file — task explicitly defers UI coverage to T21.
 
 ## 2. `_initial_report()` design
@@ -50,7 +50,7 @@ Signature mirrors T15's expected contract:
 async def _stub_pipeline_run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]: ...
 ```
 
-Mark with a one-line comment: `# Throwaway: replaced by jobfit.pipeline.run once T15 lands.`
+Mark with a one-line comment: `# Throwaway: replaced by gander.pipeline.run once T15 lands.`
 
 Yields, in order, with `await asyncio.sleep(~0.4s)` between yields so the reviewer can actually see the pills transition:
 
@@ -79,7 +79,7 @@ Top-of-file fallback import pattern (this is the only piece of "cleverness" — 
 
 ```
 try:
-    from jobfit.pipeline import run as pipeline_run  # T15
+    from gander.pipeline import run as pipeline_run  # T15
 except ImportError:
     pipeline_run = _stub_pipeline_run  # defined below; throwaway
 ```
@@ -88,7 +88,7 @@ The `try`/`except ImportError` must come AFTER `_stub_pipeline_run` is defined, 
 
 Layout (mirror `tasks/T16_ui.md` lines 21–39 with the corrections from §6 below):
 
-- `gr.Blocks(title="Job Fit & Salary Estimator")` — no `theme=` arg unless the implementer wants the default soft theme; contract leaves it blank.
+- `gr.Blocks(title="Gander")` — no `theme=` arg unless the implementer wants the default soft theme; contract leaves it blank.
 - `gr.Markdown` — header copy from contract verbatim.
 - `gr.File(file_types=[".pdf", ".docx"], label="CV", type="filepath")` — `type="filepath"` is the Gradio 6.x default; making it explicit eliminates the ambiguity in the contract snippet that says `file.name`. The handler receives a `str | None` filepath, not a `NamedString` object.
 - `gr.Button("Generate report", variant="primary")`.
@@ -133,10 +133,10 @@ Imports needed in `app.py`:
 - `pathlib.Path`
 - `gradio as gr`
 - `from collections.abc import AsyncIterator`
-- `from jobfit.errors import StageFailure`
-- `from jobfit.report import render_body, render_tracker`
-- `from jobfit.schemas import (Anchor, Component, Confidence, GrowthAction, Profile, ProfileItem, Report, SalaryEstimate, Score, Source)` for the stub
-- Conditional `from jobfit.pipeline import run as pipeline_run`
+- `from gander.errors import StageFailure`
+- `from gander.report import render_body, render_tracker`
+- `from gander.schemas import (Anchor, Component, Confidence, GrowthAction, Profile, ProfileItem, Report, SalaryEstimate, Score, Source)` for the stub
+- Conditional `from gander.pipeline import run as pipeline_run`
 
 Type the handler so mypy strict is happy: `async def handle(file_path: str | None) -> AsyncIterator[tuple[str, str]]`.
 
@@ -168,10 +168,10 @@ Skip (out of scope per caller): the deployed-Space smoke from `T16_ui.md:50–54
 
 ## 6. What NOT to touch — red lines
 
-- `src/jobfit/pipeline.py` — does not exist in this worktree; T15 owns it. Do not create.
-- `src/jobfit/schemas.py` — do not add a "pending" variant to the block unions, do not change `Report`'s field types to Optional. Work around with `StageFailure` placeholders.
-- `src/jobfit/report.py` — CSS, status labels, body short-circuit logic all owned by T14. No edits.
-- `src/jobfit/errors.py` — `StageFailure` shape is fixed.
+- `src/gander/pipeline.py` — does not exist in this worktree; T15 owns it. Do not create.
+- `src/gander/schemas.py` — do not add a "pending" variant to the block unions, do not change `Report`'s field types to Optional. Work around with `StageFailure` placeholders.
+- `src/gander/report.py` — CSS, status labels, body short-circuit logic all owned by T14. No edits.
+- `src/gander/errors.py` — `StageFailure` shape is fixed.
 - Do not add a UI test under `tests/`. T21 (eval_corpus) covers end-to-end behaviour.
 
 ## 7. Open questions / risks (resolve before declaring done)
@@ -193,7 +193,7 @@ uv run mypy src/
 uv run pytest -m fast --strict-markers
 ```
 
-`mypy src/` deliberately excludes `app.py` (per `pyproject.toml:41` mypy `files = ["src/jobfit"]`). If the implementer wants type coverage on `app.py`, run a one-off `uv run mypy app.py` and fix anything strict flags — but do not change the mypy config scope.
+`mypy src/` deliberately excludes `app.py` (per `pyproject.toml:41` mypy `files = ["src/gander"]`). If the implementer wants type coverage on `app.py`, run a one-off `uv run mypy app.py` and fix anything strict flags — but do not change the mypy config scope.
 
 ## 9. Definition of done for T16
 

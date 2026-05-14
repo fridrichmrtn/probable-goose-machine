@@ -155,7 +155,7 @@ for f in /home/mf/GitHub/probable-goose-machine/.worktrees/block-c/tests/fixture
          /home/mf/GitHub/probable-goose-machine/.worktrees/block-c/tests/fixtures/cvs/*.docx; do
   uv run --project /home/mf/GitHub/probable-goose-machine/.worktrees/block-c python -c "
 from pathlib import Path
-from jobfit.ingest import extract_text
+from gander.ingest import extract_text
 p = Path('$f')
 t = extract_text(p.read_bytes(), p.name)
 assert len(t) > 200, f'{p.name}: {len(t)} chars'

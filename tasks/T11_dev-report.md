@@ -1,6 +1,6 @@
 # /dev Report — T11 L4b CZ-localized salary search + estimator
 
-**Task:** Implement T11 — L4b salary search + estimator. Deliverables: `src/jobfit/prompts/salary.md`, `src/jobfit/salary.py` (`build_queries`, `async search`, `async estimate_salary`), `tests/test_salary.py` (3 fast + 1 live slow). CZ-localized DDG queries (platy.cz / profesia.cz / glassdoor czech republic), tenacity fail-fast (≤2 attempts/call), `StageFailure` if <2 sources, hard URL-grounding rule, currency↔period coupling, observability per §4.8.
+**Task:** Implement T11 — L4b salary search + estimator. Deliverables: `src/gander/prompts/salary.md`, `src/gander/salary.py` (`build_queries`, `async search`, `async estimate_salary`), `tests/test_salary.py` (3 fast + 1 live slow). CZ-localized DDG queries (platy.cz / profesia.cz / glassdoor czech republic), tenacity fail-fast (≤2 attempts/call), `StageFailure` if <2 sources, hard URL-grounding rule, currency↔period coupling, observability per §4.8.
 **Branch:** `feat/block-b-late-stages` (no sub-worktree — `--no-worktree`)
 **Worktree:** `/home/mf/GitHub/probable-goose-machine/.worktrees/block-b`
 **Stack:** py, gradio, precommit
@@ -8,8 +8,8 @@
 
 ## Files touched
 
-- `src/jobfit/prompts/salary.md` — new (~60 lines). System prompt: input is `{context, results}` JSON, output matches `SalaryEstimate` schema, hard rules forbid URL invention / paraphrase, currency↔period iff-coupling pinned in prose ("`period` MUST be `month` if and only if `currency=='CZK'`. For EUR or USD, `period` MUST be `year`. No exceptions.").
-- `src/jobfit/salary.py` — new (~225 LOC after heal). Mirrors T10's structure: module-load `_SYSTEM_PROMPT`, `async with stage_boundary("salary")`, return `SalaryEstimate | StageFailure`. Module constant `_INSUFFICIENT_DATA_MSG` ("Insufficient market data for this profile" — verbatim PRD §4.6 copy, no trailing period) used across all logical-failure branches; differentiation lives in structured `debug_detail` + `stage_failure.reason` event keys (`no_verifiable_sources`, `unsupported_currency`, `currency_period_mismatch`, `invalid_range`, `invalid_llm_output`).
+- `src/gander/prompts/salary.md` — new (~60 lines). System prompt: input is `{context, results}` JSON, output matches `SalaryEstimate` schema, hard rules forbid URL invention / paraphrase, currency↔period iff-coupling pinned in prose ("`period` MUST be `month` if and only if `currency=='CZK'`. For EUR or USD, `period` MUST be `year`. No exceptions.").
+- `src/gander/salary.py` — new (~225 LOC after heal). Mirrors T10's structure: module-load `_SYSTEM_PROMPT`, `async with stage_boundary("salary")`, return `SalaryEstimate | StageFailure`. Module constant `_INSUFFICIENT_DATA_MSG` ("Insufficient market data for this profile" — verbatim PRD §4.6 copy, no trailing period) used across all logical-failure branches; differentiation lives in structured `debug_detail` + `stage_failure.reason` event keys (`no_verifiable_sources`, `unsupported_currency`, `currency_period_mismatch`, `invalid_range`, `invalid_llm_output`).
 - `tests/test_salary.py` — new (~190 LOC after heal). 5 fast tests + 1 live+slow guarded by `MINIMAX_API_KEY`. Two fast tests assert `obs.subscribe(events.append)` event streams (search-empty path: `salary_search` with `dedup_results=0` + boundary `error` event with `exc_type="RuntimeError"`; URL-grounding path: `stage_failure` with `reason="no_verifiable_sources"`).
 - `tasks/T11_salary.md` — Status flipped `todo` → `done`; Outcome line added.
 - `tasks/T11_dev-plan.md` — new (planning artifact, 206 lines).
@@ -19,9 +19,9 @@
 
 | Command | Initial (Phase 2) | After heal (Phase 4) |
 |---|---|---|
-| `uv run ruff format --check src/jobfit/salary.py tests/test_salary.py` | pass | pass |
-| `uv run ruff check src/jobfit/salary.py tests/test_salary.py` | pass | pass |
-| `uv run mypy src/jobfit/salary.py` | pass | pass |
+| `uv run ruff format --check src/gander/salary.py tests/test_salary.py` | pass | pass |
+| `uv run ruff check src/gander/salary.py tests/test_salary.py` | pass | pass |
+| `uv run mypy src/gander/salary.py` | pass | pass |
 | `uv run pytest -q -m fast tests/test_salary.py` | pass (3) | pass (5) |
 | `uv run pre-commit run --all-files` | pass | pass |
 
@@ -31,7 +31,7 @@ The live spike (with `MINIMAX_API_KEY` set, hits real DDG + MiniMax) is **deferr
 
 ### Must-fix (resolved this run, single heal iteration)
 
-- **[hiring-manager + ai-ml-engineer + qa-engineer]** No fast-test coverage of the URL-grounding rejection branch (`src/jobfit/salary.py:80` — `if not kept`). The §4.5 hallucination guard for salary URLs was unverified by CI. **Fixed:** added `test_estimate_salary_rejects_llm_urls_not_in_search_results` mocking DDG with 2 valid results, `LLMClient.complete_json` to return a `SalaryEstimate` whose `sources` are entirely external URLs, and asserting both the `StageFailure(stage="salary")` return and the `stage_failure` event with `reason="no_verifiable_sources"`.
+- **[hiring-manager + ai-ml-engineer + qa-engineer]** No fast-test coverage of the URL-grounding rejection branch (`src/gander/salary.py:80` — `if not kept`). The §4.5 hallucination guard for salary URLs was unverified by CI. **Fixed:** added `test_estimate_salary_rejects_llm_urls_not_in_search_results` mocking DDG with 2 valid results, `LLMClient.complete_json` to return a `SalaryEstimate` whose `sources` are entirely external URLs, and asserting both the `StageFailure(stage="salary")` return and the `stage_failure` event with `reason="no_verifiable_sources"`.
 - **[codex + qa-engineer + hiring-manager]** `build_queries` silently dropped the senior EUR cross-check for CZ profiles with years≥10: 3 CZ queries + 1 EUR appended → `[:3]` truncated EUR off. **Fixed:** raised the cap to 4 only when the senior EUR query is appended (the EUR cross-check is the senior-specific market signal); added one-line WHY comment; added a fast test pinning the senior CZ path returns 4 queries with EUR present.
 - **[codex + ai-ml-engineer]** Currency↔period invariant unenforced — model could emit `CZK / year` (12× cost-display error) or `EUR / month` and only currency-set membership was checked. **Fixed:** added programmatic post-LLM check `(CZK & period!="month") or ((EUR|USD) & period!="year")` → `stage_failure` event with `reason="currency_period_mismatch"` + `StageFailure` return. Prompt strengthened with iff-coupling sentence.
 - **[qa-engineer]** No `obs.subscribe()` event assertions in tests (T10 set the precedent; T11 emitted 4+ event types and asserted none). **Fixed:** two fast tests now subscribe and assert event streams (the search-empty case asserts `salary_search` with `dedup_results=0` plus the boundary `error` event with `exc_type="RuntimeError"`; the URL-grounding case asserts `stage_failure` with `reason="no_verifiable_sources"`).

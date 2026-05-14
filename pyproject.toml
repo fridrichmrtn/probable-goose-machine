@@ -1,7 +1,7 @@
 [project]
-name = "jobfit"
+name = "gander"
 version = "0.1.0"
-description = "Job Fit & Salary Estimator"
+description = "Gander — a closer look at any CV."
 requires-python = ">=3.11"
 dependencies = [
     "ddgs>=9.14.2",
@@ -20,7 +20,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/jobfit"]
+packages = ["src/gander"]
 
 [tool.uv]
 package = true
@@ -38,7 +38,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src/jobfit"]
+files = ["src/gander"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

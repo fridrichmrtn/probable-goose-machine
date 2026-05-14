@@ -18,7 +18,7 @@ Spec drift notes (T15 task file vs canonical schema):
   T15 schema patch) rather than zero-filled sentinels. The renderer treats
   `None` as "not yet rendered", so the body is empty until profile completes.
 * `total_cost_usd` / `total_latency_ms` are populated by the subscriber on
-  every yield. The footer in `jobfit.report` interpolates them.
+  every yield. The footer in `gander.report` interpolates them.
 """
 
 from __future__ import annotations
@@ -28,15 +28,15 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from jobfit import obs
-from jobfit.confidence import judge
-from jobfit.errors import StageFailure
-from jobfit.extract import extract_profile
-from jobfit.growth import plan_growth
-from jobfit.ingest import extract_text
-from jobfit.redact import redact
-from jobfit.salary import estimate_salary
-from jobfit.schemas import (
+from gander import obs
+from gander.confidence import judge
+from gander.errors import StageFailure
+from gander.extract import extract_profile
+from gander.growth import plan_growth
+from gander.ingest import extract_text
+from gander.redact import redact
+from gander.salary import estimate_salary
+from gander.schemas import (
     REPORT_STAGE_NAMES,
     Confidence,
     GrowthAction,
@@ -48,7 +48,7 @@ from jobfit.schemas import (
     StageName,
     StageStatus,
 )
-from jobfit.score import score_profile
+from gander.score import score_profile
 
 # Cascade messages shown to the user when an upstream stage failed and the
 # downstream stage cannot meaningfully run. Keyed by the downstream stage so
@@ -130,7 +130,7 @@ def _cascade_all_downstream(run: _Run, upstream_failure: str) -> None:
 def _make_accumulator(run: _Run) -> Any:
     """Return an obs subscriber that sums llm_call cost/latency into `run`.
 
-    Filters on `event == "llm_call"` (jobfit.llm emits this with `usd_cost` +
+    Filters on `event == "llm_call"` (gander.llm emits this with `usd_cost` +
     `duration_ms` fields). Defensive .get() lookups so a malformed record
     cannot raise into obs.emit (which already protects its callbacks from
     exceptions, but extra defence is cheap).

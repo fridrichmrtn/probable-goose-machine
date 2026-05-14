@@ -7,7 +7,7 @@
 
 ## Files touched
 
-- `app.py` — replaced bootstrap stub with Gradio Blocks app, `_initial_report()`, throwaway `_stub_pipeline_run()`, `find_spec`-gated import of `jobfit.pipeline.run`, async `handle()` with an immediate "Reading file…" transitional yield.
+- `app.py` — replaced bootstrap stub with Gradio Blocks app, `_initial_report()`, throwaway `_stub_pipeline_run()`, `find_spec`-gated import of `gander.pipeline.run`, async `handle()` with an immediate "Reading file…" transitional yield.
 - `tasks/T16_dev-plan.md` — added during Phase 1 (the plan that Phase 2 implemented).
 - `tasks/backlog.md` — appended block of should-fix + nit items (auto-unioned on merge via `.gitattributes`).
 - `tasks/T16_dev-report.md` — this report.
@@ -16,7 +16,7 @@ Commits on the branch:
 - `ba12056` — initial implementation (Phase 2)
 - `ad50e81` — heal pass (Phase 4.2)
 
-`src/jobfit/{pipeline,schemas,report,errors}.py` were NOT touched (red lines respected). No new tests added (UI coverage deferred to T21 per task contract).
+`src/gander/{pipeline,schemas,report,errors}.py` were NOT touched (red lines respected). No new tests added (UI coverage deferred to T21 per task contract).
 
 ## Checks
 
@@ -50,14 +50,14 @@ Per task contract `tasks/T16_ui.md:47-49`, manual smoke is the verification surf
 
 **Browser-side gaps (not verifiable without a GUI driver — orchestrator limitation):**
 - Whether Gradio 6.14 actually streams each `async def` generator yield as a partial queue update (plan §7.1). Signature analysis says yes; runtime observation requires a human or a Playwright probe. Open as a should-fix in the backlog.
-- Reduced-motion CSS spot-check (plan §7.7). T14's `@media (prefers-reduced-motion: reduce)` rule at `src/jobfit/report.py:99` is present and correctly disables the pill colour-transition. Visual verification deferred.
+- Reduced-motion CSS spot-check (plan §7.7). T14's `@media (prefers-reduced-motion: reduce)` rule at `src/gander/report.py:99` is present and correctly disables the pill colour-transition. Visual verification deferred.
 - Mid-stream `render_body` callouts: the stub uses `StageFailure("pending")` as a placeholder for not-yet-run blocks. `render_body` short-circuits on `profile=StageFailure`, so intermediate yields would show "Profile failed: pending" until the final yield. Captured as a should-fix in the backlog — likely T15 absorbs the fix when it introduces real None-blocks via the planned schema tweak.
 
 ## Review findings
 
 ### Must-fix (resolved this run)
 
-1. **[codex]** `app.py:244` — Broad `except ImportError` masks import-time bugs inside real `jobfit.pipeline`. Replaced with `importlib.util.find_spec("jobfit.pipeline")` gate. Real import errors now propagate.
+1. **[codex]** `app.py:244` — Broad `except ImportError` masks import-time bugs inside real `gander.pipeline`. Replaced with `importlib.util.find_spec("gander.pipeline")` gate. Real import errors now propagate.
 2. **[ux-engineer]** `app.py:262` — Empty-upload copy lacked file-format constraint and recovery path. Replaced with `"*No file selected. Upload a PDF or DOCX (max 10 MB) and click Generate report.*"`.
 3. **[ux-engineer]** `app.py:267` — No yield before `pipeline_run`'s first state; the button click looked dead during cold start (PRD §8). Added an immediate transitional yield (`"*Reading file…*"`) with `statuses["profile"]="running"` before iterating the pipeline.
 
@@ -103,4 +103,4 @@ gh pr create --title "T16: L7 Gradio UI + stage tracker (pipeline stubbed pendin
 gh pr merge <num> --merge   # use --merge, NOT --squash, to preserve the commit train
 ```
 
-Coordination note: T15 is being built in a parallel session. When T15 lands `src/jobfit/pipeline.py`, the `find_spec` gate in `app.py` will switch to the real `run` automatically; the `# type: ignore[import-not-found]` on the import line should be dropped at that point (mypy will warn "unused type: ignore").
+Coordination note: T15 is being built in a parallel session. When T15 lands `src/gander/pipeline.py`, the `find_spec` gate in `app.py` will switch to the real `run` automatically; the `# type: ignore[import-not-found]` on the import line should be dropped at that point (mypy will warn "unused type: ignore").

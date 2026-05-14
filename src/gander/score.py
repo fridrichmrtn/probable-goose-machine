@@ -4,11 +4,11 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.obs import emit
-from jobfit.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
-from jobfit.verify import verify_quote
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.obs import emit
+from gander.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
+from gander.verify import verify_quote
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "score.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")

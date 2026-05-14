@@ -10,18 +10,18 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from jobfit import obs
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.schemas import Profile, ProfileItem, RedactedCV
-from jobfit.verify import drop_unverified
+from gander import obs
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.schemas import Profile, ProfileItem, RedactedCV
+from gander.verify import drop_unverified
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _LIST_FIELDS: tuple[str, ...] = ("skills", "experience", "education", "soft_signals")
 
 
 def load_prompt(name: str) -> str:
-    """Read a prompt file from src/jobfit/prompts/."""
+    """Read a prompt file from src/gander/prompts/."""
     return (_PROMPTS_DIR / name).read_text(encoding="utf-8")
 
 

@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from jobfit.errors import StageFailure
-from jobfit.llm import LLMClient
-from jobfit.obs import subscribe
-from jobfit.schemas import (
+from gander.errors import StageFailure
+from gander.llm import LLMClient
+from gander.obs import subscribe
+from gander.schemas import (
     Anchor,
     Component,
     Profile,
@@ -16,7 +16,7 @@ from jobfit.schemas import (
     RedactedCV,
     Score,
 )
-from jobfit.score import _ComponentList, score_profile
+from gander.score import _ComponentList, score_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"

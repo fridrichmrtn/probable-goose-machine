@@ -9,7 +9,7 @@ parity with ``estimate_salary`` and ``score_profile``. The structural-isolation
 test asserts on parameter keys only, so the recompute-then-compare contract
 still holds.
 
-``model="cheap"`` resolves through ``_PROFILE_MODELS`` in ``jobfit.llm`` to
+``model="cheap"`` resolves through ``_PROFILE_MODELS`` in ``gander.llm`` to
 MiniMax-M2.7-highspeed under the current profiles.
 """
 
@@ -22,10 +22,10 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.obs import emit
-from jobfit.schemas import Confidence, Source
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.obs import emit
+from gander.schemas import Confidence, Source
 
 _STEP_A_PROMPT = (Path(__file__).parent / "prompts" / "confidence_step_a.md").read_text(
     encoding="utf-8"

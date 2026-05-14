@@ -92,7 +92,7 @@ PRD §4.8 names four counters: **claims verified**, **claims dropped**, **search
 
 **Findings**
 
-- `[should-fix] tasks/T23_readme.md:53` Verification block names doc-completeness items, not a runnable check. Add a one-liner: `cd "$(mktemp -d)" && git clone <repo> jobfit && cd jobfit && uv sync && uv run jobfit-cli tests/fixtures/01_junior_da_novotny.docx | tee /tmp/smoke.json && jq -e '.score.total > 0' /tmp/smoke.json`. If the local-run path is not a CLI, adapt to the actual entry point. Without a runnable check, T23 cannot fail.
+- `[should-fix] tasks/T23_readme.md:53` Verification block names doc-completeness items, not a runnable check. Add a one-liner: `cd "$(mktemp -d)" && git clone <repo> gander && cd gander && uv sync && uv run gander-cli tests/fixtures/01_junior_da_novotny.docx | tee /tmp/smoke.json && jq -e '.score.total > 0' /tmp/smoke.json`. If the local-run path is not a CLI, adapt to the actual entry point. Without a runnable check, T23 cannot fail.
 - `[should-fix]` T20 bias smoke and T21 eval corpus: not deeply read in this stub, flagging as **unverified by this audit** rather than greenlit. A real `qa-engineer` pass should validate that T20's verification asserts behavior (not just "ran the script"), and that T21's eval corpus has a stable threshold or a recorded baseline against which regressions can be detected.
 - `[nit]` Task `Owner:` enumeration in `tasks/PLAN.md` was just extended to include `qa-engineer`. None of T17–T21 currently route to `qa-engineer` ownership; consider whether T18 (failure tests) and T20 (bias smoke) would be better co-owned (`software-engineer` writes, `qa-engineer` reviews before close) — matches the agent's "stay in your lane" clause.
 

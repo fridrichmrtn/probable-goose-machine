@@ -1,10 +1,10 @@
-# Job Fit & Salary Estimator — Implementation Plan
+# Gander — Implementation Plan
 
 ## Plan v3 — User direction: engineering hygiene + real eval corpus
 
 After v2 (review-driven revisions), the user added these directives:
 
-1. **Pre-commit + CI/CD from the beginning** — folded into L0. Pre-commit: `ruff format` + `ruff check` + `mypy` + fast unit tests (marked `@pytest.mark.fast`). CI: GitHub Actions on every PR runs the **full test suite with live MiniMax + live DDG** — catches model and search regressions immediately. Burns tokens deliberately; CI uses `MiniMax-M2.7-highspeed` for stages where reasoning isn't critical (configured via env var `JOBFIT_MODEL_PROFILE=ci`) to keep costs bounded.
+1. **Pre-commit + CI/CD from the beginning** — folded into L0. Pre-commit: `ruff format` + `ruff check` + `mypy` + fast unit tests (marked `@pytest.mark.fast`). CI: GitHub Actions on every PR runs the **full test suite with live MiniMax + live DDG** — catches model and search regressions immediately. Burns tokens deliberately; CI uses `MiniMax-M2.7-highspeed` for stages where reasoning isn't critical (configured via env var `GANDER_MODEL_PROFILE=ci`) to keep costs bounded.
 2. **10 synthesized CZ data/DS/ML CVs** — I author them spanning junior→senior across roles (data analyst, data scientist, ML engineer, MLOps, research scientist). Mixed formats: roughly half PDF, half DOCX, so `scripts/eval_corpus.py` exercises both ingestion paths end-to-end. Three of the 10 serve as the §5.4 acceptance triplet (junior/mid/senior).
 3. **CZ localization** — salary stage defaults to CZK monthly gross; search queries target CZ aggregators (platy.cz, profesia.cz, glassdoor.com/Location/Czech-Republic-Salaries) plus EUR cross-checks for senior roles. Bias smoke test uses CZ-specific prestige signal (Charles University / MFF UK / VŠE vs anonymized).
 4. **`scripts/eval_corpus.py` as the user's gauging surface** — runs all 10 CVs through the **real live pipeline** (true e2e smoke, not VCR), writes one `<cv_name>.md` per CV plus an `reports/SUMMARY.md` table (candidate | format | score | salary range | confidence | top growth action). User runs it locally to manually gauge output quality before submission.
@@ -200,14 +200,14 @@ Files to create:
 - `pyproject.toml` — uv + Python 3.11+, pin: openai (for MiniMax-compatible client), gradio, pypdf, pdfplumber, python-docx, pydantic, structlog, ddgs, tenacity (retry), pytest, pytest-asyncio, ruff, mypy. Pytest markers declared: `fast`, `slow`, `live`.
 - `app.py` — Gradio entrypoint at repo root (HF Spaces convention), with upload widget + a progress panel wired to `emit()` events.
 - `requirements.txt` — exported from uv lock for HF Spaces (HF builds from `requirements.txt`, not `pyproject.toml`).
-- `src/jobfit/schemas.py` — Pydantic models: `RawCV`, `RedactedCV`, `Profile`, `Component`, `Score`, `SalaryEstimate`, `Source`, `Confidence`, `GrowthAction`, `Report`, `StageFailure`. Every model carrying a claim has an `anchor_quote: str` field.
-- `src/jobfit/verify.py` — `verify_quote(quote, source) -> bool` (≥4 words, case-insensitive, whitespace-collapsed) and `drop_unverified(items, source) -> tuple[list, int]`. Plus tests.
-- `src/jobfit/obs.py` — `emit(stage, event, **kv)` writing structlog JSON to stdout + pushing to a thread-local Gradio progress callback when present.
-- `src/jobfit/errors.py` — `StageFailure` + `stage_boundary` decorator that converts exceptions into `StageFailure` and emits an error event.
-- `src/jobfit/llm.py` — thin wrapper around the OpenAI SDK client configured for MiniMax (`base_url="https://api.minimaxi.chat/v1"`, model selection per stage). Methods: `complete_json(messages, schema, *, temperature=0.0)`, `complete_text(messages)`. Async by default (`AsyncOpenAI`); JSON mode used for structured stages with one retry on schema-validation failure. Emits `prompt_tokens`/`completion_tokens`/`usd_cost`/`duration_ms` via `obs.emit()` for every call.
+- `src/gander/schemas.py` — Pydantic models: `RawCV`, `RedactedCV`, `Profile`, `Component`, `Score`, `SalaryEstimate`, `Source`, `Confidence`, `GrowthAction`, `Report`, `StageFailure`. Every model carrying a claim has an `anchor_quote: str` field.
+- `src/gander/verify.py` — `verify_quote(quote, source) -> bool` (≥4 words, case-insensitive, whitespace-collapsed) and `drop_unverified(items, source) -> tuple[list, int]`. Plus tests.
+- `src/gander/obs.py` — `emit(stage, event, **kv)` writing structlog JSON to stdout + pushing to a thread-local Gradio progress callback when present.
+- `src/gander/errors.py` — `StageFailure` + `stage_boundary` decorator that converts exceptions into `StageFailure` and emits an error event.
+- `src/gander/llm.py` — thin wrapper around the OpenAI SDK client configured for MiniMax (`base_url="https://api.minimaxi.chat/v1"`, model selection per stage). Methods: `complete_json(messages, schema, *, temperature=0.0)`, `complete_text(messages)`. Async by default (`AsyncOpenAI`); JSON mode used for structured stages with one retry on schema-validation failure. Emits `prompt_tokens`/`completion_tokens`/`usd_cost`/`duration_ms` via `obs.emit()` for every call.
 - `tests/conftest.py` — fixtures, sample-CV loader, marker registration. `ddgs` pinned to a single tested version (HTTP backend has churned). `pytest-asyncio` mode = `auto` so the async pipeline tests don't need decorators.
 - `.github/workflows/warm-keeper.yml` — cron `*/5 * * * *` HEAD request to the HF Space URL. Free, keeps Space hot through the review window.
-- `.github/workflows/ci.yml` — on every PR + push to main: `uv sync` → `ruff format --check` → `ruff check` → `mypy src/` → `pytest -m "not slow"` with **live `MINIMAX_API_KEY` + live DDG**. `JOBFIT_MODEL_PROFILE=ci` env var swaps M1 for `MiniMax-M2.7-highspeed` in stages where reasoning is dispensable, keeping CI token spend bounded. Concurrency: 1 (avoid DDG rate-limits and token-plan thrash).
+- `.github/workflows/ci.yml` — on every PR + push to main: `uv sync` → `ruff format --check` → `ruff check` → `mypy src/` → `pytest -m "not slow"` with **live `MINIMAX_API_KEY` + live DDG**. `GANDER_MODEL_PROFILE=ci` env var swaps M1 for `MiniMax-M2.7-highspeed` in stages where reasoning is dispensable, keeping CI token spend bounded. Concurrency: 1 (avoid DDG rate-limits and token-plan thrash).
 - `.pre-commit-config.yaml` — hooks: `ruff` (format + check), `mypy` on `src/`, `pytest -m fast` (only tests marked `@pytest.mark.fast` — pure-function unit tests under 1s, no external calls).
 - `pyproject.toml` includes pytest markers: `fast` (no external IO), `slow` (>1s or external IO), `live` (requires API keys).
 
@@ -223,14 +223,14 @@ Before committing all six stages to MiniMax-M2.7-highspeed, prove it can do the 
 If any gate fails, switch to the documented fallback (Claude Sonnet 4.6 via Anthropic SDK — `llm.py` is structured to swap clients behind one interface) and re-run the spike. Add a paragraph to README "Decisions" about the swap if it happens.
 
 ### L1 — Ingestion (~30 min, parallel inside the level)
-Files: `src/jobfit/ingest.py`
+Files: `src/gander/ingest.py`
 - `extract_text(file_bytes, filename) -> str` — dispatch on suffix; pypdf → fallback pdfplumber if empty.
 - Scanned-PDF detection: if total extracted text < 100 chars and PDF has pages, raise `StageFailure("This appears to be a scanned PDF...")`.
 - Format detection: unknown suffix → `StageFailure("Unable to read this file...")`.
 - Tests: real PDF, real DOCX, deliberately-corrupt bytes, image-only PDF fixture.
 
 ### L2 — PII Redaction (~30 min, regex-only by default)
-Files: `src/jobfit/redact.py`
+Files: `src/gander/redact.py`
 - Regex pass: emails, phone numbers (international + US), URLs, postal codes, common name patterns ("Name: X", header-line all-caps name detection).
 - **Date redaction**: `19xx`/`20xx` four-digit year *inside a date-like context* (e.g., adjacent to a month name or a `–` range) → `[YEAR]`. Must not eat "Python 3.10" / "C++17".
 - LLM pass: **deferred to optional**. v1 promised an `MiniMax-M2.7-highspeed` name/address pass. Cost: extra model surface, extra failure mode, extra latency. v2 default: ship with regex-only and disclose the limitation in README. Re-enable only if regex misses on real fixtures.
@@ -238,13 +238,13 @@ Files: `src/jobfit/redact.py`
 - Tests: known-name CV, already-anonymized CV, year-only-no-context (should NOT redact "Python 3.10" or "C++17"); audit log must cover at least name + email on each fixture.
 
 ### L3 — Profile Extraction (~45 min)
-Files: `src/jobfit/extract.py`
+Files: `src/gander/extract.py`
 - One MiniMax-M2.7-highspeed call via `llm.complete_json()` with JSON mode + Pydantic schema in the system prompt. System prompt: "extract the candidate's profile. For each item, copy the EXACT substring from the CV that supports it into `anchor_quote` — do not paraphrase."
 - Pydantic-validate; for each item with an `anchor_quote`, call `verify_quote` → drop unverified items, log drop count.
 - Tests: golden-output snapshot per fixture CV; assertion that >80% of items survive verification (MiniMax may need a stronger anti-paraphrase instruction than Claude — adjust if survival rate is low).
 
 ### L4a — Seniority Scorer (~45 min, **runs concurrently with L4b**)
-Files: `src/jobfit/score.py`
+Files: `src/gander/score.py`
 - **One** structured M1 call producing all four `Component(name, score_0_100, justification, anchor_quote)` items in a single response. (v1 listed "four calls or one" — v2 picks one to honor the latency budget.)
 - `verify_quote` on each component's anchor; unverified components are dropped (the user sees a shorter list, per §4.5).
 - Aggregation: documented weighted sum (`0.35 skills, 0.30 experience, 0.20 education, 0.15 soft`) — weights live in a constant; both rendered in the report UI (collapsible "How is this scored?" panel) and linked from the README.
@@ -252,7 +252,7 @@ Files: `src/jobfit/score.py`
 - Tests: per fixture CV the score lands in expected band (junior < 40, mid 40–70, senior > 70); aggregation math deterministic; **calibration test** — same fixture run 3× with `temperature=0` → score variance ≤5.
 
 ### L4b — Salary Search + Estimate (~75 min, **runs concurrently with L4a**)
-Files: `src/jobfit/salary.py`
+Files: `src/gander/salary.py`
 - Build 2–3 search queries from `Profile` (role title + seniority hint + location guessed from CV).
 - **Localization**: if location resolves to Czech Republic (default for this corpus), queries target CZ aggregators with CZK monthly gross output. Example queries: `"senior data scientist plat Praha 2025 site:platy.cz OR site:profesia.cz"`, `"machine learning engineer salary czech republic site:glassdoor.com"`, `"senior data engineer mzda CZK"`. For senior roles, add an EUR cross-check query (`"senior ML engineer salary EUR remote europe"`) so the estimator can sanity-check ranges. Fallback location is "Europe" only if no signal at all.
 - DDG search via `ddgs.DDGS().text(query, max_results=8)`. **Fail-fast retry**: max 2 attempts with short backoff (1s, 2s + jitter). Rate-limited HF egress IPs won't recover via retry — better to trip §4.6 quickly than burn the latency budget.
@@ -262,7 +262,7 @@ Files: `src/jobfit/salary.py`
 - Tests: VCR-recorded DDG fixture per role level; assert sources have URLs; assert `low < high`; assert currency+period present; mock DDG raising / returning [] → assert `StageFailure` propagates with right message.
 
 ### L4c — Confidence Judge (~45 min, **architecturally separate, recompute-then-compare**)
-Files: `src/jobfit/confidence.py`
+Files: `src/gander/confidence.py`
 
 The v1 design ("separate prompt, same model, same provider") was correctly flagged as theatre by the AI/ML review — same RLHF distribution will rubber-stamp itself. v2 isolates more aggressively:
 
@@ -278,7 +278,7 @@ The v1 design ("separate prompt, same model, same provider") was correctly flagg
   - golden test: when Step A returns Low, final `tier == "Low"` regardless of Step B's text.
 
 ### L5 — Growth Plan (~60 min)
-Files: `src/jobfit/growth.py`
+Files: `src/gander/growth.py`
 - One M1 call (`temperature=0`). Input: profile + score components (especially low ones) + current salary midpoint. System prompt explicitly enumerates anti-slop rules ("do not propose: PhD, founding a company, generic 'improve communication'") and demands each action reference a specific phrase from the CV.
 - Output: 3–5 `GrowthAction(what, time_horizon_months, mechanism, anchor_quote)`. Schema constrains `time_horizon_months ∈ [1, 24]` — Pydantic rejects out-of-range; no duplicate runtime check (dead code in v1).
 - Validations:
@@ -287,7 +287,7 @@ Files: `src/jobfit/growth.py`
 - Tests: per fixture, ≥3 actions survive verification; anchors all substring-match; (acceptance test §M4 asserts cross-CV uniqueness via Jaccard).
 
 ### L6 — Report Assembly + Orchestration (~45 min)
-Files: `src/jobfit/report.py`, `src/jobfit/pipeline.py`
+Files: `src/gander/report.py`, `src/gander/pipeline.py`
 
 **Orchestrator** (`pipeline.run(file_bytes, filename) -> AsyncIterator[Report]`):
 1. L1 → L2 → L3 sequentially. If L1 or L2 fails → yield top-level failure Report and stop.
@@ -301,7 +301,7 @@ Files: `src/jobfit/report.py`, `src/jobfit/pipeline.py`
 **Tests**: `test_partial_failure_streaming` consumes the async iterator with mocked stage failures injected at each level → assert (a) no traceback escapes, (b) final state has no block in `running`, (c) the assembler emits the correct user-facing copy per failure case.
 
 ### L7 — UI / Gradio (Track B, runs parallel to A) — pattern locked in v2
-Files: `app.py` (expanded), `src/jobfit/ui.py` (renderers)
+Files: `app.py` (expanded), `src/gander/ui.py` (renderers)
 
 **Layout** (`gr.Blocks`):
 - File upload (`gr.File`, `.pdf`/`.docx`, 10 MB cap) + helper text: "PDF or DOCX, max 10 MB. Your CV is processed in-memory and not stored."
@@ -347,7 +347,7 @@ Files: `tests/`
 Files: `README.md` (with HF Space metadata in YAML frontmatter — there is no separate `huggingface.yaml`), `.env.example`, `requirements.txt`, `.github/workflows/warm-keeper.yml`
 - **HF Space setup**: create a Gradio Space, sync from GitHub repo (or push directly to HF), set `MINIMAX_API_KEY` as a Space secret. Frontmatter (`sdk: gradio`, `app_file: app.py`, `python_version: 3.11`). Public URL goes at top of README.
 - **Warm-keeper**: `.github/workflows/warm-keeper.yml` runs every 5 min, HEADs the Space URL. Free, keeps Space hot through the whole review window — including round-2 share-screen.
-- **CI**: `.github/workflows/ci.yml` on every PR/push: lint, format check, mypy, full pytest with **live MiniMax + live DDG** (per user directive). Repo secrets: `MINIMAX_API_KEY`. Concurrency: 1. Env: `JOBFIT_MODEL_PROFILE=ci` to swap M1→`MiniMax-M2.7-highspeed` where reasoning is dispensable, keeping CI cost <$0.50/run.
+- **CI**: `.github/workflows/ci.yml` on every PR/push: lint, format check, mypy, full pytest with **live MiniMax + live DDG** (per user directive). Repo secrets: `MINIMAX_API_KEY`. Concurrency: 1. Env: `GANDER_MODEL_PROFILE=ci` to swap M1→`MiniMax-M2.7-highspeed` where reasoning is dispensable, keeping CI cost <$0.50/run.
 - **Local-run**: `uv sync && MINIMAX_API_KEY=... uv run python app.py` (one command after `.env` is filled).
 - **Eval corpus**: `uv run python scripts/eval_corpus.py` writes `reports/SUMMARY.md` and one report per CV. README documents this as the recommended manual gauging step before submission.
 - **README sections** (the Decisions section is load-bearing — written in author voice, not box-checking the PRD back):
@@ -374,23 +374,23 @@ README.md                           # incl. HF Space frontmatter; Decisions sect
 .env.example                        # MINIMAX_API_KEY=... (and optional ANTHROPIC_API_KEY for fallback)
 .github/workflows/warm-keeper.yml   # 5-min cron HEAD to Space URL (cold-start mitigation)
 app.py                              # Gradio entrypoint (Track B)
-src/jobfit/__init__.py
-src/jobfit/schemas.py               # Pydantic contracts (L0); StageStatus enum
-src/jobfit/verify.py                # substring verifier (L0); ≥6w+unique OR ≥8w; section-locality
-src/jobfit/obs.py                   # structlog + cost/latency telemetry (L0)
-src/jobfit/errors.py                # StageFailure + boundary decorator (L0)
-src/jobfit/llm.py                   # async OpenAI-SDK wrapper for MiniMax (+Claude fallback iface)
-src/jobfit/ingest.py                # L1
-src/jobfit/redact.py                # L2 (regex-only by default)
-src/jobfit/extract.py               # L3
-src/jobfit/score.py                 # L4a (one structured call)
-src/jobfit/salary.py                # L4b (DDG fail-fast + estimator)
-src/jobfit/confidence.py            # L4c (MiniMax-M2.7-highspeed + recompute-then-compare)
-src/jobfit/growth.py                # L5
-src/jobfit/report.py                # L6 renderer
-src/jobfit/pipeline.py              # L6 orchestrator (async iterator, conditional flow)
-src/jobfit/ui.py                    # Gradio renderers + stage-tracker HTML (L7)
-src/jobfit/prompts/                 # one .md per stage prompt
+src/gander/__init__.py
+src/gander/schemas.py               # Pydantic contracts (L0); StageStatus enum
+src/gander/verify.py                # substring verifier (L0); ≥6w+unique OR ≥8w; section-locality
+src/gander/obs.py                   # structlog + cost/latency telemetry (L0)
+src/gander/errors.py                # StageFailure + boundary decorator (L0)
+src/gander/llm.py                   # async OpenAI-SDK wrapper for MiniMax (+Claude fallback iface)
+src/gander/ingest.py                # L1
+src/gander/redact.py                # L2 (regex-only by default)
+src/gander/extract.py               # L3
+src/gander/score.py                 # L4a (one structured call)
+src/gander/salary.py                # L4b (DDG fail-fast + estimator)
+src/gander/confidence.py            # L4c (MiniMax-M2.7-highspeed + recompute-then-compare)
+src/gander/growth.py                # L5
+src/gander/report.py                # L6 renderer
+src/gander/pipeline.py              # L6 orchestrator (async iterator, conditional flow)
+src/gander/ui.py                    # Gradio renderers + stage-tracker HTML (L7)
+src/gander/prompts/                 # one .md per stage prompt
 scripts/spike_minimax.py            # L0.5 capability spike script
 scripts/eval_corpus.py              # 10-CV manual gauging runner (live pipeline)
 .pre-commit-config.yaml             # ruff + mypy + pytest -m fast

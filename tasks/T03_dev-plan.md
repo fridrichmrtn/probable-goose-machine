@@ -12,7 +12,7 @@ Status: planned, not implemented
 Read `pyproject.toml` in the worktree. Confirmed already-configured (no edits needed):
 
 - `[tool.ruff]` — `line-length = 100`, `target-version = "py311"`, `src = ["src", "tests"]`, lint selects `E,F,I,UP,B,SIM`.
-- `[tool.mypy]` — `python_version = "3.11"`, `strict = true`, `files = ["src/jobfit"]`.
+- `[tool.mypy]` — `python_version = "3.11"`, `strict = true`, `files = ["src/gander"]`.
 - `[tool.pytest.ini_options]` — `asyncio_mode = "auto"`, markers `fast`/`slow`/`live` declared.
 - Dev group has `pre-commit>=4.6.0`, `ruff>=0.15.12`, `mypy>=2.0.0`, `pytest>=9.0.3`, `pytest-asyncio>=1.3.0`.
 
@@ -61,7 +61,7 @@ repos:
   - repo: local
     hooks:
       - id: mypy
-        name: mypy (src/jobfit, strict)
+        name: mypy (src/gander, strict)
         entry: uv run mypy src/
         language: system
         types: [python]
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
-      JOBFIT_MODEL_PROFILE: ci
+      GANDER_MODEL_PROFILE: ci
     steps:
       - uses: actions/checkout@v4
 
@@ -125,7 +125,7 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check .
 
-      - name: Mypy (strict, src/jobfit)
+      - name: Mypy (strict, src/gander)
         run: uv run mypy src/
 
       - name: Pytest (not slow)
@@ -135,7 +135,7 @@ jobs:
 Notes:
 - `setup-uv@v3` provides Python via uv's pinned interpreter (`requires-python = ">=3.11"` resolves to whatever uv selects from `uv.lock`). No separate `actions/setup-python` — adding one would shadow uv's interpreter and risk version skew.
 - `enable-cache: true` + `cache-dependency-glob: uv.lock` caches `~/.cache/uv` keyed on the lockfile, per spec.
-- Job-level env exposes `MINIMAX_API_KEY` (must be set in repo Secrets) and `JOBFIT_MODEL_PROFILE=ci` (consumed by `jobfit.llm` once T05/T15 land).
+- Job-level env exposes `MINIMAX_API_KEY` (must be set in repo Secrets) and `GANDER_MODEL_PROFILE=ci` (consumed by `gander.llm` once T05/T15 land).
 - `concurrency` group cancels superseded PR runs; main pushes still serialize per-ref.
 - Single `ubuntu-latest` runner — no matrix; one Python version is sufficient for a one-day submission.
 
@@ -192,7 +192,7 @@ If step 5 fails, inspect the diff from step 4 and either (a) commit the auto-fix
 
 **Decision — no `actions/setup-python`.** `setup-uv@v3` installs the interpreter uv selects per `uv.lock`. Adding a separate setup-python step would create two Pythons on `PATH` and risk uv falling back to the wrong one.
 
-**Risk — `MINIMAX_API_KEY` and `vars.HF_SPACE_URL` not set.** These are user actions in GitHub repo settings, out of scope for this task. The CI selector is `-m "not slow"` per the user's "full live suite per directive" — `live`-marked tests ARE included by this filter (it only excludes `slow`). Without `MINIMAX_API_KEY` set, the live tests' `pytest.mark.skipif(not MINIMAX_API_KEY)` guard skips them; once the secret lands, every PR will hit the live MiniMax API on every push, with `JOBFIT_MODEL_PROFILE=ci` capping cost via `abab6.5s-chat`. Warm-keeper hard-fails (red workflow) until `HF_SPACE_URL` is set — see the explicit guard step rather than a silent `|| true`. **Flag in T03 Outcome:** reviewer must add `MINIMAX_API_KEY` (Secret) and `HF_SPACE_URL` (Variable) before T22.
+**Risk — `MINIMAX_API_KEY` and `vars.HF_SPACE_URL` not set.** These are user actions in GitHub repo settings, out of scope for this task. The CI selector is `-m "not slow"` per the user's "full live suite per directive" — `live`-marked tests ARE included by this filter (it only excludes `slow`). Without `MINIMAX_API_KEY` set, the live tests' `pytest.mark.skipif(not MINIMAX_API_KEY)` guard skips them; once the secret lands, every PR will hit the live MiniMax API on every push, with `GANDER_MODEL_PROFILE=ci` capping cost via `abab6.5s-chat`. Warm-keeper hard-fails (red workflow) until `HF_SPACE_URL` is set — see the explicit guard step rather than a silent `|| true`. **Flag in T03 Outcome:** reviewer must add `MINIMAX_API_KEY` (Secret) and `HF_SPACE_URL` (Variable) before T22.
 
 **Risk — pre-push pytest may run on a branch with broken tests mid-development.** Devs can `git push --no-verify` for WIP branches; CI is the authoritative gate. Document in the eventual README if this becomes friction.
 

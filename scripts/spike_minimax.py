@@ -29,9 +29,9 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
-from jobfit import obs
-from jobfit.llm import LLMClient
-from jobfit.verify import verify_quote
+from gander import obs
+from gander.llm import LLMClient
+from gander.verify import verify_quote
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests/fixtures/cvs"
@@ -108,12 +108,12 @@ class SpikeScore(BaseModel):
 
 
 def _preflight() -> int | None:
-    provider = os.environ.get("JOBFIT_LLM_PROVIDER", "minimax")
+    provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
     required = "ANTHROPIC_API_KEY" if provider == "anthropic" else "MINIMAX_API_KEY"
     if not os.environ.get(required):
         print(
             f"Set {required} in the environment before running "
-            f"(JOBFIT_LLM_PROVIDER={provider}; .env is not auto-loaded)",
+            f"(GANDER_LLM_PROVIDER={provider}; .env is not auto-loaded)",
             file=sys.stderr,
         )
         return 2

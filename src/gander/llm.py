@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
-from jobfit import obs
+from gander import obs
 
 if TYPE_CHECKING:
     # Optional fallback dep — not installed by default.
@@ -48,13 +48,13 @@ _ANTHROPIC_MODEL = "claude-sonnet-4-6"
 class LLMClient:
     """Async chat client over MiniMax (default) or Anthropic (fallback).
 
-    Provider selected via JOBFIT_LLM_PROVIDER env (`minimax` | `anthropic`).
-    Model resolution for MiniMax via JOBFIT_MODEL_PROFILE env (`local` | `ci`).
+    Provider selected via GANDER_LLM_PROVIDER env (`minimax` | `anthropic`).
+    Model resolution for MiniMax via GANDER_MODEL_PROFILE env (`local` | `ci`).
     Every call emits an `llm_call` telemetry event (success or failure).
     """
 
     def __init__(self) -> None:
-        self._provider = os.environ.get("JOBFIT_LLM_PROVIDER", "minimax")
+        self._provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
         self._client: AsyncOpenAI | AsyncAnthropic
         if self._provider == "minimax":
             api_key = os.environ.get("MINIMAX_API_KEY")
@@ -66,7 +66,7 @@ class LLMClient:
                 import anthropic
             except ImportError as e:
                 raise RuntimeError(
-                    "JOBFIT_LLM_PROVIDER=anthropic but `anthropic` package not "
+                    "GANDER_LLM_PROVIDER=anthropic but `anthropic` package not "
                     "installed — `uv add anthropic`"
                 ) from e
             api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -75,16 +75,16 @@ class LLMClient:
             self._client = anthropic.AsyncAnthropic(api_key=api_key)
         else:
             raise RuntimeError(
-                f"Unknown JOBFIT_LLM_PROVIDER={self._provider!r}; expected 'minimax' or 'anthropic'"
+                f"Unknown GANDER_LLM_PROVIDER={self._provider!r}; expected 'minimax' or 'anthropic'"
             )
 
     def _resolve_model(self, logical: LogicalModel) -> str:
         if self._provider == "anthropic":
             return _ANTHROPIC_MODEL
-        profile = os.environ.get("JOBFIT_MODEL_PROFILE", "local")
+        profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
         if profile not in _PROFILE_MODELS:
             raise RuntimeError(
-                f"Unknown JOBFIT_MODEL_PROFILE={profile!r}; "
+                f"Unknown GANDER_MODEL_PROFILE={profile!r}; "
                 f"expected one of {sorted(_PROFILE_MODELS)}"
             )
         return _PROFILE_MODELS[profile][logical]

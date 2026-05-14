@@ -26,9 +26,9 @@ import re
 import time
 from typing import Final, Literal
 
-from jobfit import obs
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.schemas import RedactedCV, Redaction
+from gander import obs
+from gander.errors import StageFailure, stage_boundary
+from gander.schemas import RedactedCV, Redaction
 
 RedactionKind = Literal["email", "phone", "name", "address", "year", "url"]
 

@@ -5,11 +5,11 @@ from typing import Any
 
 import pytest
 
-from jobfit.confidence import _LOW_FALLBACK_RATIONALE, _TierOnly, judge
-from jobfit.errors import StageFailure
-from jobfit.llm import LLMClient
-from jobfit.obs import subscribe
-from jobfit.schemas import Confidence, Source
+from gander.confidence import _LOW_FALLBACK_RATIONALE, _TierOnly, judge
+from gander.errors import StageFailure
+from gander.llm import LLMClient
+from gander.obs import subscribe
+from gander.schemas import Confidence, Source
 
 
 def _sources() -> list[Source]:

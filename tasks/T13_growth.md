@@ -12,7 +12,7 @@ Generate 3–5 CV-specific actions to grow salary by ~30%, each achievable withi
 
 ## Deliverables
 
-- [ ] `src/jobfit/prompts/growth.md` — system prompt:
+- [ ] `src/gander/prompts/growth.md` — system prompt:
   - Receives `Profile`, the four `Component` scores (with justifications), and the salary midpoint as the salary baseline.
   - Returns JSON: `{"actions": [GrowthAction, ...]}` (3–5 items).
   - **Anti-slop rules** (verbatim list in the prompt):
@@ -22,7 +22,7 @@ Generate 3–5 CV-specific actions to grow salary by ~30%, each achievable withi
     - Every `mechanism` field explains how the action moves the salary needle (e.g., "moves you from individual contributor to tech-lead band, which in CZ market adds 30–50k CZK/mo").
     - `time_horizon_months` ∈ [1, 24]. Pydantic enforces; out-of-range responses are dropped.
   - Includes a one-shot example.
-- [ ] `src/jobfit/growth.py`:
+- [ ] `src/gander/growth.py`:
   - `async def plan_growth(profile: Profile, score: Score, salary_midpoint: int, currency: str) -> list[GrowthAction]`:
     - Single `llm.complete_json(prompt="growth.md", ..., schema=_GrowthList, model="reasoning")` call.
     - For each action, `verify_quote(action.anchor.quote, redacted.text)` → drop unverified.

@@ -7,9 +7,9 @@ Step B writes prose. Step A always wins; Step B is decoration.
 
 ## 1. Files to create
 
-- [ ] `src/jobfit/prompts/confidence_step_a.md` — Step A system prompt (sources -> tier JSON).
-- [ ] `src/jobfit/prompts/confidence_step_b.md` — Step B system prompt (tier + range -> paragraph).
-- [ ] `src/jobfit/confidence.py` — `judge(...)` coroutine, stage="confidence".
+- [ ] `src/gander/prompts/confidence_step_a.md` — Step A system prompt (sources -> tier JSON).
+- [ ] `src/gander/prompts/confidence_step_b.md` — Step B system prompt (tier + range -> paragraph).
+- [ ] `src/gander/confidence.py` — `judge(...)` coroutine, stage="confidence".
 - [ ] `tests/test_confidence_unit.py` — `@pytest.mark.fast`, three tests (see §5).
 
 No edits to upstream modules (`schemas.py`, `llm.py`, `errors.py`, `obs.py`).
@@ -50,7 +50,7 @@ Style guidance written into prompt:
 - [ ] If tier is Low, prefer phrasing that includes "insufficient" or sources "disagree". (Hard enforcement happens in code.)
 - [ ] Step A's tier is final. Step B may explain, never argue or override.
 
-## 4. `src/jobfit/confidence.py` structure
+## 4. `src/gander/confidence.py` structure
 
 Mirror `salary.py` (async stage worker, async `stage_boundary`).
 
@@ -59,13 +59,13 @@ Imports:
 - [ ] `from __future__ import annotations`
 - [ ] stdlib: `re`, `json`, `pathlib.Path`, `typing.Literal`
 - [ ] third-party: `pydantic.BaseModel`
-- [ ] internal: `jobfit.errors.{StageFailure, stage_boundary}`, `jobfit.llm.LLMClient`, `jobfit.obs.emit`, `jobfit.schemas.{Confidence, Source}`
+- [ ] internal: `gander.errors.{StageFailure, stage_boundary}`, `gander.llm.LLMClient`, `gander.obs.emit`, `gander.schemas.{Confidence, Source}`
 
 Module constants:
 
 - [ ] `_STEP_A_PROMPT = (Path(__file__).parent / "prompts" / "confidence_step_a.md").read_text(...)`
 - [ ] `_STEP_B_PROMPT = (Path(__file__).parent / "prompts" / "confidence_step_b.md").read_text(...)`
-- [ ] `_RATIONALE_LOW_REGEX = re.compile(r"insufficient|disagree", re.I)` — module-level so tests can `from jobfit.confidence import _RATIONALE_LOW_REGEX` if useful.
+- [ ] `_RATIONALE_LOW_REGEX = re.compile(r"insufficient|disagree", re.I)` — module-level so tests can `from gander.confidence import _RATIONALE_LOW_REGEX` if useful.
 
 Schema:
 
@@ -111,14 +111,14 @@ All `@pytest.mark.fast`. Use `pytest-asyncio` per repo convention (mirror `tests
 Fixture: two synthetic `Source` objects with `HttpUrl` strings and short snippets that contain NO digits (so the digit-avoidance assertion in Test 2 is meaningful).
 
 - [ ] **Test 1 — structural isolation (signature):**
-  - `from jobfit.confidence import judge; import inspect`
+  - `from gander.confidence import judge; import inspect`
   - `sig = inspect.signature(judge)`
   - `assert set(sig.parameters.keys()) == {"sources", "low", "high", "currency", "period"}`
   - Assert each parameter annotation matches the contract (`sources: list[Source]`, `low: int`, `high: int`, `currency: str`, `period: Literal["month","year"]`).
   - Comment in the test explains: any future param like `produced_range`, `profile`, or `estimate` MUST break this assertion. That is the leak-channel firewall.
 
 - [ ] **Test 2 — Step A input contains no range data:**
-  - Mock `jobfit.confidence.LLMClient.complete_json` (capture `user` kwarg) to return `_TierOnly(tier="Medium", rationale_short="ok")`.
+  - Mock `gander.confidence.LLMClient.complete_json` (capture `user` kwarg) to return `_TierOnly(tier="Medium", rationale_short="ok")`.
   - Mock `complete_text` to return `"Confidence in this estimate is Medium. Range 70000-120000 USD/year ..."`.
   - Call `await judge(sources=[s1, s2], low=70000, high=120000, currency="USD", period="year")` with snippets that do NOT contain the strings `"70000"` or `"120000"`.
   - Assert `"70000" not in captured_step_a_user` and `"120000" not in captured_step_a_user`.
@@ -135,7 +135,7 @@ Fixture: two synthetic `Source` objects with `HttpUrl` strings and short snippet
 ## 6. Decisions / trade-offs
 
 - **Signature widening to `Confidence | StageFailure`** — deliberate divergence from `T12_confidence.md` which says `-> Confidence`. Rationale: parity with `score_profile` and `estimate_salary` (T10/T11). The structural-isolation test asserts on input parameter keys only, so it still passes. Document at top of `confidence.py` docstring.
-- **Model resolution** — `T12_confidence.md` mentions `abab6.5s-chat`. `PLAN.md` §L4c and post-T05 reality use `MiniMax-M2.7-highspeed` for both `local` and `ci` via `_PROFILE_MODELS["<profile>"]["cheap"]` in `src/jobfit/llm.py`. We pass `model="cheap"` (logical) and let resolution land on `MiniMax-M2.7-highspeed`. No code change needed; the literal `"cheap"` is correct.
+- **Model resolution** — `T12_confidence.md` mentions `abab6.5s-chat`. `PLAN.md` §L4c and post-T05 reality use `MiniMax-M2.7-highspeed` for both `local` and `ci` via `_PROFILE_MODELS["<profile>"]["cheap"]` in `src/gander/llm.py`. We pass `model="cheap"` (logical) and let resolution land on `MiniMax-M2.7-highspeed`. No code change needed; the literal `"cheap"` is correct.
 - **Regeneration budget** — one retry only when tier == Low AND rationale lacks `insufficient`/`disagree`. If retry also misses the lexicon, ship as-is. The tier is the correctness gate; the prose is decoration.
 - **`rationale_short` is captured but unused.** It exists as a model-discipline mechanism — forcing Step A to articulate before committing. Not surfaced to the user. Keep it in the schema; do not log it.
 - **Step A leak channel is closed by construction**, not by validation. The function body never interpolates `low`/`high`/`currency`/`period` into Step A's user message. Test 2 is the regression guard.
@@ -144,9 +144,9 @@ Fixture: two synthetic `Source` objects with `HttpUrl` strings and short snippet
 ## 7. Verification commands
 
 ```bash
-cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff format src/jobfit/confidence.py tests/test_confidence_unit.py
-cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff check src/jobfit/confidence.py tests/test_confidence_unit.py
-cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run mypy src/jobfit/confidence.py
+cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff format src/gander/confidence.py tests/test_confidence_unit.py
+cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff check src/gander/confidence.py tests/test_confidence_unit.py
+cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run mypy src/gander/confidence.py
 cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run pre-commit run --all-files
 cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run pytest -q -m fast tests/test_confidence_unit.py
 ```

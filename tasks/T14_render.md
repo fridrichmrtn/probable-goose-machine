@@ -14,7 +14,7 @@ Pure functions that render a `Report` to (a) the stage-tracker HTML and (b) the 
 
 ## Deliverables
 
-- [ ] `src/jobfit/report.py`:
+- [ ] `src/gander/report.py`:
   - `def render_tracker(report: Report) -> str` — HTML for the stage-tracker pills:
     - 5 pills: `Parse · Redact · Score · Salary · Plan`.
     - Each pill carries class `pending | running | done | failed` from `report.statuses[stage]`.
@@ -45,7 +45,7 @@ uv run pytest -m fast tests/test_render.py -v
 
 ## Outcome
 
-Shipped `src/jobfit/report.py` with two pure renderers — `render_tracker` (returns a `<style>` block + 5 `<span class="pill {status}">` pills with glyph + `aria-label`, `prefers-reduced-motion` media query, and `title=` tooltips on failed pills) and `render_body` (markdown body with HTML `<details>` blocks, first component `<details open>`, salary block formatted `low,000 – high,000 CCY / period`, bracketed-glyph confidence badges, numbered growth list, `> ⚠ <msg>` callouts inline for per-stage failures, and a `<details>` footer listing `COMPONENT_WEIGHTS` with a `(cost / latency totals — populated by T15)` placeholder). All user-controlled strings are escaped via `html.escape(quote=True)`. Resolved spec drift against `schemas.StageName`: tracker maps schema keys (`profile / score / salary / confidence / growth`) to display labels (`Profile / Score / Salary / Confidence / Plan`); `report.profile = StageFailure` triggers the top-level short-circuit (returns only the failure callout). Drift logged in `tasks/backlog.md` under `t14-heal`.
+Shipped `src/gander/report.py` with two pure renderers — `render_tracker` (returns a `<style>` block + 5 `<span class="pill {status}">` pills with glyph + `aria-label`, `prefers-reduced-motion` media query, and `title=` tooltips on failed pills) and `render_body` (markdown body with HTML `<details>` blocks, first component `<details open>`, salary block formatted `low,000 – high,000 CCY / period`, bracketed-glyph confidence badges, numbered growth list, `> ⚠ <msg>` callouts inline for per-stage failures, and a `<details>` footer listing `COMPONENT_WEIGHTS` with a `(cost / latency totals — populated by T15)` placeholder). All user-controlled strings are escaped via `html.escape(quote=True)`. Resolved spec drift against `schemas.StageName`: tracker maps schema keys (`profile / score / salary / confidence / growth`) to display labels (`Profile / Score / Salary / Confidence / Plan`); `report.profile = StageFailure` triggers the top-level short-circuit (returns only the failure callout). Drift logged in `tasks/backlog.md` under `t14-heal`.
 
 Tests: `tests/test_render.py` — 27 `@pytest.mark.fast` tests (parametrised across all 5 stage statuses and 3 confidence tiers) covering 5-pill emission, status-class matching, `prefers-reduced-motion` presence, tooltip surfacing + HTML escaping (including the failed-status-without-StageFailure fallback path), fully-populated body, inline failure callouts for `score`/`salary`/`confidence`/`growth`, profile-failure short-circuit, Czech-diacritic survival, footer weight assertions (35%/30%/20%/15%), empty-growth marker, and HTML-escape defence across `Component.justification`, `Anchor.quote`, `Source.snippet`, `Confidence.rationale`, `SalaryEstimate.reasoning`, and both `GrowthAction.what` / `mechanism`.
 

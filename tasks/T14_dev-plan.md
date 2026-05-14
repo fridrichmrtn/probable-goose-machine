@@ -7,8 +7,8 @@ Worktree: /home/mf/GitHub/probable-goose-machine/.worktrees/block-c
 
 ## Intended outcome
 
-`src/jobfit/report.py` exports two pure functions, `render_tracker(report) -> str` and
-`render_body(report) -> str`, that consume `jobfit.schemas.Report` and emit
+`src/gander/report.py` exports two pure functions, `render_tracker(report) -> str` and
+`render_body(report) -> str`, that consume `gander.schemas.Report` and emit
 deterministic, escaped HTML / markdown strings. No I/O, no globals, no logging, no
 new dependencies. `tests/test_render.py` covers the four UI states (empty/loading
 is not in scope; we handle done/failed/skipped/short-circuit) plus HTML-escape
@@ -76,11 +76,11 @@ will add `total_cost_usd` / `total_duration_ms`). The footer renders
 `COMPONENT_WEIGHTS` from `schemas.py` plus a literal placeholder line
 `(cost / latency totals — populated by T15)`. Do not invent fields.
 
-## File layout — `src/jobfit/report.py`
+## File layout — `src/gander/report.py`
 
 Sections in order:
 
-1. Module docstring + imports (stdlib `html`, `jobfit.schemas` types, `StageFailure`).
+1. Module docstring + imports (stdlib `html`, `gander.schemas` types, `StageFailure`).
 2. `_LABEL_BY_STAGE` mapping with the spec-drift note (comment).
 3. `_CSS` constant (single `<style>` block, ~30 lines, includes
    `@media (prefers-reduced-motion: reduce) { ... transition: none; }`).

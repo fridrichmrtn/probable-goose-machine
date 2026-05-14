@@ -2,7 +2,7 @@
 
 **Task:** T04 — CV corpus part 1: junior + senior fixtures
 **Branch:** main (single-thread main-line work; no worktree)
-**Stack:** py (uv-managed); fixture authoring only — no `src/jobfit/` changes
+**Stack:** py (uv-managed); fixture authoring only — no `src/gander/` changes
 
 ## Files touched
 

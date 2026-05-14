@@ -6,10 +6,10 @@
 **Stack:** py (uv-managed), gradio (UI flag set; this diff has no UI surface)
 
 ## Files touched
-- .pre-commit-config.yaml (new) — pre-commit stage: end-of-file-fixer, trailing-whitespace, ruff-format, ruff-check --fix. pre-push stage: mypy strict (`src/jobfit`) + `pytest -m fast -q`. `default_install_hook_types: [pre-commit, pre-push]` so one `pre-commit install` registers both. `always_run: true` on the pre-push hooks so config-only pushes still gate.
-- .github/workflows/ci.yml (new) — pull_request + push-to-main gate. `astral-sh/setup-uv@v3` with cache keyed on `uv.lock`, `uv sync --frozen`, ruff format-check + lint, `mypy src/`, `pytest -m "not slow" -v` (live tests included per user directive — `not slow` filter only excludes `slow`). Job env: `MINIMAX_API_KEY` from secrets, `JOBFIT_MODEL_PROFILE: ci`. Concurrency `ci-${{ github.ref }}` cancel-in-progress. `timeout-minutes: 10` on the job (heal-pass addition).
+- .pre-commit-config.yaml (new) — pre-commit stage: end-of-file-fixer, trailing-whitespace, ruff-format, ruff-check --fix. pre-push stage: mypy strict (`src/gander`) + `pytest -m fast -q`. `default_install_hook_types: [pre-commit, pre-push]` so one `pre-commit install` registers both. `always_run: true` on the pre-push hooks so config-only pushes still gate.
+- .github/workflows/ci.yml (new) — pull_request + push-to-main gate. `astral-sh/setup-uv@v3` with cache keyed on `uv.lock`, `uv sync --frozen`, ruff format-check + lint, `mypy src/`, `pytest -m "not slow" -v` (live tests included per user directive — `not slow` filter only excludes `slow`). Job env: `MINIMAX_API_KEY` from secrets, `GANDER_MODEL_PROFILE: ci`. Concurrency `ci-${{ github.ref }}` cancel-in-progress. `timeout-minutes: 10` on the job (heal-pass addition).
 - .github/workflows/warm-keeper.yml (new) — cron `*/5 * * * *` + workflow_dispatch. Two-step job: (1) guard fails fast if `vars.HF_SPACE_URL` is unset, (2) `curl -sfI "$HF_SPACE_URL" || true` keeps the Space warm without reddening the cron history on cold-start 502s. `timeout-minutes: 2`.
-- src/jobfit/llm.py, src/jobfit/schemas.py, tests/test_llm.py — auto-format reflows from the first `pre-commit run --all-files` pass on existing T01/T02 code (line-collapse where the original break wasn't required by 100-char limit). Cosmetic only; verified by reviewers — no semantic change to retry logic, MODEL_PRICES, judge isolation, or skipif gate.
+- src/gander/llm.py, src/gander/schemas.py, tests/test_llm.py — auto-format reflows from the first `pre-commit run --all-files` pass on existing T01/T02 code (line-collapse where the original break wasn't required by 100-char limit). Cosmetic only; verified by reviewers — no semantic change to retry logic, MODEL_PRICES, judge isolation, or skipif gate.
 - scripts/.gitkeep — empty-dir placeholder for T22's `scripts/eval_corpus.py`.
 - tasks/T03_ci_precommit.md — Status: todo → done; Outcome flags two user actions (`MINIMAX_API_KEY` Secret + `HF_SPACE_URL` Variable in GitHub repo settings).
 - tasks/todo.md — T03 ticked.
@@ -24,7 +24,7 @@
 | `uv run pre-commit run --hook-stage pre-push --all-files` | n-a | **pass** (mypy + pytest fast) |
 | `python3 -c "import yaml; ..."` (3 files) | pass | pass |
 | `uv run pytest -m fast -q` | 32 passed | 32 passed |
-| `uv run mypy src/jobfit/` | pass | pass |
+| `uv run mypy src/gander/` | pass | pass |
 | `uv run ruff check .` / `ruff format --check .` | pass / pass | pass / pass |
 
 ## Review findings

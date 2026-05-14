@@ -7,31 +7,31 @@ Read first (in this order, in the worktree):
 1. `CLAUDE.md` — verification before done; no dead code; no decoration.
 2. `tasks/T02_utils.md` — the contract.
 3. `tasks/PLAN.md` lines 22, 126–131 (cross-cutting + hardened verify rule).
-4. `src/jobfit/errors.py` — has the `# T02:` TODO on line 69; extend, do not rewrite.
-5. `src/jobfit/schemas.py` — `Anchor(quote, section: str | None)` shape used by `drop_unverified`.
+4. `src/gander/errors.py` — has the `# T02:` TODO on line 69; extend, do not rewrite.
+5. `src/gander/schemas.py` — `Anchor(quote, section: str | None)` shape used by `drop_unverified`.
 6. `pyproject.toml` — confirms `openai`, `structlog`, `pydantic`, `pytest-asyncio` (`asyncio_mode = "auto"`); markers `fast`/`slow`/`live` declared.
 
 ## Files to create
-- `src/jobfit/verify.py` — `verify_quote(quote, source, *, section=None)` and `drop_unverified(items, source, *, anchor_attr="anchor")`.
-- `src/jobfit/obs.py` — structlog setup (idempotent), `emit`, `subscribe`, `current_stage` ContextVar.
-- `src/jobfit/llm.py` — `LLMClient` (MiniMax default; Anthropic fallback path); `complete_json`, `complete_text`; emits `llm_call` telemetry.
+- `src/gander/verify.py` — `verify_quote(quote, source, *, section=None)` and `drop_unverified(items, source, *, anchor_attr="anchor")`.
+- `src/gander/obs.py` — structlog setup (idempotent), `emit`, `subscribe`, `current_stage` ContextVar.
+- `src/gander/llm.py` — `LLMClient` (MiniMax default; Anthropic fallback path); `complete_json`, `complete_text`; emits `llm_call` telemetry.
 - `tests/test_verify.py` (`@pytest.mark.fast`).
 - `tests/test_obs.py` (`@pytest.mark.fast`).
 - `tests/test_errors_obs.py` (`@pytest.mark.fast`).
 - `tests/test_llm.py` (`@pytest.mark.live`, `skipif(not os.environ.get("MINIMAX_API_KEY"))`).
 
 ## Files to extend
-- `src/jobfit/errors.py` — replace the `# T02:` TODO on line 69 with `obs.emit(self.stage_name, "error", exc_type=..., exc_message=...)`; add `current_stage` token plumbing in `__enter__`/`__exit__` and `__aenter__`/`__aexit__`. Do not change the public `stage_boundary(stage_name)` signature or the `StageFailure` shape — `tests/test_schemas.py` (10 tests) must stay green.
+- `src/gander/errors.py` — replace the `# T02:` TODO on line 69 with `obs.emit(self.stage_name, "error", exc_type=..., exc_message=...)`; add `current_stage` token plumbing in `__enter__`/`__exit__` and `__aenter__`/`__aexit__`. Do not change the public `stage_boundary(stage_name)` signature or the `StageFailure` shape — `tests/test_schemas.py` (10 tests) must stay green.
 
 ## Files NOT to touch
-- `src/jobfit/schemas.py` (T01 territory).
+- `src/gander/schemas.py` (T01 territory).
 - `pyproject.toml` — except the *optional* anthropic extras step in section 9 below; if uncertain, skip and note in Outcome.
 - `tests/test_schemas.py` and any T01 fixtures.
 
 ## Implementation order
 1. `obs.py` first — no internal deps; everything else imports from it.
 2. `errors.py` extension — depends on `obs.current_stage` + `obs.emit`.
-3. `verify.py` — stdlib only; imports `Anchor` from `jobfit.schemas` at type-check time only (no runtime cycle, but `from __future__ import annotations` is the existing style).
+3. `verify.py` — stdlib only; imports `Anchor` from `gander.schemas` at type-check time only (no runtime cycle, but `from __future__ import annotations` is the existing style).
 4. `llm.py` — depends on `obs`.
 5. Tests in any order; write them as you go to drive each module's surface.
 
@@ -85,12 +85,12 @@ Read first (in this order, in the worktree):
 - `MODEL_PRICES: dict[str, tuple[float, float]] = {"MiniMax-M1": (1.10, 4.40), "abab6.5s-chat": (0.20, 0.20)}` with the comment `# Pricing as of 2026-05-10 — re-check minimaxi.chat/pricing if cost reports drift.`
 - `_PROFILE_MODELS: dict[str, dict[str, str]] = {"local": {"reasoning": "MiniMax-M1", "cheap": "abab6.5s-chat"}, "ci": {"reasoning": "abab6.5s-chat", "cheap": "abab6.5s-chat"}}`.
 - `__init__()`:
-  - `self._provider = os.environ.get("JOBFIT_LLM_PROVIDER", "minimax")`.
+  - `self._provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")`.
   - `minimax` branch: read `MINIMAX_API_KEY`; raise `RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")` if missing. Build `openai.AsyncOpenAI(api_key=..., base_url="https://api.minimaxi.chat/v1")`.
-  - `anthropic` branch: `try: import anthropic` → on ImportError raise `RuntimeError("JOBFIT_LLM_PROVIDER=anthropic but `anthropic` package not installed — `uv add anthropic`")`. Read `ANTHROPIC_API_KEY` (raise with same shape if missing). Build `anthropic.AsyncAnthropic(api_key=...)`.
-  - Unknown provider value → `RuntimeError(f"Unknown JOBFIT_LLM_PROVIDER={self._provider!r}; expected 'minimax' or 'anthropic'")`.
+  - `anthropic` branch: `try: import anthropic` → on ImportError raise `RuntimeError("GANDER_LLM_PROVIDER=anthropic but `anthropic` package not installed — `uv add anthropic`")`. Read `ANTHROPIC_API_KEY` (raise with same shape if missing). Build `anthropic.AsyncAnthropic(api_key=...)`.
+  - Unknown provider value → `RuntimeError(f"Unknown GANDER_LLM_PROVIDER={self._provider!r}; expected 'minimax' or 'anthropic'")`.
 - `_resolve_model(self, logical: Literal["reasoning","cheap"]) -> str`:
-  - For `minimax`: read `JOBFIT_MODEL_PROFILE` (default `local`); return `_PROFILE_MODELS[profile][logical]`. Unknown profile → `RuntimeError`.
+  - For `minimax`: read `GANDER_MODEL_PROFILE` (default `local`); return `_PROFILE_MODELS[profile][logical]`. Unknown profile → `RuntimeError`.
   - For `anthropic`: return `"claude-sonnet-4-6"` for both logical names (the spike fallback uses Sonnet for everything, per PLAN §L0.5).
 - `_estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float`:
   - If `model not in MODEL_PRICES`: return `0.0` (Anthropic path; comment says cost only modeled for MiniMax).
@@ -135,20 +135,20 @@ Pin these assertions:
 6. **Section match** — quote that exists in `## Experience` searched with `section="experience"` → True.
 7. **Missing section** — `section="references"` (header absent) → False.
 8. **Punctuation preserved** — quote `"reduced churn by 18% over six months"` (8 words, contains `%`) → True. Guards against accidental punctuation stripping.
-9. **drop_unverified** — define inline `class Item(BaseModel): anchor: Anchor` (import `Anchor` from `jobfit.schemas`); pass a list of 3 items where 1 has a verifiable quote in the right section, 1 fails section-locality, 1 has a 4-word quote → assert `len(kept) == 1` and `dropped == 2`.
+9. **drop_unverified** — define inline `class Item(BaseModel): anchor: Anchor` (import `Anchor` from `gander.schemas`); pass a list of 3 items where 1 has a verifiable quote in the right section, 1 fails section-locality, 1 has a 4-word quote → assert `len(kept) == 1` and `dropped == 2`.
 
 ### tests/test_obs.py (`@pytest.mark.fast`)
 1. **Roundtrip** — `events: list[dict] = []`; `with subscribe(events.append): emit("stage_a", "tick", k=1)`; assert `events == [{"stage": "stage_a", "event": "tick", "k": 1}]`. After the `with` block, emit again; assert `events` length unchanged (subscriber unregistered).
 2. **Sibling isolation under `asyncio.gather`** — two `async def` tasks; each opens its own `subscribe(...)` block, emits one event with a task-specific marker, awaits a tiny `asyncio.sleep(0)` to interleave, emits a second event, then exits the `with`. Run them via `asyncio.gather`. Assert each task's callback list contains *only* its own two events. This is the test that proves the tuple-not-list ContextVar pattern.
 3. **`current_stage` round-trip** — assert `current_stage.get() is None`; `tok = current_stage.set("x")`; assert `current_stage.get() == "x"`; `current_stage.reset(tok)`; assert `current_stage.get() is None`.
-4. **Idempotent configure** — `import jobfit.obs; importlib.reload(jobfit.obs); emit("s", "e")` must not raise. We are not asserting the absence of double-logging directly (hard to capture); the regression we care about is "does not crash on re-import".
+4. **Idempotent configure** — `import gander.obs; importlib.reload(gander.obs); emit("s", "e")` must not raise. We are not asserting the absence of double-logging directly (hard to capture); the regression we care about is "does not crash on re-import".
 
 ### tests/test_errors_obs.py (`@pytest.mark.fast`)
 1. **Sync error event** — `events = []; with subscribe(events.append):` then `with stage_boundary("test_stage"): raise RuntimeError("boom")`. Assert exactly one event with `stage="test_stage"`, `event="error"`, `exc_type="RuntimeError"`, `exc_message="boom"`.
 2. **Stage attribution during block** — inside `with stage_boundary("test_stage"):` assert `current_stage.get() == "test_stage"`. After the `with` block exits cleanly (no exception), assert `current_stage.get() is None`.
 3. **Stage reset on exception** — after a `with stage_boundary("s"): raise RuntimeError(...)`, assert `current_stage.get() is None` (the `finally` in `__exit__` ran).
 4. **Async mirror** — `async with stage_boundary("test_stage_async"): raise RuntimeError("async-boom")` produces the same event shape. Captures the `__aenter__`/`__aexit__` path.
-5. **Regression** — `from jobfit.errors import StageFailure, stage_boundary` still works; the failure object after a caught exception still has `stage`, `user_message`, `debug_detail` populated as before. (Implicit coverage: `tests/test_schemas.py` must stay 10/10.)
+5. **Regression** — `from gander.errors import StageFailure, stage_boundary` still works; the failure object after a caught exception still has `stage`, `user_message`, `debug_detail` populated as before. (Implicit coverage: `tests/test_schemas.py` must stay 10/10.)
 
 ### tests/test_llm.py (`@pytest.mark.live`)
 - File-level: `pytestmark = [pytest.mark.live, pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set")]`.
@@ -164,8 +164,8 @@ Pin these assertions:
 ## Verification commands (run inside the worktree)
 ```bash
 uv run pytest -m fast tests/test_verify.py tests/test_obs.py tests/test_errors_obs.py -v
-uv run mypy src/jobfit/verify.py src/jobfit/obs.py src/jobfit/llm.py src/jobfit/errors.py
-uv run ruff check src/jobfit/verify.py src/jobfit/obs.py src/jobfit/llm.py src/jobfit/errors.py tests/test_verify.py tests/test_obs.py tests/test_errors_obs.py tests/test_llm.py
+uv run mypy src/gander/verify.py src/gander/obs.py src/gander/llm.py src/gander/errors.py
+uv run ruff check src/gander/verify.py src/gander/obs.py src/gander/llm.py src/gander/errors.py tests/test_verify.py tests/test_obs.py tests/test_errors_obs.py tests/test_llm.py
 uv run pytest -m live tests/test_llm.py -v   # skips if MINIMAX_API_KEY absent
 uv run pytest -m fast tests/test_schemas.py -v   # regression: must stay 10/10 green
 ```
@@ -178,7 +178,7 @@ All must pass. mypy is `strict` per `pyproject.toml`; ruff selects `E,F,I,UP,B,S
 ## Out of scope (deferred — do not touch)
 - All stage workers L1–L6 (T07–T16).
 - CI / pre-commit / GitHub Actions workflows (T03).
-- Modifying `src/jobfit/schemas.py` (T01 territory).
+- Modifying `src/gander/schemas.py` (T01 territory).
 - `tests/conftest.py` (no shared fixtures needed for these four modules; defer to whichever later task first needs one).
 - Mocking the LLM client (no `respx`/`pytest-httpx` setup); live test or nothing in T02.
 - Cost dashboards, log aggregators, OpenTelemetry — `structlog` JSON to stdout is the contract.

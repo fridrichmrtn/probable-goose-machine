@@ -7,7 +7,7 @@
 
 ## Files touched
 
-- `src/jobfit/confidence.py` — extracted `_render_step_b(tier, low, high, currency, period)` from inlined f-string in `judge()`; byte-identical output, no behaviour change.
+- `src/gander/confidence.py` — extracted `_render_step_b(tier, low, high, currency, period)` from inlined f-string in `judge()`; byte-identical output, no behaviour change.
 - `tests/test_confidence_judge.py` — new file. 6 tests: 2 `@pytest.mark.fast` (signature isolation + Step B prompt leakage) and 4 `@pytest.mark.live` gated on `MINIMAX_API_KEY` (3-agree High, 1-source Low, disagreement Low, Step B cannot override Low).
 
 ## Commits

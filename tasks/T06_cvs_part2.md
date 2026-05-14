@@ -47,7 +47,7 @@ ls tests/fixtures/cvs/[0-9][0-9]*_*.{pdf,docx} | wc -l   # 11 (canonical + 09b)
 ls tests/fixtures/cvs/[0-9][0-9]*_*.txt | wc -l           # 11
 # every PDF + DOCX must extract:
 for f in tests/fixtures/cvs/*.pdf tests/fixtures/cvs/*.docx; do
-  uv run python -c "from jobfit.ingest import extract_text; import sys; t = extract_text(open('$f','rb').read(), '$f'); assert len(t) > 200, '$f too short'"
+  uv run python -c "from gander.ingest import extract_text; import sys; t = extract_text(open('$f','rb').read(), '$f'); assert len(t) > 200, '$f too short'"
 done
 # salary expectations are monotonically increasing across acceptance triplet (manual review)
 ```
@@ -69,7 +69,7 @@ Verification evidence:
 - `uv run pytest -m fast -q` → 40 passed, 1 deselected.
 - `uv run ruff format --check scripts/ src/ tests/` → 14 files already formatted.
 - `uv run ruff check scripts/ src/ tests/` → all checks passed.
-- `uv run mypy src/jobfit` → no issues found in 6 source files (T06 didn't touch `src/`).
+- `uv run mypy src/gander` → no issues found in 6 source files (T06 didn't touch `src/`).
 - `uv run pre-commit run --all-files` → clean (one one-time EOF auto-fix on `08_staff_ml_engineer_dvorak.txt`; re-run after the fix is fully green).
 
-Known limitation: the plan's per-fixture extraction sanity step uses `jobfit.ingest.extract_text`, which lives in T07's scope and does not exist yet. The corresponding sanity gate was satisfied via `wc -c` on the gold `.txt` files (>200 chars on all 11) — substantively equivalent for this stage since the `.txt` files are written by the same `extract_pdf_text` / `extract_docx_text` helpers the pipeline will later wrap.
+Known limitation: the plan's per-fixture extraction sanity step uses `gander.ingest.extract_text`, which lives in T07's scope and does not exist yet. The corresponding sanity gate was satisfied via `wc -c` on the gold `.txt` files (>200 chars on all 11) — substantively equivalent for this stage since the `.txt` files are written by the same `extract_pdf_text` / `extract_docx_text` helpers the pipeline will later wrap.

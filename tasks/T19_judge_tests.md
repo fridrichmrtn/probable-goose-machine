@@ -16,7 +16,7 @@ Prove the confidence-judge isolation and recompute-then-compare protocol actuall
   - **`test_judge_signature_is_isolated`** (`@pytest.mark.fast`):
     ```python
     import inspect
-    from jobfit.confidence import judge
+    from gander.confidence import judge
     params = set(inspect.signature(judge).parameters.keys())
     assert params == {"sources", "low", "high", "currency", "period"}, \
         "judge() must not accept estimator reasoning, profile, or score — leakage channel"

@@ -4,17 +4,17 @@ Source of truth: `tasks/T09_extract.md`. PLAN reference: §"L3 — Profile Extra
 
 ## Scope
 
-- Block A scope. New files only: `src/jobfit/prompts/extract.md`, `src/jobfit/extract.py`, `tests/test_extract.py`.
-- READ-ONLY (do not modify): `src/jobfit/{schemas,llm,verify,obs,errors,ingest,redact}.py`.
+- Block A scope. New files only: `src/gander/prompts/extract.md`, `src/gander/extract.py`, `tests/test_extract.py`.
+- READ-ONLY (do not modify): `src/gander/{schemas,llm,verify,obs,errors,ingest,redact}.py`.
 - No new dependencies. Everything already in `pyproject.toml` (`openai`, `pydantic`, `structlog`, `pytest`, `pytest-asyncio`).
 
 ## File-by-file change list
 
-### `src/jobfit/prompts/extract.md` (new)
+### `src/gander/prompts/extract.md` (new)
 
 Markdown file consumed verbatim as the LLM `system` prompt. Load via `Path(__file__).parent / 'prompts' / name`. Full text in §"Prompt body" below.
 
-### `src/jobfit/extract.py` (new)
+### `src/gander/extract.py` (new)
 
 ```python
 from __future__ import annotations
@@ -23,17 +23,17 @@ import time
 from pathlib import Path
 from typing import cast
 
-from jobfit import obs
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.schemas import Profile, ProfileItem, RedactedCV
-from jobfit.verify import drop_unverified
+from gander import obs
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.schemas import Profile, ProfileItem, RedactedCV
+from gander.verify import drop_unverified
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 def load_prompt(name: str) -> str:
-    """Read a prompt file from src/jobfit/prompts/. Synchronous; called once per stage."""
+    """Read a prompt file from src/gander/prompts/. Synchronous; called once per stage."""
     return (_PROMPTS_DIR / name).read_text(encoding="utf-8")
 
 
@@ -97,11 +97,11 @@ Contract notes:
 
 ### `tests/test_extract.py` (new)
 
-Imports: `pytest`, `pathlib.Path`, `os`, `jobfit.extract`, `jobfit.llm`, `jobfit.schemas`, `jobfit.errors`, `jobfit.verify`, `jobfit.obs`.
+Imports: `pytest`, `pathlib.Path`, `os`, `gander.extract`, `gander.llm`, `gander.schemas`, `gander.errors`, `gander.verify`, `gander.obs`.
 
 Test enumeration in §"Test enumeration" below.
 
-## Prompt body — `src/jobfit/prompts/extract.md`
+## Prompt body — `src/gander/prompts/extract.md`
 
 The verbatim Markdown body the implementer should write to disk. Pattern follows the T05 baseline (`scripts/spike_minimax.py:52-69`) — same hard rule, same uniqueness clause, same anti-fence instruction — adapted from one skill list to the full `Profile` schema, plus the evidence-not-surface clause.
 
@@ -196,13 +196,13 @@ from typing import Any
 
 import pytest
 
-from jobfit import extract as extract_module
-from jobfit.errors import StageFailure
-from jobfit.extract import extract_profile, load_prompt
-from jobfit.llm import LLMClient
-from jobfit.obs import subscribe
-from jobfit.schemas import Anchor, Profile, ProfileItem, RedactedCV
-from jobfit.verify import verify_quote
+from gander import extract as extract_module
+from gander.errors import StageFailure
+from gander.extract import extract_profile, load_prompt
+from gander.llm import LLMClient
+from gander.obs import subscribe
+from gander.schemas import Anchor, Profile, ProfileItem, RedactedCV
+from gander.verify import verify_quote
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "cvs"
 ```
@@ -399,7 +399,7 @@ The schema supports `section: str | None`. `verify_quote` honours it via `_secti
 
 ### R4: prompt path resolution
 
-`load_prompt` builds `Path(__file__).parent / "prompts" / name`. In editable installs (`uv sync` package mode = true per pyproject.toml), `__file__` resolves under `src/jobfit/`, and `prompts/` sits next to `extract.py`. The `prompts/` directory exists (currently `.gitkeep`-only). Verified by `ls src/jobfit/prompts/`. No risk; flagging for completeness.
+`load_prompt` builds `Path(__file__).parent / "prompts" / name`. In editable installs (`uv sync` package mode = true per pyproject.toml), `__file__` resolves under `src/gander/`, and `prompts/` sits next to `extract.py`. The `prompts/` directory exists (currently `.gitkeep`-only). Verified by `ls src/gander/prompts/`. No risk; flagging for completeness.
 
 ### R5: model_copy validator re-run
 
@@ -415,11 +415,11 @@ Exact commands the implementer runs before declaring T09 done (mirrors T07/T08 a
 
 ```bash
 # format + lint
-uv run ruff format --check src/jobfit/extract.py tests/test_extract.py
-uv run ruff check src/jobfit/extract.py tests/test_extract.py
+uv run ruff format --check src/gander/extract.py tests/test_extract.py
+uv run ruff check src/gander/extract.py tests/test_extract.py
 
 # strict types over the package
-uv run mypy src/jobfit
+uv run mypy src/gander
 
 # pre-commit (covers ruff + mypy + fast pytest)
 uv run pre-commit run --all-files

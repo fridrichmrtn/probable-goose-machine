@@ -1,4 +1,4 @@
-"""Fast unit tests for jobfit.report (T14).
+"""Fast unit tests for gander.report (T14).
 
 Fixtures construct fully-valid Report instances so the schema's validators
 are exercised. No I/O, no LLM, no network.
@@ -10,9 +10,9 @@ from typing import Literal, cast
 
 import pytest
 
-from jobfit.errors import StageFailure
-from jobfit.report import _md, render_body, render_tracker
-from jobfit.schemas import (
+from gander.errors import StageFailure
+from gander.report import _md, render_body, render_tracker
+from gander.schemas import (
     Anchor,
     Component,
     ComponentName,

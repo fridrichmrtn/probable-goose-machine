@@ -5,12 +5,12 @@ from typing import Any
 
 import pytest
 
-from jobfit import redact as redact_module
-from jobfit.errors import StageFailure
-from jobfit.ingest import extract_text
-from jobfit.obs import subscribe
-from jobfit.redact import redact
-from jobfit.schemas import RedactedCV
+from gander import redact as redact_module
+from gander.errors import StageFailure
+from gander.ingest import extract_text
+from gander.obs import subscribe
+from gander.redact import redact
+from gander.schemas import RedactedCV
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "cvs"
 

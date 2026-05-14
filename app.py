@@ -18,10 +18,10 @@ from pathlib import Path
 
 import gradio as gr
 
-from jobfit.errors import StageFailure
-from jobfit.pipeline import run as pipeline_run
-from jobfit.report import render_body, render_tracker
-from jobfit.schemas import Profile, Report
+from gander.errors import StageFailure
+from gander.pipeline import run as pipeline_run
+from gander.report import render_body, render_tracker
+from gander.schemas import Profile, Report
 
 
 def _initial_report() -> Report:
@@ -42,10 +42,11 @@ def _initial_report() -> Report:
     )
 
 
-with gr.Blocks(title="Job Fit & Salary Estimator") as demo:
+with gr.Blocks(title="Gander — a closer look at any CV.") as demo:
     gr.Markdown(
-        "# Job Fit & Salary Estimator\n"
-        "*Upload a CV — PDF or DOCX, max 10 MB. Not retained after processing.*"
+        "# Gander\n"
+        "*a closer look at any CV*\n\n"
+        "Upload a CV — PDF or DOCX, max 10 MB. Not retained after processing."
     )
     file_in = gr.File(file_types=[".pdf", ".docx"], label="CV", type="filepath")
     run_btn = gr.Button("Generate report", variant="primary")

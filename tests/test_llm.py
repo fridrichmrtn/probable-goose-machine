@@ -6,8 +6,8 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from jobfit.llm import LLMClient, _strip_think
-from jobfit.obs import subscribe
+from gander.llm import LLMClient, _strip_think
+from gander.obs import subscribe
 
 
 @pytest.mark.fast

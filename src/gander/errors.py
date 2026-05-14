@@ -6,7 +6,7 @@ from typing import Self
 
 from pydantic import BaseModel
 
-from jobfit import obs
+from gander import obs
 
 
 class StageFailure(BaseModel):

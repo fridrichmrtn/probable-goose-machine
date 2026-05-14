@@ -7,11 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from jobfit.errors import StageFailure
-from jobfit.llm import LLMClient
-from jobfit.obs import subscribe
-from jobfit.salary import _is_cz_location, build_queries, estimate_salary
-from jobfit.schemas import Anchor, Profile, ProfileItem, SalaryEstimate, Source
+from gander.errors import StageFailure
+from gander.llm import LLMClient
+from gander.obs import subscribe
+from gander.salary import _is_cz_location, build_queries, estimate_salary
+from gander.schemas import Anchor, Profile, ProfileItem, SalaryEstimate, Source
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SENIOR_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "cvs" / "08_staff_ml_engineer_dvorak.txt"
@@ -36,7 +36,7 @@ def _cz_profile(
 
 
 def _patch_ddgs(monkeypatch: pytest.MonkeyPatch, text_mock: MagicMock) -> None:
-    """Replace ``jobfit.salary.DDGS`` with a context-manager-shaped mock.
+    """Replace ``gander.salary.DDGS`` with a context-manager-shaped mock.
 
     ``text_mock`` becomes the ``.text(query, ...)`` callable, so tests can
     inspect ``call_count`` / ``side_effect`` directly.
@@ -44,7 +44,7 @@ def _patch_ddgs(monkeypatch: pytest.MonkeyPatch, text_mock: MagicMock) -> None:
     fake_instance = MagicMock()
     fake_instance.__enter__.return_value.text = text_mock
     fake_instance.__exit__.return_value = False
-    monkeypatch.setattr("jobfit.salary.DDGS", lambda: fake_instance)
+    monkeypatch.setattr("gander.salary.DDGS", lambda: fake_instance)
 
 
 @pytest.mark.fast

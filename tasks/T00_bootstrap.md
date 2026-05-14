@@ -8,7 +8,7 @@ Estimate: ~30 min
 
 ## Goal
 
-Stand up the Python project skeleton so `uv sync && uv run python -c "import jobfit"` works on a clean machine.
+Stand up the Python project skeleton so `uv sync && uv run python -c "import gander"` works on a clean machine.
 
 ## Deliverables
 
@@ -18,15 +18,15 @@ Stand up the Python project skeleton so `uv sync && uv run python -c "import job
   - dev: `pytest`, `pytest-asyncio`, `ruff`, `mypy`, `pre-commit`
 - [x] Directory layout:
   ```
-  src/jobfit/__init__.py
-  src/jobfit/prompts/        (empty for now, .gitkeep)
+  src/gander/__init__.py
+  src/gander/prompts/        (empty for now, .gitkeep)
   tests/__init__.py
   tests/fixtures/cvs/        (.gitkeep)
   scripts/                   (.gitkeep)
   reports/                   (.gitkeep, gitignored contents)
   ```
 - [x] `.gitignore` covering: `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `.env`, `reports/*` (but keep `.gitkeep`).
-- [x] `.env.example` — `MINIMAX_API_KEY=` and `ANTHROPIC_API_KEY=` (commented as fallback) and `JOBFIT_MODEL_PROFILE=local`.
+- [x] `.env.example` — `MINIMAX_API_KEY=` and `ANTHROPIC_API_KEY=` (commented as fallback) and `GANDER_MODEL_PROFILE=local`.
 - [x] `README.md` — minimal frontmatter (HF Space metadata: `sdk: gradio`, `app_file: app.py`, `python_version: "3.11"`) + a one-line "see tasks/PLAN.md for architecture" stub. Full README is T23.
 - [x] `app.py` — empty stub: `import gradio as gr; demo = gr.Blocks(); demo.launch()` so `uv run python app.py` doesn't error.
 
@@ -34,7 +34,7 @@ Stand up the Python project skeleton so `uv sync && uv run python -c "import job
 
 ```bash
 uv sync
-uv run python -c "import jobfit"          # exits 0
+uv run python -c "import gander"          # exits 0
 uv run pytest --collect-only              # no errors (no tests yet, just config check)
 uv run ruff check .                       # clean
 ```

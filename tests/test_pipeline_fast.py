@@ -1,6 +1,6 @@
 """Fast tests for the L6 pipeline orchestrator (T15).
 
-Every stage worker is monkeypatched on the `jobfit.pipeline` module namespace
+Every stage worker is monkeypatched on the `gander.pipeline` module namespace
 so the tests run with zero network and zero LLM cost. Real stage modules and
 the obs subsystem are imported normally.
 """
@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from jobfit import obs, pipeline
-from jobfit.errors import StageFailure
-from jobfit.schemas import (
+from gander import obs, pipeline
+from gander.errors import StageFailure
+from gander.schemas import (
     Anchor,
     Component,
     ComponentName,

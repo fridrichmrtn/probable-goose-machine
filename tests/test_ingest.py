@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from jobfit import ingest
-from jobfit.errors import StageFailure
-from jobfit.ingest import (
+from gander import ingest
+from gander.errors import StageFailure
+from gander.ingest import (
     CORRUPT_MSG,
     DOC_MSG,
     EMPTY_MSG,
@@ -17,7 +17,7 @@ from jobfit.ingest import (
     _annotate_sections,
     extract_text,
 )
-from jobfit.obs import subscribe
+from gander.obs import subscribe
 
 
 @pytest.mark.fast

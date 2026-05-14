@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from jobfit import pipeline
-from jobfit.errors import StageFailure
-from jobfit.schemas import Confidence, Profile, Report, SalaryEstimate, Score
+from gander import pipeline
+from gander.errors import StageFailure
+from gander.schemas import Confidence, Profile, Report, SalaryEstimate, Score
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # Mid-tier MLOps engineer fixture: realistic depth but not the hardest case.
@@ -61,7 +61,7 @@ async def test_pipeline_smoke_end_to_end_mid_fixture() -> None:
         # At least one LLM call must have fired. Latency is the reliable
         # signal: every stage records its duration. `total_cost_usd` would
         # be a stronger check, but it depends on the cost-per-token table
-        # in `jobfit.llm` covering whichever model the live env routes to
+        # in `gander.llm` covering whichever model the live env routes to
         # (e.g. `MiniMax-M2.7-highspeed` currently has no pricing entry,
         # so its events emit `usd_cost=0.0` and the accumulator sums to 0).
         # Pricing-table coverage is a separate concern (T05/T17); the

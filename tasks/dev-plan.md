@@ -63,7 +63,7 @@ In priority order:
 
 **For plans and tasks (plan-audit lane).** Read `tasks/PLAN.md` and `tasks/todo.md`. For each task, ask: does its `Verification` block name a concrete check that would fail if the task regressed? Does any task ship a user-facing claim without a verification step? Are observability requirements assigned to a task (PRD §4.8 names specific counters — somebody must own them)? Are §4.6 failure modes covered by an explicit test task? Surface gaps as a list with severity tags.
 
-**For the pipeline.** Spot-check `src/jobfit/obs.py` (or whatever the project named it) and the stage-worker call sites. Each stage entry/exit should produce a structured event with stage, duration, and the named counters for that stage. Errors should carry stage + input fingerprint, never raw CV content.
+**For the pipeline.** Spot-check `src/gander/obs.py` (or whatever the project named it) and the stage-worker call sites. Each stage entry/exit should produce a structured event with stage, duration, and the named counters for that stage. Errors should carry stage + input fingerprint, never raw CV content.
 
 **For the demo.** Verify the zero-setup path actually works from a clean state (fresh clone or worktree, no warmed cache, env vars set per `.env.example` only). The "round-2 local path" must be reproducible from the documented commands alone — undocumented `uv` flags, hidden dependencies, or a `python -m something_undocumented` step is a [must-fix].
 

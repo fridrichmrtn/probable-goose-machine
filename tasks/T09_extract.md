@@ -12,12 +12,12 @@ Extract a structured `Profile` from the redacted CV via one MiniMax-M1 (or fallb
 
 ## Deliverables
 
-- [ ] `src/jobfit/prompts/extract.md` — system prompt:
+- [ ] `src/gander/prompts/extract.md` — system prompt:
   - Instructs model to return JSON matching `Profile` schema.
   - **Hard rule** (verbatim): "For every list item, copy the EXACT supporting substring from the CV into `anchor.quote`. Do not paraphrase. The quote must be at least 6 words long. If you cannot find a 6-word literal substring, omit the item."
   - Detects role title, location (CZ city if present), total years experience.
   - Includes a one-shot example showing a literal-quote anchor.
-- [ ] `src/jobfit/extract.py`:
+- [ ] `src/gander/extract.py`:
   - `async def extract_profile(redacted: RedactedCV) -> Profile`:
     - Calls `llm.complete_json(system=load_prompt("extract.md"), user=redacted.text, schema=Profile, model="reasoning")`.
     - For each `ProfileItem`, runs `verify_quote(item.anchor.quote, redacted.text, section=item.anchor.section)`. Drops failures via `drop_unverified`. Logs drop counts: `obs.emit("verify", stage="extract", dropped=N, kept=M)`.
@@ -40,7 +40,7 @@ uv run pytest -m live tests/test_extract.py -v   # needs MINIMAX_API_KEY + fixtu
 
 ## Outcome
 
-Shipped `src/jobfit/extract.py` (≈55 LOC) + `src/jobfit/prompts/extract.md` + `tests/test_extract.py`. Three `@pytest.mark.fast` tests green (paraphrased-anchor drop, stage_boundary failure path + PII-leak guard, prompt smoke); one parametrized `@pytest.mark.live` test covering the junior `.docx` and senior `.pdf` fixtures.
+Shipped `src/gander/extract.py` (≈55 LOC) + `src/gander/prompts/extract.md` + `tests/test_extract.py`. Three `@pytest.mark.fast` tests green (paraphrased-anchor drop, stage_boundary failure path + PII-leak guard, prompt smoke); one parametrized `@pytest.mark.live` test covering the junior `.docx` and senior `.pdf` fixtures.
 
 Live tests executed locally with `MINIMAX_API_KEY` sourced from `.env`. Per-fixture survival rates across 5 consecutive runs: junior 14/14 ≈ 100% (steady), senior fluctuated 85% / 92% / 100% / 60% / 85% — driven by the model occasionally returning 4-word skill summaries (e.g. `"BigQuery, PostgreSQL, Kafka 3.7."`) the prompt explicitly forbids.
 

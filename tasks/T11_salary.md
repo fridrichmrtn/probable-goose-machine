@@ -12,11 +12,11 @@ Estimate a market-grounded salary range for the candidate, defaulting to CZK mon
 
 ## Deliverables
 
-- [ ] `src/jobfit/prompts/salary.md` — system prompt:
+- [ ] `src/gander/prompts/salary.md` — system prompt:
   - Receives a list of `{title, snippet, url}` search results.
   - Outputs JSON matching `SalaryEstimate`: `low`, `high` (both integers), `currency` (CZK by default for CZ profiles, EUR if profile.detected_location is non-CZ Europe), `period` ("month" for CZK, "year" for EUR), `sources` (subset of inputs the model actually used, with `snippet` trimmed to the cited fragment), `reasoning`.
   - Hard rule: every entry in `sources` must be one of the input URLs verbatim.
-- [ ] `src/jobfit/salary.py`:
+- [ ] `src/gander/salary.py`:
   - `def build_queries(profile: Profile) -> list[str]`:
     - CZ-local queries first: `f"{role} salary {city} site:platy.cz OR site:profesia.cz"`, `f"{role} mzda CZK 2025"`, `f"{role} salary czech republic site:glassdoor.com"`.
     - For senior profiles (years ≥ 10), add an EUR cross-check query.

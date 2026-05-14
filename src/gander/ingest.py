@@ -9,8 +9,8 @@ import docx
 import pdfplumber
 import pypdf
 
-from jobfit import obs
-from jobfit.errors import StageFailure, stage_boundary
+from gander import obs
+from gander.errors import StageFailure, stage_boundary
 
 SCANNED_MSG = "This appears to be a scanned PDF. Text-based PDFs and DOCX are required."
 UNKNOWN_MSG = "Unable to read this file. Please upload a valid PDF or DOCX."
