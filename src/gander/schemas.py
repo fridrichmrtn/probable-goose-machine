@@ -41,6 +41,11 @@ class RawCV(BaseModel):
 class RedactedCV(BaseModel):
     text: str
     audit_log: list[Redaction]
+    # Computed deterministically from raw date ranges in the CV (CZ+EN month
+    # parsing, interval-union, gap-skip). When non-None, extract overrides the
+    # LLM's `detected_years_experience` so salary's years>=10 lift gate cannot
+    # be misled by LLM variance on `[YEAR] - [YEAR]` patterns (PRD §4.7 + R7).
+    years_experience_deterministic: int | None = None
 
 
 class Anchor(BaseModel):
