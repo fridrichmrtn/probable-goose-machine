@@ -393,3 +393,91 @@ def test_every_fixture_audit_log_has_email_and_name(fixture_path: Path) -> None:
         assert marker_for_kind[r.kind] in result.text, (
             f"missing {marker_for_kind[r.kind]} in redacted text of {fixture_path.name}"
         )
+
+
+# === T28 R6: tagline-headline name fix ============================================
+
+
+@pytest.mark.fast
+def test_tagline_headline_name_redacted() -> None:
+    """R6: a CV whose first line is a tagline-shaped headline
+    ("Data Gardener | AI, Data Science & Engineering @Stealth") used to bypass
+    redaction entirely because `_redact_header_name` bailed on commas/digits.
+    The fix continues past tagline lines (bounded to 10 non-blank lines) and
+    masks the real name on a later line."""
+    cv = (
+        "Data Gardener | AI, Data Science & Engineering @Stealth\n"
+        "Praha\n"
+        "Jana Nováková\n"
+        "Senior Engineer\n"
+    )
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+
+    name_audits = [r for r in result.audit_log if r.kind == "name"]
+    assert name_audits, f"name was never redacted; audit={result.audit_log!r}"
+    assert "Jana Nováková" not in result.text
+    assert "[NAME]" in result.text
+    # Tagline line is preserved intact (commas + words still there).
+    assert "Data Gardener" in result.text
+    assert "AI, Data Science" in result.text
+
+
+@pytest.mark.fast
+def test_tagline_headline_emits_name_count_event() -> None:
+    """T28: §4.7 PII compliance must surface as an observable signal — `count_name>=1`.
+    Without this, redact silently succeeds when no name is found (only the audit
+    log knows). CI must fail loudly when this regresses, even on fast lane.
+    """
+    cv = "Data Gardener | AI, Data Science & Engineering @Stealth\nPraha\nJana Nováková\n"
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = redact(cv)
+    assert isinstance(result, RedactedCV)
+
+    done_events = [e for e in events if e["event"] == "done" and e["stage"] == "redact"]
+    assert done_events, f"expected redact done event, got {events!r}"
+    assert done_events[0]["count_name"] >= 1
+
+
+@pytest.mark.fast
+def test_header_scan_capped_to_10_lines() -> None:
+    """The scan must stop after 10 non-blank lines so a CV that genuinely has
+    no name in the header (e.g. one that opens with prose) doesn't burn cycles
+    walking the whole document. Past the cap, a clean name candidate is left
+    untouched."""
+    # First 10 non-blank lines are all tagline-shaped (with commas/digits) so
+    # the scan never finds a candidate; the eleventh line is a clean name that
+    # MUST NOT be redacted because we're past the cap.
+    lines = [f"Tagline {i}, role 2020" for i in range(10)]
+    lines.append("Jana Nováková")
+    cv = "\n".join(lines)
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    assert "Jana Nováková" in result.text  # past the cap, untouched
+
+
+_CORPUS_TXT_FIXTURES = sorted(_FIXTURE_DIR.glob("*.txt"))
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "fixture_path",
+    _CORPUS_TXT_FIXTURES,
+    ids=lambda p: p.name,
+)
+def test_pii_count_event_per_corpus_fixture(fixture_path: Path) -> None:
+    """T28: every fixture in the corpus must trip `count_name>=1` so silent
+    §4.7 misses on a per-CV basis become CI failures (catches the next
+    tagline-shaped CV slipping through). Uses .txt mirrors of the PDF/DOCX
+    fixtures so this stays in the fast lane (no PDF parsing)."""
+    text = fixture_path.read_text(encoding="utf-8")
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = redact(text)
+    assert isinstance(result, RedactedCV)
+    done_events = [e for e in events if e["event"] == "done" and e["stage"] == "redact"]
+    assert done_events, f"expected redact done event for {fixture_path.name}"
+    assert done_events[0]["count_name"] >= 1, (
+        f"no name redacted in {fixture_path.name}; counts={done_events[0]!r}"
+    )
