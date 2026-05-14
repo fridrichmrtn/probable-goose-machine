@@ -1,4 +1,4 @@
-# T33 — Cassette/mock DDG for live acceptance + senior salary tests
+# T37 — Cassette/mock DDG for live acceptance + senior salary tests
 
 Status: open
 Owner: software-engineer (follow-up from T30 phase 1)
@@ -95,7 +95,7 @@ Cons: loses the "exercise real DDG once per CI run" signal.
 
 ## Verification
 
-After landing T33:
+After landing T37:
 
 - Remove `@pytest.mark.flaky(reruns=2)` from
   `test_senior_fixture_estimate_returns_czk_range` and confirm 10

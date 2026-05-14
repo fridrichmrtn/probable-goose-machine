@@ -28,23 +28,28 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## UI + tests
 - [x] **T16** — Gradio UI (`tasks/T16_ui.md`)
-- [ ] **T17** — Acceptance tests (`tasks/T17_acceptance.md`)
-- [ ] **T18** — Failure tests (`tasks/T18_failures.md`)
+- [x] **T17** — Acceptance tests (`tasks/T17_acceptance.md`) — *closed via T30 phase 1 (PR #10, dea3dcf)*
+- [x] **T18** — Failure tests (`tasks/T18_failures.md`) — *PR #12, 4641765*
 - [x] **T19** — Confidence-judge tests (`tasks/T19_judge_tests.md`)
-- [ ] **T20** — Bias smoke test (`tasks/T20_bias.md`)
-- [ ] **T21** — `scripts/eval_corpus.py` (`tasks/T21_eval_corpus.md`)
-- [ ] **QA01** — QA audit of plan + task testability (stub at `tasks/qa_audit.md`; re-run via real `qa-engineer` after merge)
+- [x] **T20** — Bias smoke test (`tasks/T20_bias.md`) — *PR #14, 56310bc*
+- [x] **T21** — `scripts/eval_corpus.py` (`tasks/T21_eval_corpus.md`) — *PR #15, a76561d*
+- [x] **QA01** — QA audit (`tasks/qa_audit.md`) — *PR #13, 7fec4e5*
 
 ## Ship
 - [x] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
 - [ ] **T23** — README finalize (`tasks/T23_readme.md`)
 
 ## Post-ship hardening (Profile.pdf bilingual-senior regression — see plan; revised after multi-agent review 2026-05-14)
-- [ ] **T24** — Multilingual section vocabulary, R1 (`tasks/T24_section_vocab.md`)
-- [x] **T25** — Score: experience-mandatory, drop-as-zero, R2 (`tasks/T25_score_partial.md`)
-- [ ] **T26** — verify_quote: section-fallback + per-stage cap, R3 (`tasks/T26_verify_fallback.md`)
-- [ ] **T27** — Role normalization (polarity-flipped + LLM fallback) + salary 3-shot, R4+R5 (`tasks/T27_role_normalize.md`) — *deps T28*
-- [ ] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`)
+- [x] **T24** — Multilingual section vocabulary, R1 (`tasks/T24_section_vocab.md`) — *PR #16, 1897bd8*
+- [x] **T25** — Score: experience-mandatory, drop-as-zero, R2 (`tasks/T25_score_partial.md`) — *PR #18, e1df8f0*
+- [x] **T26** — verify_quote: section-fallback + per-stage cap, R3 (`tasks/T26_verify_fallback.md`) — *PR #9, 212aff5*
+- [x] **T27** — Role normalization (polarity-flipped + LLM fallback) + salary 3-shot, R4+R5 (`tasks/T27_role_normalize.md`) — *PR #17, 3cc0092*
+- [x] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`) — *PR #11, 3602324*
 - [ ] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *deps T24, T25, T26, T27, T28*
-- [ ] **T30** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *phase 1 EN triplet ships independently; phase 2 CZ ext. deps T29*
-- [ ] ~~**T31** — SPIKE: multimodal vision ingest~~ — **deferred post-submission** (`tasks/T31_multimodal_spike.md`)
+- [x] **T30 phase 1** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *PR #10, dea3dcf*
+- [ ] **T30 phase 2** — CZ-triplet extension — *deps T29*
+- [ ] ~~**T31** — SPIKE: multimodal vision ingest~~ — *superseded by T32–T35 vision chain* (`tasks/T31_multimodal_spike.md`)
+
+## Post-merge follow-ups (T30 phase 1 self-heal residue)
+- [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *unblocks reverting the partial-Score branch in `test_score_spread_at_least_30`*
+- [ ] **T37** — Cassette/mock DDG for live tests (`tasks/T37_ddg_cassette.md`) — *unblocks removing `_optional_growth` + `@flaky(reruns=2)`*

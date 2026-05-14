@@ -116,7 +116,7 @@ def _optional_growth(report: Report, label: str) -> list[GrowthAction] | None:
     growth follows with `Cannot generate growth plan without salary baseline`.
     The cross-CV invariants below need ≥2 CVs with usable growth, but a
     single missing fixture shouldn't take the whole acceptance suite down —
-    the remaining CVs still cross-check against each other. T33 follow-up
+    the remaining CVs still cross-check against each other. T37 follow-up
     eliminates this class of CI flake at source by cassette-mocking DDG.
     """
     return report.growth if isinstance(report.growth, list) else None
@@ -136,12 +136,12 @@ def test_score_spread_at_least_30(triplet: _TripletRun) -> None:
     if senior.dropped:
         # T25 second-order: senior fixture 08 stochastically lands on the
         # partial-Score path when an anchor fails verify_quote (most often
-        # `education`, tracked in tasks/T32_senior_edu_anchor.md). With the
+        # `education`, tracked in tasks/T36_senior_edu_anchor.md). With the
         # dropped component contributing 0 (T25 "drop=0, don't re-normalize",
         # PRD §4.5), the spread compresses below the full-Score gate. Preserve
         # PRD §5.4 differentiation with a relaxed delta floor AND an absolute
         # senior floor so a real "senior collapsed to mid band" regression
-        # still trips. When T32 lands and senior returns to full 4-of-4, the
+        # still trips. When T36 lands and senior returns to full 4-of-4, the
         # full-Score branch below resumes enforcing >=30.
         assert senior.total >= 65, (
             f"partial-Score senior must clear absolute floor: "

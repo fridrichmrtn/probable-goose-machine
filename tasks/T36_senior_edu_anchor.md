@@ -1,4 +1,4 @@
-# T32 — Senior fixture education-anchor verify miss
+# T36 — Senior fixture education-anchor verify miss
 
 Status: open
 Owner: ai-ml-engineer (follow-up from T30 phase 1)
