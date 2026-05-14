@@ -44,8 +44,16 @@ def build_queries(profile: Profile) -> list[str]:
     """Build 2-3 locality-first search queries plus an optional EUR cross-check.
 
     Pure function. No I/O.
+
+    Uses `profile.canonical_role` when set (T27, R4). When the canonical role
+    differs from the verbatim headline (i.e. T27 normalized away a non-market
+    or tagline-shape headline), the verbatim headline is dropped from the
+    queries so DDG doesn't drift to junk pages. Management profiles get an
+    extra management-specific query.
     """
-    role = profile.detected_role.strip() or "data scientist"
+    canonical = (profile.canonical_role or "").strip()
+    detected = profile.detected_role.strip()
+    role = canonical or detected or "data scientist"
     location = profile.detected_location
     cz = _is_cz_location(location)
 
@@ -57,20 +65,23 @@ def build_queries(profile: Profile) -> list[str]:
             f"{role} mzda CZK 2025",
             f"{role} salary czech republic site:glassdoor.com",
         ]
+        mgmt_currency_token = "CZK 2025"
     else:
         city = location.strip() if location else "Europe"
         queries = [
             f"{role} salary {city} site:glassdoor.com OR site:levels.fyi",
             f"{role} salary EUR 2025 {city}",
         ]
+        mgmt_currency_token = "EUR 2025"
 
-    # Senior EUR cross-check is the senior-specific market signal: lifts the cap
-    # to 4 so it survives next to the locality queries.
+    if profile.is_management and canonical:
+        queries.insert(0, f"{canonical} manager salary {city} {mgmt_currency_token}")
+
     if profile.detected_years_experience >= 10:
         queries.append(f"senior {role} salary EUR Europe")
-        return queries[:4]
 
-    return queries[:3]
+    # Cap covers all attached signals: 2-3 locality + optional management + optional senior.
+    return queries[:5]
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential_jitter(initial=1, max=3), reraise=True)
@@ -171,10 +182,16 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             )
 
         client = LLMClient()
+        # Canonical fields feed the LLM the seniority signal it needs to anchor
+        # correctly on management profiles even when the snippets are IC-only
+        # (T27, R5). Fall back to the verbatim headline when normalization
+        # didn't run / didn't resolve.
         user_payload = json.dumps(
             {
                 "context": {
-                    "role": profile.detected_role,
+                    "role": profile.canonical_role or profile.detected_role,
+                    "seniority": profile.seniority_band,
+                    "is_management": profile.is_management,
                     "location": profile.detected_location,
                     "years": profile.detected_years_experience,
                 },

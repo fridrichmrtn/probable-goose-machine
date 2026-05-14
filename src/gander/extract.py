@@ -13,6 +13,7 @@ from pathlib import Path
 from gander import obs
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
+from gander.normalize import normalize_role_with_llm_fallback
 from gander.schemas import Profile, ProfileItem, RedactedCV
 from gander.verify import drop_unverified
 
@@ -79,6 +80,26 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
                     delta=delta,
                 )
             update["detected_years_experience"] = det_years
+
+        # Role normalization (T27, R4/R5). Runs AFTER the tenure override so the
+        # normalizer's seniority signals fire on the trustworthy year count.
+        # Pull title candidates from the LLM's experience entries (both summary
+        # text and anchor quote — both can carry the role title).
+        years_for_normalize = update.get(
+            "detected_years_experience", profile.detected_years_experience
+        )
+        assert isinstance(years_for_normalize, int)
+        experience_titles: list[str] = []
+        for item in kept_lists["experience"]:
+            experience_titles.append(item.text)
+            if item.anchor.quote:
+                experience_titles.append(item.anchor.quote)
+        normalized = await normalize_role_with_llm_fallback(
+            profile.detected_role, years_for_normalize, experience_titles
+        )
+        update["canonical_role"] = normalized.canonical_role
+        update["seniority_band"] = normalized.seniority_band
+        update["is_management"] = normalized.is_management
 
         verified = profile.model_copy(update=update)
         obs.emit("extract", "verify", dropped=total_dropped, kept=total_kept)
