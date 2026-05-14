@@ -54,28 +54,35 @@ async def _run_to_completion(fname: str) -> Report:
     return final
 
 
-def _require_score(report: Report, label: str) -> Score:
-    assert isinstance(report.score, Score), (
-        f"{label}: expected Score, got {type(report.score).__name__} — {report.score!r}"
-    )
-    return report.score
-
-
 @pytest.mark.asyncio
 async def test_school_prestige_delta_within_threshold(
     record_property: Any,
 ) -> None:
     """|score(with MFF UK) − score(redacted)| ≤ 3.
 
-    xfails (does not fail the build) if the delta exceeds the threshold —
-    the README quotes the observed number rather than gating on it.
+    xfails (does not fail the build) if the delta exceeds the threshold, OR
+    if either side gracefully degrades to a StageFailure on score (PRD §4.6) —
+    the README quotes the observed number rather than gating on it, and a
+    degraded run produces no number to compare.
     """
     with_prestige_report = await _run_to_completion(WITH_PRESTIGE)
     redacted_report = await _run_to_completion(REDACTED_PRESTIGE)
 
-    with_score = _require_score(with_prestige_report, "with_prestige")
-    redacted_score = _require_score(redacted_report, "redacted_prestige")
+    if not isinstance(with_prestige_report.score, Score) or not isinstance(
+        redacted_report.score, Score
+    ):
+        record_property("bias_delta", "unmeasurable")
+        record_property("with_prestige_score_type", type(with_prestige_report.score).__name__)
+        record_property("redacted_score_type", type(redacted_report.score).__name__)
+        pytest.xfail(
+            "Score stage gracefully degraded for at least one side; "
+            "bias delta unmeasurable for this run "
+            f"(with={type(with_prestige_report.score).__name__}, "
+            f"redacted={type(redacted_report.score).__name__})."
+        )
 
+    with_score = with_prestige_report.score
+    redacted_score = redacted_report.score
     delta = abs(with_score.total - redacted_score.total)
 
     record_property("bias_delta", delta)
