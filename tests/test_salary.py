@@ -152,12 +152,13 @@ async def test_estimate_salary_rejects_llm_urls_not_in_search_results(
 
 
 @pytest.mark.fast
-async def test_estimate_salary_caps_retries_per_query(
+async def test_estimate_salary_retries_each_query_independently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # tenacity does exactly 2 attempts on the first query; reraise=True
-    # propagates the RuntimeError up into the stage boundary, so no later
-    # query is ever attempted. The exact count is the contract.
+    # Per-query resilience contract: when every query fails, tenacity does
+    # 2 attempts PER query (not just on the first one). One flaky query no
+    # longer aborts the whole loop — each is tried independently, and only
+    # the aggregate <2-sources check collapses the stage.
     text_mock = MagicMock(side_effect=RuntimeError("ddg rate limit"))
     _patch_ddgs(monkeypatch, text_mock)
     monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
@@ -170,7 +171,81 @@ async def test_estimate_salary_caps_retries_per_query(
 
     assert isinstance(result, StageFailure)
     assert result.stage == "salary"
-    assert text_mock.call_count == 2
+    # Every built query is attempted; each one runs tenacity's 2 attempts.
+    assert text_mock.call_count == 2 * len(queries)
+
+
+@pytest.mark.fast
+async def test_estimate_salary_survives_single_query_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # One bad query (e.g. site:a OR site:b shape that DDG sporadically rejects)
+    # must NOT nuke the whole search when other queries return sources. The
+    # stage proceeds with the survivors.
+    good_results = [
+        {
+            "href": "https://www.platy.cz/platy/it/data-scientist",
+            "body": "Median data scientist Praha 95 000 Kc/mes.",
+        },
+        {
+            "href": "https://www.profesia.cz/prace/senior-data-scientist",
+            "body": "Senior Data Scientist 110 000 - 150 000 Kc gross monthly.",
+        },
+    ]
+    # Side-effect sequence: first query fails on every tenacity attempt (2x),
+    # then queries 2 and 3 succeed.
+    text_mock = MagicMock(
+        side_effect=[
+            RuntimeError("ddg rejects site: OR site: shape"),
+            RuntimeError("ddg rejects site: OR site: shape"),
+            good_results,
+            good_results,
+        ]
+    )
+    _patch_ddgs(monkeypatch, text_mock)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    # Mock the LLM step so the test stays hermetic.
+    salary = SalaryEstimate(
+        low=110000,
+        high=150000,
+        currency="CZK",
+        period="month",
+        sources=[
+            Source(
+                url="https://www.platy.cz/platy/it/data-scientist",  # type: ignore[arg-type]
+                snippet="Median data scientist Praha 95 000 Kc/mes.",
+                domain="www.platy.cz",
+            ),
+            Source(
+                url="https://www.profesia.cz/prace/senior-data-scientist",  # type: ignore[arg-type]
+                snippet="Senior Data Scientist 110 000 - 150 000 Kc gross monthly.",
+                domain="www.profesia.cz",
+            ),
+        ],
+        reasoning="based on two cz market snippets",
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return salary
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await estimate_salary(_cz_profile())
+
+    assert isinstance(result, SalaryEstimate), (
+        f"expected SalaryEstimate, got {type(result).__name__}: {result}"
+    )
+    assert result.currency == "CZK"
+
+    # Obs contract: search_event reports the one failed query; the dedicated
+    # `query_failures` event carries the type detail.
+    search_evt = next(e for e in events if e["event"] == "salary_search")
+    assert search_evt["failed_queries"] == 1
+    failures_evt = next(e for e in events if e["event"] == "query_failures")
+    assert failures_evt["failures"][0]["exc_type"] == "RuntimeError"
 
 
 @pytest.mark.fast

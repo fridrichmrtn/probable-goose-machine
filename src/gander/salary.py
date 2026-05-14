@@ -97,8 +97,17 @@ async def search(queries: list[str]) -> list[Source]:
     ``stage_boundary`` converts that into a ``StageFailure``.
     """
     raw_results: list[dict[str, Any]] = []
+    failed_queries: list[dict[str, str]] = []
     for q in queries:
-        results = await asyncio.to_thread(_ddg_text, q)
+        try:
+            results = await asyncio.to_thread(_ddg_text, q)
+        except Exception as exc:
+            # DDG occasionally rejects one query shape (e.g. site:a OR site:b)
+            # while the others succeed. Treat single-query failures as expected
+            # and continue; only collapse to StageFailure if <2 sources survive
+            # in aggregate.
+            failed_queries.append({"query": q, "exc_type": type(exc).__name__})
+            continue
         raw_results.extend(results)
 
     seen: set[str] = set()
@@ -124,9 +133,15 @@ async def search(queries: list[str]) -> list[Source]:
         raw_results=len(raw_results),
         dedup_results=len(sources),
         dropped_invalid_url=dropped_invalid,
+        failed_queries=len(failed_queries),
     )
+    if failed_queries:
+        emit("salary", "query_failures", failures=failed_queries)
 
     if len(sources) < 2:
+        if failed_queries:
+            types = sorted({fq["exc_type"] for fq in failed_queries})
+            raise RuntimeError(f"{_INSUFFICIENT_DATA_MSG} (query failures: {','.join(types)})")
         raise RuntimeError(_INSUFFICIENT_DATA_MSG)
 
     return sources
