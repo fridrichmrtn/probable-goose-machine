@@ -110,6 +110,47 @@ async def test_paraphrased_anchor_is_dropped(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.fast
+async def test_extract_profile_allows_second_validation_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    redacted = _redacted_with_anchors()
+    seen_max_retries: int | None = None
+
+    synthetic = Profile(
+        skills=[ProfileItem(text="dashboards in Looker", anchor=Anchor(quote=_UNIQUE_14W_QUOTE))],
+        experience=[
+            ProfileItem(text="executive readout owner", anchor=Anchor(quote=_UNIQUE_EXP_QUOTE))
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Junior Data Analyst",
+        detected_location="Prague",
+        detected_years_experience=1,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        nonlocal seen_max_retries
+        seen_max_retries = kwargs.get("max_retries")
+        return synthetic
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert seen_max_retries == 2
+
+
+@pytest.mark.fast
 async def test_stage_failure_returned_when_llm_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
