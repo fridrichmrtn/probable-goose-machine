@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import gradio as gr
 
@@ -44,10 +45,35 @@ def _initial_report() -> Report:
     )
 
 
+def _read_error_report(user_message: str) -> Report:
+    """Report for pre-pipeline read failures (no file selected, OSError).
+
+    Profile is marked failed with the user-facing message; downstream stages
+    stay skipped so the tracker shows where the pipeline stopped.
+    """
+    failure = StageFailure(stage="profile", user_message=user_message)
+    return Report(
+        profile=failure,
+        score=None,
+        salary=None,
+        confidence=None,
+        growth=None,
+        statuses={
+            "profile": "failed",
+            "score": "skipped",
+            "salary": "skipped",
+            "confidence": "skipped",
+            "growth": "skipped",
+        },
+        raw_cv_text="",
+    )
+
+
 _HERO_CSS = """<style>
+#gander-app { max-width: 72ch; margin-inline: auto; }
 .gander-hero {
   margin: 1rem 0 2.5rem; font-family: system-ui, sans-serif;
-  display: flex; align-items: center; gap: 1.25rem;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem;
 }
 .gander-hero .mascot { width: 64px; height: 64px; flex-shrink: 0; color: #344054; }
 .gander-hero .text { display: flex; flex-direction: column; gap: 0.4rem; }
@@ -59,15 +85,31 @@ _HERO_CSS = """<style>
 .gander-caption { color: #667085; font-size: 0.85rem; margin: 0.75rem 0 1.25rem; }
 .gradio-container button.primary { margin-top: 0.5rem !important; }
 button.primary, .gradio-container button.primary {
-  background: #b54708 !important; border-color: #b54708 !important; color: #ffffff !important;
+  background: #92400e !important; border-color: #92400e !important; color: #ffffff !important;
 }
 button.primary:hover, .gradio-container button.primary:hover {
-  background: #93370d !important; border-color: #93370d !important;
+  background: #7c2d12 !important; border-color: #7c2d12 !important;
 }
 button.primary:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+button.primary:disabled,
+.gradio-container button.primary:disabled {
+  background: #fdba74 !important; border-color: #fdba74 !important;
+  color: #ffffff !important; cursor: not-allowed; opacity: 0.85;
+}
 @keyframes ganderPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 .pill.running { animation: ganderPulse 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .pill.running { animation: none; } }
+@media (prefers-color-scheme: dark) {
+  .gander-hero h1 { color: #f4f4f5; }
+  .gander-hero p { color: #d4d4d8; }
+  .gander-hero .mascot { color: #d4d4d8; }
+  .gander-caption { color: #a1a1aa; }
+  button.primary:disabled,
+  .gradio-container button.primary:disabled {
+    background: #7c2d12 !important; border-color: #7c2d12 !important;
+    color: #fed7aa !important; opacity: 0.7;
+  }
+}
 </style>"""
 
 _HERO_HTML = """
@@ -91,27 +133,44 @@ _HERO_HTML = """
 
 
 with gr.Blocks(title="Gander · CV analysis") as demo:
-    gr.HTML(_HERO_CSS + _HERO_HTML)
-    file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
-    gr.HTML('<p class="gander-caption">PDF or DOCX, max 10 MB. Not retained after processing.</p>')
-    run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
-    tracker_html = gr.HTML(value="")
-    report_md = gr.Markdown(value="")
+    with gr.Column(elem_id="gander-app"):
+        gr.HTML(_HERO_CSS + _HERO_HTML)
+        file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
+        gr.HTML(
+            '<p class="gander-caption">PDF or DOCX, max 10 MB. Text-based PDFs only — '
+            "scanned/image PDFs aren't supported. Not retained after processing.</p>"
+        )
+        run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
+        tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
+        report_md = gr.Markdown(value="", visible=False, elem_classes=["gander-output"])
 
     file_in.change(
         lambda f: gr.Button(interactive=f is not None),
         inputs=[file_in],
         outputs=[run_btn],
+        show_progress="hidden",
     )
 
-    async def handle(file_path: str | None) -> AsyncIterator[tuple[str, str]]:
+    async def handle(
+        file_path: str | None,
+    ) -> AsyncIterator[tuple[dict[str, Any], dict[str, Any]]]:
         if file_path is None:
-            yield ("", "*Select a CV first.*")
+            failed = _read_error_report("Select a CV first.")
+            yield (
+                gr.update(visible=True, value=render_tracker(failed)),
+                gr.update(visible=True, value=render_body(failed)),
+            )
             return
         try:
             file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
         except OSError:
-            yield ("", "*Could not read uploaded file. Please try again.*")
+            failed = _read_error_report(
+                "Unable to read this file. Please upload a valid PDF or DOCX."
+            )
+            yield (
+                gr.update(visible=True, value=render_tracker(failed)),
+                gr.update(visible=True, value=render_body(failed)),
+            )
             return
         filename = Path(file_path).name
 
@@ -119,7 +178,10 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         # silence reads as breakage (PRD §8).
         reading_report = _initial_report()
         reading_report.statuses["profile"] = "running"
-        yield render_tracker(reading_report), "*Reading file…*"
+        yield (
+            gr.update(visible=True, value=render_tracker(reading_report)),
+            gr.update(visible=True, value="*Reading file…*"),
+        )
 
         async for report in pipeline_run(file_bytes, filename):
             # render_body short-circuits to a failure callout when profile is still a
@@ -129,9 +191,17 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
                 if isinstance(report.profile, Profile)
                 else "*Generating report…*"
             )
-            yield render_tracker(report), body
+            yield (
+                gr.update(visible=True, value=render_tracker(report)),
+                gr.update(visible=True, value=body),
+            )
 
-    run_btn.click(handle, inputs=[file_in], outputs=[tracker_html, report_md])
+    run_btn.click(
+        handle,
+        inputs=[file_in],
+        outputs=[tracker_html, report_md],
+        show_progress="hidden",
+    )
 
 
 if __name__ == "__main__":
