@@ -280,6 +280,42 @@ def test_report_statuses_require_known_complete_keys_and_allow_skipped() -> None
 
 
 @pytest.mark.fast
+def test_report_accepts_none_blocks_for_pipeline_streaming() -> None:
+    # T15 pipeline yields intermediate states where downstream blocks have not
+    # run yet; None represents "pending". Schema must accept None for every block.
+    report = Report(
+        statuses={
+            "profile": "pending",
+            "score": "pending",
+            "salary": "pending",
+            "confidence": "pending",
+            "growth": "pending",
+        },
+        raw_cv_text="",
+    )
+    assert report.profile is None
+    assert report.score is None
+    assert report.salary is None
+    assert report.confidence is None
+    assert report.growth is None
+    # Cost/latency aggregates default to zero before any llm_call fires.
+    assert report.total_cost_usd == 0.0
+    assert report.total_latency_ms == 0
+
+
+@pytest.mark.fast
+def test_report_carries_cost_and_latency_totals() -> None:
+    report = Report(
+        statuses=_statuses(),
+        raw_cv_text="",
+        total_cost_usd=0.0123,
+        total_latency_ms=4567,
+    )
+    assert report.total_cost_usd == pytest.approx(0.0123)
+    assert report.total_latency_ms == 4567
+
+
+@pytest.mark.fast
 def test_stage_boundary_catches_exception_and_yields_failure() -> None:
     with stage_boundary("test_stage") as cm:
         raise RuntimeError("boom")
