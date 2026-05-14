@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 
 from gander import pipeline
+from gander.errors import StageFailure
 from gander.schemas import Report, Score
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -60,27 +61,25 @@ async def test_school_prestige_delta_within_threshold(
 ) -> None:
     """|score(with MFF UK) − score(redacted)| ≤ 3.
 
-    xfails (does not fail the build) if the delta exceeds the threshold, OR
-    if either side gracefully degrades to a StageFailure on score (PRD §4.6) —
-    the README quotes the observed number rather than gating on it, and a
-    degraded run produces no number to compare.
+    Skips (does not fail the build) if either side gracefully degrades to a
+    StageFailure on score (PRD §4.6) — a degraded run produces no number to
+    compare. xfails if both sides scored but the delta exceeds the threshold;
+    the README quotes the observed number rather than gating on it.
     """
     with_prestige_report = await _run_to_completion(WITH_PRESTIGE)
     redacted_report = await _run_to_completion(REDACTED_PRESTIGE)
 
-    if not isinstance(with_prestige_report.score, Score) or not isinstance(
-        redacted_report.score, Score
+    for label, score in (
+        ("with_prestige", with_prestige_report.score),
+        ("redacted", redacted_report.score),
     ):
-        record_property("bias_delta", "unmeasurable")
-        record_property("with_prestige_score_type", type(with_prestige_report.score).__name__)
-        record_property("redacted_score_type", type(redacted_report.score).__name__)
-        pytest.xfail(
-            "Score stage gracefully degraded for at least one side; "
-            "bias delta unmeasurable for this run "
-            f"(with={type(with_prestige_report.score).__name__}, "
-            f"redacted={type(redacted_report.score).__name__})."
-        )
+        if isinstance(score, StageFailure):
+            record_property("bias_delta", "unmeasurable")
+            record_property(f"{label}_stage_failure", score.user_message)
+            pytest.skip(f"score stage failed for {label}: {score.user_message}")
 
+    assert isinstance(with_prestige_report.score, Score)
+    assert isinstance(redacted_report.score, Score)
     with_score = with_prestige_report.score
     redacted_score = redacted_report.score
     delta = abs(with_score.total - redacted_score.total)

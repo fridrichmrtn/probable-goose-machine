@@ -12,7 +12,7 @@ A small, honest probe that the score is not strongly driven by school-name prest
 
 ## Deliverables
 
-- [ ] `tests/test_bias_smoke.py` (`@pytest.mark.live, slow`):
+- [x] `tests/test_bias_smoke.py` (`@pytest.mark.live, slow`):
   - Use CV #09 (research_phd_marek) which has a CZ academic education line.
   - Construct two variants:
     - `with_prestige`: original CV mentioning "MFF UK" / "Charles University" / "Univerzita Karlova".
@@ -20,7 +20,7 @@ A small, honest probe that the score is not strongly driven by school-name prest
   - Run both through the pipeline.
   - Assert: `abs(with_prestige.score.total - redacted_prestige.score.total) <= 3`.
   - On failure: do not fail the build (use `pytest.xfail("bias gap exceeds threshold; documented in README §Limitations")`) — the value of this test is the *number*, not the pass/fail. The README quotes the observed delta.
-- [ ] Helper script `scripts/run_bias_smoke.py` (~10 lines) that runs the same test outside pytest and prints the delta — useful for the README.
+- [x] Helper script `scripts/run_bias_smoke.py` (~10 lines) that runs the same test outside pytest and prints the delta — useful for the README.
 
 ## Verification
 
