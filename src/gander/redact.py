@@ -29,6 +29,7 @@ from typing import Final, Literal
 from gander import obs
 from gander.errors import StageFailure, stage_boundary
 from gander.schemas import RedactedCV, Redaction
+from gander.tenure import compute_years
 
 RedactionKind = Literal["email", "phone", "name", "address", "year", "url"]
 
@@ -295,6 +296,9 @@ def _name_residue_from_mixed_line(stripped: str) -> str | None:
     return residue
 
 
+_HEADER_SCAN_LIMIT: Final = 10
+
+
 def _redact_header_name(text: str, audit: list[Redaction]) -> str:
     """Mask the first non-blank line that looks like a name.
 
@@ -305,12 +309,22 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
     For lines that mix a name with markers/separators (e.g.
     "Jan Novotný | [PHONE]"), extracts the name residue and masks only that
     span.
+
+    Scans up to `_HEADER_SCAN_LIMIT` non-blank lines. A non-name candidate
+    (tagline-headline with commas/digits, line with the wrong word count,
+    etc.) is *skipped* rather than aborting the scan — the goal is to find
+    a real name candidate further down (T28 R6: tagline-headline CVs were
+    silently bypassing §4.7 PII redaction).
     """
     lines = text.split("\n")
+    scanned = 0
     for i, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
+        scanned += 1
+        if scanned > _HEADER_SCAN_LIMIT:
+            break
         if _MARKER_ONLY_LINE.match(stripped):
             continue
 
@@ -345,9 +359,11 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
             lines[i] = new_line
             return "\n".join(lines)
 
-        # No markers on this line — original strict gate.
+        # No markers on this line. Continue past non-name shapes (tagline
+        # headlines, wrong-word-count lines, all-caps section headers, denylist
+        # headers); only mask when the residue is a clean title-case run.
         if "[" in stripped or "," in stripped or any(ch.isdigit() for ch in stripped):
-            return text
+            continue
         if stripped.lower() in _HEADER_DENYLIST:
             continue
         # All-uppercase lines (e.g. "PROFESSIONAL SUMMARY") are section
@@ -355,10 +371,14 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
         if stripped.isupper():
             continue
         words = stripped.split()
-        if not (1 <= len(words) <= 4):
-            return text
+        # Require 2+ words. With the post-T28 wider scan, single-word title-case
+        # lines (cities like "Praha", standalone first names, etc.) generate
+        # false positives — a real CV name is almost always >= 2 tokens, and
+        # the labelled "Name: Jane" single-token case is owned by `_NAME_LABEL`.
+        if not (2 <= len(words) <= 4):
+            continue
         if not all(_is_title_word(w) for w in words):
-            return text
+            continue
 
         leading_ws_len = len(line) - len(line.lstrip())
         name_start_in_line = leading_ws_len
@@ -396,6 +416,10 @@ def redact(text: str) -> RedactedCV | StageFailure:
 
     with stage_boundary("redact") as cm:
         audit: list[Redaction] = []
+        # Compute tenure BEFORE year tokens are masked. The pure function in
+        # `gander.tenure` returns None when no parseable range is found, in
+        # which case the LLM's `detected_years_experience` survives untouched.
+        deterministic_years = compute_years(text)
         out = text
         out = _replace_with_audit(out, _URL, "url", "[URL]", audit)
         out = _replace_with_audit(out, _EMAIL, "email", "[EMAIL]", audit)
@@ -422,7 +446,11 @@ def redact(text: str) -> RedactedCV | StageFailure:
             duration_ms=_ms(),
             **{f"count_{k}": v for k, v in counts.items()},
         )
-        return RedactedCV(text=out, audit_log=audit)
+        return RedactedCV(
+            text=out,
+            audit_log=audit,
+            years_experience_deterministic=deterministic_years,
+        )
 
     assert cm.failure is not None
     return cm.failure
