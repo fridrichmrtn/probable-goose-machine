@@ -11,7 +11,7 @@ from typing import Literal, cast
 import pytest
 
 from jobfit.errors import StageFailure
-from jobfit.report import render_body, render_tracker
+from jobfit.report import _md, render_body, render_tracker
 from jobfit.schemas import (
     Anchor,
     Component,
@@ -683,6 +683,115 @@ def test_render_body_multiline_failure_message_stays_quoted() -> None:
     # Lines do NOT appear unquoted (which would render as a real heading).
     assert "\n# rogue heading" not in out
     assert "\n- rogue bullet" not in out
+
+
+# ---------- _md — block-level markdown injection defence (PR #7 heal) ----------
+
+
+@pytest.mark.fast
+def test_md_collapses_newlines_to_single_space() -> None:
+    # Direct unit test on the chokepoint helper. Any newline in an LLM-
+    # controlled string must collapse so block-level tokens (`#`, `-`, `+`,
+    # `|`, fenced code, table pipes) cannot appear at line-start.
+    out = _md("hello\n# Pwned")
+    assert "\n" not in out
+    assert "\n# Pwned" not in out
+    # The escaped text still contains the safe substring and the (now mid-line)
+    # `#` character — but it's no longer at line-start, so markdown won't
+    # promote it to a heading.
+    assert "hello" in out
+    assert "# Pwned" in out
+
+
+@pytest.mark.fast
+def test_md_collapses_runs_of_whitespace() -> None:
+    # `_md` uses str.split() / " ".join() which also collapses interior
+    # whitespace runs. Acceptable because markdown collapses them on render
+    # anyway and the inputs are conceptually inline.
+    assert _md("a\t\tb") == "a b"
+    assert _md("a  \n  b") == "a b"
+    assert _md("  leading and trailing  ") == "leading and trailing"
+
+
+@pytest.mark.fast
+def test_render_body_salary_reasoning_cannot_inject_heading() -> None:
+    # `salary.reasoning` is interpolated at line-start after `\n\n`; without
+    # newline collapse, a model-controlled `"ok\n# Pwned"` would render as
+    # an H1 in the body. Guard.
+    salary = SalaryEstimate(
+        low=80_000,
+        high=120_000,
+        currency="CZK",
+        period="month",
+        sources=[Source(url="https://example.com", snippet="ok", domain="example.com")],
+        reasoning="market data ok\n# Injected heading",
+    )
+    report = _make_report(salary=salary)
+    out = render_body(report)
+    assert "\n# Injected heading" not in out
+    assert "market data ok" in out
+
+
+@pytest.mark.fast
+def test_render_body_confidence_rationale_cannot_inject_heading() -> None:
+    bad = Confidence(tier="Medium", rationale="three sources agree\n# Pwned")
+    report = _make_report(confidence=bad)
+    out = render_body(report)
+    assert "\n# Pwned" not in out
+    assert "three sources agree" in out
+
+
+@pytest.mark.fast
+def test_render_body_growth_action_what_cannot_inject_list() -> None:
+    growth = [
+        GrowthAction(
+            what="learn rust\n- rogue bullet",
+            time_horizon_months=6,
+            mechanism="ship a small CLI",
+            anchor=Anchor(quote="C++ background"),
+        )
+    ]
+    report = _make_report(growth=growth)
+    out = render_body(report)
+    assert "\n- rogue bullet" not in out
+    assert "learn rust" in out
+
+
+@pytest.mark.fast
+def test_render_body_growth_action_mechanism_cannot_inject_table() -> None:
+    growth = [
+        GrowthAction(
+            what="learn rust",
+            time_horizon_months=6,
+            mechanism="ship a CLI\n| col | col |\n| --- | --- |",
+            anchor=Anchor(quote="C++ background"),
+        )
+    ]
+    report = _make_report(growth=growth)
+    out = render_body(report)
+    assert "\n|" not in out
+    assert "ship a CLI" in out
+
+
+@pytest.mark.fast
+def test_render_body_source_snippet_cannot_inject_heading() -> None:
+    bad = Source(
+        url="https://example.com",
+        snippet="legit excerpt\n# Pwned",
+        domain="example.com",
+    )
+    salary = SalaryEstimate(
+        low=80_000,
+        high=120_000,
+        currency="CZK",
+        period="month",
+        sources=[bad],
+        reasoning="ok",
+    )
+    report = _make_report(salary=salary)
+    out = render_body(report)
+    assert "\n# Pwned" not in out
+    assert "legit excerpt" in out
 
 
 # ---------- render_tracker — failed-pill fallback tooltip ----------

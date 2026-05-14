@@ -1,6 +1,6 @@
 """L6 report renderer — pure functions producing tracker HTML and body markdown.
 
-The renderer is a pure function of a `Report`. Every yield in the L7 pipeline
+The renderer is a pure function of a `Report`. Every yield in the L6 pipeline
 re-renders both surfaces from the same model; no UI state lives here.
 
 Status-key mapping (display label -> schema key): the T14 spec listed pill
@@ -104,8 +104,10 @@ _CSS = """<style>
 # interpolated mid-string. Backslash MUST come first so subsequent escapes are
 # not re-escaped. Set chosen to neutralise: `](payload)` link injection,
 # `*`/`_` emphasis, backtick code spans, `!` for `![alt](url)` images. Block-
-# level metacharacters (`#`, `+`, `-`, `|`) only have meaning at line-start;
-# user strings here are always interpolated mid-line so they stay raw.
+# level metacharacters (`#`, `+`, `-`, `|`, fenced code, table pipes) only
+# matter at line-start; `_md` collapses newlines + whitespace runs downstream
+# so an LLM-controlled string cannot escape an inline context into a heading,
+# list, table, or blockquote.
 _MD_ESCAPE = str.maketrans(
     {
         "\\": "\\\\",
@@ -127,14 +129,22 @@ def _esc(text: str) -> str:
 
 
 def _md(text: str) -> str:
-    """Escape for markdown interpolation: HTML-escape, then escape md metacharacters.
+    """Escape for markdown interpolation: HTML-escape, neutralise md metacharacters,
+    and collapse whitespace so block-level tokens cannot appear at line-start.
 
     Use for any user-controllable string flowing into a markdown context
     (callouts, source lines, salary reasoning, confidence rationale, growth
     actions). Content nested inside an HTML block (`<details>`, `<blockquote>`,
     `<p>`) only needs `_esc` — CommonMark does not parse markdown inside HTML.
+
+    Newlines (and runs of whitespace) collapse to a single space so an
+    LLM-controlled value like ``"ok\\n# Pwned"`` cannot inject a heading,
+    list, table, or fenced code block. ``_failure_callout_md`` splits its
+    input on newlines BEFORE calling ``_md`` per line, so multi-line failure
+    messages are preserved through that path.
     """
-    return escape(text, quote=True).translate(_MD_ESCAPE)
+    escaped = escape(text, quote=True).translate(_MD_ESCAPE)
+    return " ".join(escaped.split())
 
 
 def _pill_html(label: str, status: StageStatus, tooltip: str | None) -> str:
