@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,21 @@ _CZ_TOKEN_PATTERN = re.compile(
 # failure) surfaces this string; differentiation lives in structured
 # `stage_failure.reason` events + `debug_detail`.
 _INSUFFICIENT_DATA_MSG = "Insufficient market data for this profile"
+_DEFAULT_SALARY_SEARCH_BACKENDS = "brave,duckduckgo,yahoo,mojeek"
+_SALARY_SEARCH_MAX_RESULTS = 20
+_SALARY_LLM_SOURCE_LIMIT = 8
+_SALARY_DOMAIN_PRIORITY: tuple[str, ...] = (
+    "platy.cz",
+    "profesia.cz",
+    "glassdoor",
+    "levels.fyi",
+)
+
+
+def _salary_search_backends() -> str:
+    raw = os.environ.get("GANDER_SALARY_SEARCH_BACKENDS", _DEFAULT_SALARY_SEARCH_BACKENDS)
+    backends = [part.strip() for part in raw.split(",") if part.strip()]
+    return ",".join(backends) if backends else _DEFAULT_SALARY_SEARCH_BACKENDS
 
 
 def _is_cz_location(location: str | None) -> bool:
@@ -61,10 +77,12 @@ def build_queries(profile: Profile) -> list[str]:
     if cz:
         city = location.strip() if location else "Praha"
         queries = [
-            f"{role} salary {city} site:platy.cz OR site:profesia.cz",
+            f"{role} salary {city} site:platy.cz",
+            f"{role} salary {city} site:profesia.cz",
             f"{role} mzda CZK 2025",
-            f"{role} salary czech republic site:glassdoor.com",
         ]
+        if not (profile.is_management and canonical and profile.detected_years_experience >= 10):
+            queries.append(f"{role} salary czech republic site:glassdoor.com")
         mgmt_currency_token = "CZK 2025"
     else:
         city = location.strip() if location else "Europe"
@@ -87,7 +105,13 @@ def build_queries(profile: Profile) -> list[str]:
 @retry(stop=stop_after_attempt(2), wait=wait_exponential_jitter(initial=1, max=3), reraise=True)
 def _ddg_text(query: str) -> list[dict[str, Any]]:
     with DDGS() as ddg:
-        return list(ddg.text(query, max_results=8))
+        return list(
+            ddg.text(
+                query,
+                max_results=_SALARY_SEARCH_MAX_RESULTS,
+                backend=_salary_search_backends(),
+            )
+        )
 
 
 def _to_source(raw: dict[str, Any]) -> Source | None:
@@ -101,12 +125,31 @@ def _to_source(raw: dict[str, Any]) -> Source | None:
         return None
 
 
+def _salary_domain_rank(source: Source) -> int:
+    domain = source.domain.casefold()
+    for rank, token in enumerate(_SALARY_DOMAIN_PRIORITY):
+        if token in domain:
+            return rank
+    return len(_SALARY_DOMAIN_PRIORITY)
+
+
+def _prioritize_sources(sources: list[Source]) -> list[Source]:
+    return [
+        source
+        for _, source in sorted(
+            enumerate(sources),
+            key=lambda indexed: (_salary_domain_rank(indexed[1]), indexed[0]),
+        )
+    ]
+
+
 async def search(queries: list[str]) -> list[Source]:
     """Run DDG queries off the event loop, dedupe by URL, return up to 8 sources.
 
     Raises ``RuntimeError`` if fewer than 2 valid sources come back; the caller's
     ``stage_boundary`` converts that into a ``StageFailure``.
     """
+    search_backends = _salary_search_backends()
     raw_results: list[dict[str, Any]] = []
     failed_queries: list[dict[str, str]] = []
     for q in queries:
@@ -122,7 +165,7 @@ async def search(queries: list[str]) -> list[Source]:
         raw_results.extend(results)
 
     seen: set[str] = set()
-    sources: list[Source] = []
+    candidates: list[Source] = []
     dropped_invalid = 0
     for raw in raw_results:
         url = raw.get("href") or raw.get("url")
@@ -133,18 +176,21 @@ async def search(queries: list[str]) -> list[Source]:
         if source is None:
             dropped_invalid += 1
             continue
-        sources.append(source)
-        if len(sources) >= 8:
-            break
+        candidates.append(source)
+
+    sources = _prioritize_sources(candidates)[:_SALARY_LLM_SOURCE_LIMIT]
 
     emit(
         "salary",
         "salary_search",
         n_queries=len(queries),
         raw_results=len(raw_results),
+        candidate_sources=len(candidates),
         dedup_results=len(sources),
         dropped_invalid_url=dropped_invalid,
         failed_queries=len(failed_queries),
+        search_backends=search_backends,
+        query_max_results=_SALARY_SEARCH_MAX_RESULTS,
     )
     if failed_queries:
         emit("salary", "query_failures", failures=failed_queries)
@@ -205,6 +251,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 schema=SalaryEstimate,
                 model="reasoning",
                 temperature=0.0,
+                max_retries=2,
             )
         except Exception as exc:
             emit(
