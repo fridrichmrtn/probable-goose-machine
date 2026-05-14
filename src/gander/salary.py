@@ -104,14 +104,26 @@ def build_queries(profile: Profile) -> list[str]:
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential_jitter(initial=1, max=3), reraise=True)
 def _ddg_text(query: str) -> list[dict[str, Any]]:
+    backends = _salary_search_backends()
     with DDGS() as ddg:
-        return list(
-            ddg.text(
-                query,
-                max_results=_SALARY_SEARCH_MAX_RESULTS,
-                backend=_salary_search_backends(),
+        try:
+            return list(
+                ddg.text(
+                    query,
+                    max_results=_SALARY_SEARCH_MAX_RESULTS,
+                    backend=backends,
+                )
             )
-        )
+        except Exception:
+            if backends == "auto":
+                raise
+            return list(
+                ddg.text(
+                    query,
+                    max_results=_SALARY_SEARCH_MAX_RESULTS,
+                    backend="auto",
+                )
+            )
 
 
 def _to_source(raw: dict[str, Any]) -> Source | None:

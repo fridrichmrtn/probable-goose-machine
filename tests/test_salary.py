@@ -97,6 +97,26 @@ def test_ddg_text_uses_default_backends_when_env_empty(
 
 
 @pytest.mark.fast
+def test_ddg_text_falls_back_to_auto_when_configured_backends_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fallback_results = [{"href": "https://www.platy.cz/en/salaryinfo", "body": "salary row"}]
+    text_mock = MagicMock(side_effect=[RuntimeError("backend outage"), fallback_results])
+    _patch_ddgs(monkeypatch, text_mock)
+    monkeypatch.setenv("GANDER_SALARY_SEARCH_BACKENDS", "brave,duckduckgo")
+
+    assert salary_mod._ddg_text("salary query") == fallback_results
+    assert text_mock.call_args_list[0].kwargs == {
+        "max_results": 20,
+        "backend": "brave,duckduckgo",
+    }
+    assert text_mock.call_args_list[1].kwargs == {
+        "max_results": 20,
+        "backend": "auto",
+    }
+
+
+@pytest.mark.fast
 async def test_estimate_salary_returns_stage_failure_when_search_returns_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -206,8 +226,9 @@ async def test_estimate_salary_retries_each_query_independently(
 
     assert isinstance(result, StageFailure)
     assert result.stage == "salary"
-    # Every built query is attempted; each one runs tenacity's 2 attempts.
-    assert text_mock.call_count == 2 * len(queries)
+    # Every built query is attempted. Each tenacity attempt tries configured
+    # backends, then the `auto` fallback.
+    assert text_mock.call_count == 4 * len(queries)
 
 
 @pytest.mark.fast
@@ -227,11 +248,14 @@ async def test_estimate_salary_survives_single_query_failure(
             "body": "Senior Data Scientist 110 000 - 150 000 Kc gross monthly.",
         },
     ]
-    # Side-effect sequence: first query fails on every tenacity attempt (2x),
-    # then every remaining query succeeds.
+    # Side-effect sequence: first query fails on every tenacity attempt
+    # (configured backend + auto fallback, twice), then every remaining query
+    # succeeds.
     n_queries = len(build_queries(_cz_profile()))
     text_mock = MagicMock(
         side_effect=[
+            RuntimeError("ddg rejects site: OR site: shape"),
+            RuntimeError("ddg rejects site: OR site: shape"),
             RuntimeError("ddg rejects site: OR site: shape"),
             RuntimeError("ddg rejects site: OR site: shape"),
             *([good_results] * (n_queries - 1)),
