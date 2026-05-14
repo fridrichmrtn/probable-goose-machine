@@ -42,7 +42,9 @@ jobs:
 
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # T30 Phase 1: bumped 20 -> 30 to absorb the EN-triplet acceptance suite
+    # (3 added pipeline runs @ ~60s each + DDG rate-limit reruns).
+    timeout-minutes: 30
     needs: static
     # Fork PRs cannot access secrets — skip the job entirely instead of failing on a missing key.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
