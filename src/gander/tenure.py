@@ -97,6 +97,64 @@ _PRESENT_TOKENS: Final[frozenset[str]] = frozenset(
 _YEAR_RE: Final = r"(?:19|20)\d{2}"
 _DASH: Final = r"[-–—]"
 
+# Heading aliases that mark the start of a work-experience section. We only
+# count tenure inside this section so education ranges (`2010 - 2014`),
+# personal-project dates, and hobby timelines don't inflate the override.
+# Stored accent-stripped + lowercased; matched against a normalised view.
+_WORK_SECTION_ALIASES: Final[frozenset[str]] = frozenset(
+    {
+        "work experience",
+        "experience",
+        "professional experience",
+        "employment",
+        "employment history",
+        "career",
+        "career history",
+        "pracovni zkusenosti",
+        "zkusenosti",
+        "praxe",
+        "zamestnani",
+    }
+)
+
+# Heading-like cues that end the work-experience section. Any line whose
+# stripped/normalised content starts with one of these is treated as the next
+# section's header — we slice up to its start.
+_NON_WORK_SECTION_ALIASES: Final[frozenset[str]] = frozenset(
+    {
+        "education",
+        "skills",
+        "projects",
+        "personal projects",
+        "publications",
+        "certifications",
+        "certificates",
+        "languages",
+        "hobbies",
+        "interests",
+        "awards",
+        "volunteer",
+        "volunteering",
+        "references",
+        "summary",
+        "profile",
+        "about",
+        "about me",
+        "objective",
+        "contact",
+        "vzdelani",
+        "dovednosti",
+        "projekty",
+        "jazyky",
+        "zajmy",
+        "konicky",
+        "certifikaty",
+        "publikace",
+        "ocenenia",
+        "reference",
+    }
+)
+
 # Build alternation patterns from the keyword sets, longest-first so we don't
 # accidentally match "jan" inside "january".
 _MONTH_ALT: Final = "|".join(sorted(_MONTHS.keys(), key=len, reverse=True))
@@ -171,9 +229,54 @@ def _iter_intervals(text: str) -> list[_Interval]:
         # Cap "to present" at today even if the model returns a future-ish year.
         if end_months > today_months:
             end_months = today_months
+        # The clamp can flip start past end for a range that's entirely in the
+        # future (e.g. "Jan 2027 - Dec 2028" when today is 2026-05): start stays
+        # at 2027-01 but end is pulled back to today, producing a negative
+        # interval. Drop the range entirely in that case.
+        if start_months > end_months:
+            continue
         # Make half-open: end is the month AFTER the last covered month.
         out.append(_Interval(start_months=start_months, end_months=end_months + 1))
     return out
+
+
+def _is_heading_line(stripped_norm: str, aliases: frozenset[str]) -> bool:
+    """True iff `stripped_norm` (already lowercased + accent-stripped) names a
+    section heading. Accepts trailing `:` and leading `#` markdown markers."""
+    candidate = stripped_norm.lstrip("#").strip().rstrip(":").strip()
+    return candidate in aliases
+
+
+def work_experience_slice(text: str) -> str | None:
+    """Return the substring of `text` covering the work-experience section.
+
+    Walks the lines looking for a heading line whose normalised form matches
+    `_WORK_SECTION_ALIASES`. The slice ends at the next heading-like line
+    (any of the `_NON_WORK_SECTION_ALIASES`) or at end-of-text. Returns
+    `None` when no work-experience heading is found — the caller should fall
+    back to scanning the full text in that case (preserves behaviour for
+    snippet-shaped inputs that have no section structure).
+    """
+    lines = text.split("\n")
+    start_idx: int | None = None
+    for i, line in enumerate(lines):
+        norm = _normalize(line).strip()
+        if not norm:
+            continue
+        if _is_heading_line(norm, _WORK_SECTION_ALIASES):
+            start_idx = i + 1
+            break
+    if start_idx is None:
+        return None
+    end_idx = len(lines)
+    for j in range(start_idx, len(lines)):
+        norm = _normalize(lines[j]).strip()
+        if not norm:
+            continue
+        if _is_heading_line(norm, _NON_WORK_SECTION_ALIASES):
+            end_idx = j
+            break
+    return "\n".join(lines[start_idx:end_idx])
 
 
 def _union_months(intervals: list[_Interval]) -> int:
@@ -197,10 +300,17 @@ def _union_months(intervals: list[_Interval]) -> int:
 def compute_years(text: str) -> int | None:
     """Return whole years of tenure spanned by date ranges in `text`.
 
+    Scans only the work-experience section when one is detected, so education
+    ranges, personal-project dates, and hobby timelines cannot inflate the
+    override. Falls back to the full text when no work-experience heading is
+    present (snippet-shaped inputs).
+
     Returns `None` when no parseable range is found. Overlapping intervals are
     unioned (not summed); gaps are skipped. Months are floored to whole years.
     """
-    intervals = _iter_intervals(text)
+    scoped = work_experience_slice(text)
+    haystack = scoped if scoped is not None else text
+    intervals = _iter_intervals(haystack)
     if not intervals:
         return None
     months = _union_months(intervals)

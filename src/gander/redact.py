@@ -337,7 +337,11 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
             if residue.lower() in _HEADER_DENYLIST:
                 continue
             words = residue.split()
-            if not (1 <= len(words) <= 4) or not all(_is_title_word(w) for w in words):
+            # Require >=2 tokens: a single title-case token in a marker-decorated
+            # line (e.g. "Praha | [EMAIL]") is almost always a city / contact
+            # word, not a real name. Matches the no-marker branch's guard so
+            # the scan continues past these and finds the actual name line.
+            if not (2 <= len(words) <= 4) or not all(_is_title_word(w) for w in words):
                 continue
             # Mask only the residue span inside the line; leave markers intact.
             idx = line.find(residue)

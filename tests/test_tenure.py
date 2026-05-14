@@ -106,3 +106,35 @@ def test_real_cv_snippet_with_prose() -> None:
     )
     # 2012-01 - 2015-09 (44 months) + 2015-10 - 2026-05 (128 months) = 172 months -> 14
     assert compute_years(text) == 14
+
+
+@pytest.mark.fast
+def test_education_section_excluded_from_tenure() -> None:
+    """Codex P1: tenure must scope to the work-experience section. An education
+    range (`2010 - 2014`) outside the work section MUST NOT contribute to the
+    override — otherwise senior-tier estimates get inflated by school years."""
+    text = (
+        "Work Experience\n"
+        "Engineer @ Acme. January 2020 - January 2023. Backend.\n"
+        "\n"
+        "Education\n"
+        "B.Sc. Computer Science, Charles University. 2010 - 2014.\n"
+        "M.Sc. Computer Science, Charles University. 2014 - 2016.\n"
+    )
+    # Work section alone: 2020-01 → 2023-01 = 3y. Education adds 6y if leaked.
+    assert compute_years(text) == 3
+
+
+@pytest.mark.fast
+def test_future_range_dropped_after_clamp() -> None:
+    """Copilot P2: a range entirely in the future (`Jan 2027 - Dec 2028`)
+    must NOT contribute negative months once `end_months` is clamped to today.
+    With today pinned at 2026-05, the clamp pulls end back to 2026-05 while
+    start stays at 2027-01 → start > end → drop the interval."""
+    text = (
+        "Work Experience\n"
+        "Engineer @ Acme. January 2020 - January 2023. Backend.\n"
+        "Future role. January 2027 - December 2028. Not started.\n"
+    )
+    # Only the 2020-2023 range counts; the future range is dropped, not subtracted.
+    assert compute_years(text) == 3

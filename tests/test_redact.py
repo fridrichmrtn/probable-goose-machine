@@ -457,6 +457,29 @@ def test_header_scan_capped_to_10_lines() -> None:
     assert "Jana Nováková" in result.text  # past the cap, untouched
 
 
+@pytest.mark.fast
+def test_marker_decorated_city_line_does_not_consume_name() -> None:
+    """Copilot P2: a marker-decorated header line carrying a single title-case
+    token (e.g. 'Praha | [EMAIL]', residue 'Praha') used to be accepted as a
+    name candidate, masking the city and stopping the scan before the real
+    name. The marker branch must reuse the no-marker branch's >=2-word guard
+    so single-token residues are skipped and the next line gets a chance.
+    """
+    cv = "Praha | jan.novotny@example.com\nJan Novák\nSenior Engineer\n"
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    # Praha (the residue) MUST survive — single title-case token is not a name.
+    assert "Praha" in result.text
+    # The real name on the next line MUST be redacted.
+    assert "Jan Novák" not in result.text
+    assert "[NAME]" in result.text
+    # Email on the first line still got redacted.
+    assert "[EMAIL]" in result.text
+    name_audits = [r for r in result.audit_log if r.kind == "name"]
+    assert len(name_audits) == 1
+    assert name_audits[0].original == "Jan Novák"
+
+
 _CORPUS_TXT_FIXTURES = sorted(_FIXTURE_DIR.glob("*.txt"))
 
 
