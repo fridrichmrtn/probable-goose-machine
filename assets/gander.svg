@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Gander logo: a goose with a monocle">
+  <title>Gander</title>
+  <!-- Head doubles as monocle frame -->
+  <circle cx="34" cy="22" r="11"/>
+  <!-- Beak -->
+  <path d="M45 19 L 58 22 L 45 26"/>
+  <!-- Neck S-curve -->
+  <path d="M28 32 C 22 38, 30 46, 22 52 C 18 55, 14 56, 11 57"/>
+  <!-- Eye -->
+  <circle cx="34" cy="22" r="1.4" fill="currentColor" stroke="none"/>
+  <!-- Monocle chain -->
+  <path d="M43 30 Q 45 35 41 38" stroke-dasharray="1.5 2"/>
+</svg>
