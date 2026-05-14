@@ -8,8 +8,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from gander.errors import StageFailure
-from gander.extract import extract_profile, load_prompt
-from gander.ingest import extract_text
+from gander.extract import MIN_CV_SCORE, _cv_composite_score, extract_profile, load_prompt
+from gander.ingest import LOW_EVIDENCE_MSG, extract_text
 from gander.llm import LLMClient
 from gander.obs import subscribe
 from gander.redact import redact
@@ -257,7 +257,14 @@ async def test_tenure_override_event_emitted(monkeypatch: pytest.MonkeyPatch) ->
 
     llm_profile = Profile(
         skills=[],
-        experience=[],
+        # One verified experience entry → composite=3, clears the T38
+        # low-evidence gate. Anchor matches the redacted text below.
+        experience=[
+            ProfileItem(
+                text="executive readout owner",
+                anchor=Anchor(quote=_UNIQUE_EXP_QUOTE, section=None),
+            ),
+        ],
         education=[],
         soft_signals=[],
         detected_role="Senior Engineer",
@@ -279,7 +286,7 @@ async def test_tenure_override_event_emitted(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
 
     redacted = RedactedCV(
-        text="Senior Engineer\n[YEAR] - Present\n",
+        text=f"Senior Engineer\n[YEAR] - Present\n{_UNIQUE_EXP_QUOTE}.\n",
         audit_log=[],
         years_experience_deterministic=10,  # L2 says 10
     )
@@ -310,7 +317,12 @@ async def test_tenure_override_silent_when_delta_below_threshold(
 
     llm_profile = Profile(
         skills=[],
-        experience=[],
+        experience=[
+            ProfileItem(
+                text="executive readout owner",
+                anchor=Anchor(quote=_UNIQUE_EXP_QUOTE, section=None),
+            ),
+        ],
         education=[],
         soft_signals=[],
         detected_role="Senior Engineer",
@@ -332,7 +344,7 @@ async def test_tenure_override_silent_when_delta_below_threshold(
     monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
 
     redacted = RedactedCV(
-        text="Senior Engineer\n",
+        text=f"Senior Engineer\n{_UNIQUE_EXP_QUOTE}.\n",
         audit_log=[],
         years_experience_deterministic=10,
     )
@@ -358,7 +370,12 @@ async def test_tenure_override_skipped_when_no_deterministic(
 
     llm_profile = Profile(
         skills=[],
-        experience=[],
+        experience=[
+            ProfileItem(
+                text="executive readout owner",
+                anchor=Anchor(quote=_UNIQUE_EXP_QUOTE, section=None),
+            ),
+        ],
         education=[],
         soft_signals=[],
         detected_role="Senior Engineer",
@@ -379,7 +396,10 @@ async def test_tenure_override_skipped_when_no_deterministic(
 
     monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
 
-    redacted = RedactedCV(text="Senior Engineer\n", audit_log=[])  # default None
+    redacted = RedactedCV(
+        text=f"Senior Engineer\n{_UNIQUE_EXP_QUOTE}.\n",
+        audit_log=[],
+    )  # default None
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -389,6 +409,185 @@ async def test_tenure_override_skipped_when_no_deterministic(
     assert result.detected_years_experience == 7  # LLM value preserved
     override = [e for e in events if e["event"] == "tenure_override"]
     assert not override
+
+
+# ---------- T38 low-evidence gate -------------------------------------------
+
+
+@pytest.mark.fast
+def test_cv_composite_score_weights() -> None:
+    """Composite weighs experience>education>skills=soft_signals; empty lists
+    score 0 and admit nothing. Threshold of 3 is the document-level guard
+    against fabricated salary on a sparse profile."""
+    item = ProfileItem(text="x", anchor=Anchor(quote="q"))
+    empty = {"skills": [], "experience": [], "education": [], "soft_signals": []}
+    assert _cv_composite_score(empty) == 0
+
+    one_skill = {**empty, "skills": [item]}
+    assert _cv_composite_score(one_skill) == 1  # below threshold
+
+    one_education = {**empty, "education": [item]}
+    assert _cv_composite_score(one_education) == 2  # below threshold
+
+    one_experience = {**empty, "experience": [item]}
+    assert _cv_composite_score(one_experience) == 3  # meets threshold
+
+    mixed = {"skills": [item], "experience": [], "education": [item], "soft_signals": [item]}
+    assert _cv_composite_score(mixed) == 4  # 1 + 0 + 2 + 1
+
+    assert MIN_CV_SCORE == 3
+
+
+@pytest.mark.fast
+async def test_low_evidence_gate_fires_on_empty_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the LLM returns an empty profile (all four lists empty), the
+    document-level gate returns StageFailure(LOW_EVIDENCE_MSG) and emits a
+    `low_evidence` event with the composite score and threshold so the
+    cascade in pipeline.py marks score/salary/confidence/growth failed."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    empty_profile = Profile(
+        skills=[],
+        experience=[],
+        education=[],
+        soft_signals=[],
+        detected_role="Random Role",
+        detected_location=None,
+        detected_years_experience=0,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return empty_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    redacted = RedactedCV(text="Once upon a time there was a goose.", audit_log=[])
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "profile"
+    assert result.user_message == LOW_EVIDENCE_MSG
+    assert result.debug_detail is not None
+    assert "composite=0" in result.debug_detail
+    assert "threshold=3" in result.debug_detail
+
+    low_evidence = [e for e in events if e["event"] == "low_evidence" and e["stage"] == "extract"]
+    assert len(low_evidence) == 1
+    assert low_evidence[0]["composite"] == 0
+    assert low_evidence[0]["threshold"] == MIN_CV_SCORE
+
+
+@pytest.mark.fast
+async def test_low_evidence_gate_fires_when_anchors_all_drop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM returns items but none anchor-verify → post-verification composite
+    is 0 → gate fires. This is the common path for a non-CV upload where the
+    LLM hallucinates plausible-looking entries that fail substring check."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    hallucinated = Profile(
+        skills=[
+            ProfileItem(
+                text="Python",
+                anchor=Anchor(quote="Built scalable Python pipelines for ETL workloads"),
+            ),
+        ],
+        experience=[
+            ProfileItem(
+                text="Senior Engineer at Acme",
+                anchor=Anchor(quote="Led the team to deliver quarterly product milestones"),
+            ),
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Senior Engineer",
+        detected_location=None,
+        detected_years_experience=5,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return hallucinated
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    # Source text contains none of the anchor quotes — all items will drop.
+    redacted = RedactedCV(text="This is not actually a CV at all, just prose.", audit_log=[])
+
+    result = await extract_profile(redacted)
+    assert isinstance(result, StageFailure)
+    assert result.user_message == LOW_EVIDENCE_MSG
+    assert result.debug_detail is not None
+    assert "composite=0" in result.debug_detail
+
+
+@pytest.mark.fast
+async def test_low_evidence_gate_passes_with_one_verified_experience(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One anchor-verified experience entry (weight=3) meets the threshold
+    exactly and the function returns a Profile, not a StageFailure."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    profile = Profile(
+        skills=[],
+        experience=[
+            ProfileItem(
+                text="experience owner",
+                anchor=Anchor(quote=_UNIQUE_EXP_QUOTE, section=None),
+            ),
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Junior Data Analyst",
+        detected_location="Prague",
+        detected_years_experience=1,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    redacted = RedactedCV(text=f"Experience\n{_UNIQUE_EXP_QUOTE}.\n", audit_log=[])
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert len(result.experience) == 1
+    low_evidence = [e for e in events if e["event"] == "low_evidence"]
+    assert not low_evidence
 
 
 _LIVE_FIXTURES = sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glob("*.docx")))
