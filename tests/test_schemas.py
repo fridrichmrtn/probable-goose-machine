@@ -124,15 +124,32 @@ def test_score_rejects_duplicate_component_names() -> None:
 
 
 @pytest.mark.fast
-def test_score_rejects_missing_component_categories() -> None:
+def test_score_rejects_missing_experience_component() -> None:
+    # T25: experience is the only mandatory category. The Score model accepts
+    # any subset of {skills, education, soft_signals} via `dropped`, but a
+    # score without `experience` has no anchor against the CV — reject at
+    # the schema layer so the partial-score path never produces this state.
     with pytest.raises(ValidationError):
         Score(
             components=[
                 _component("skills", 80),
-                _component("experience", 60),
+                _component("education", 40),
                 _component("soft_signals", 100),
             ]
         )
+
+
+@pytest.mark.fast
+def test_score_accepts_partial_components_with_dropped() -> None:
+    # T25: experience-only Score is valid when {skills, education, soft_signals}
+    # all dropped. Total reflects the surviving weighted contribution alone.
+    score = Score(
+        components=[_component("experience", 80)],
+        dropped=["skills", "education", "soft_signals"],
+    )
+    # 80 * 0.30 = 24.0 → int(24.0 + 0.5) = 24.
+    assert score.total == 24
+    assert score.dropped == ["skills", "education", "soft_signals"]
 
 
 @pytest.mark.fast

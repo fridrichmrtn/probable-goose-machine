@@ -126,10 +126,10 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
 
         required = set(COMPONENT_WEIGHTS.keys())
         missing = required - verified.keys()
-        if missing:
-            # Explicit failure event so observability sees the path that
-            # stage_boundary's exception handler does not — we return a
-            # StageFailure rather than raising, so the boundary never sees it.
+        if "experience" in missing:
+            # T25: experience is the only mandatory component. Losing it means
+            # the score has nothing to anchor against — fail closed. Other
+            # categories take the partial-score branch below.
             emit(
                 "score",
                 "stage_failure",
@@ -143,7 +143,22 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                 debug_detail=f"missing_categories={sorted(missing)} dropped={dropped}",
             )
 
-        score = Score(components=[verified[name] for name in COMPONENT_WEIGHTS])
+        # Partial-score path: experience verified, but ≥1 of {skills, education,
+        # soft_signals} dropped. Build Score over surviving components; the
+        # missing weights silently zero-contribute to `total` (drop-as-zero —
+        # see schemas.Score docstring). The renderer surfaces `dropped` in the
+        # footer so the reviewer can see what was zero-weighted.
+        score = Score(
+            components=[verified[name] for name in COMPONENT_WEIGHTS if name in verified],
+            dropped=sorted(missing),  # type: ignore[arg-type]
+        )
+        if missing:
+            emit(
+                "score",
+                "score_partial",
+                dropped=sorted(missing),
+                surviving=sorted(verified.keys()),
+            )
         emit("score", "score_total", total=score.total)
         return score
 

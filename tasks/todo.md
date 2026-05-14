@@ -41,7 +41,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## Post-ship hardening (Profile.pdf bilingual-senior regression — see plan; revised after multi-agent review 2026-05-14)
 - [ ] **T24** — Multilingual section vocabulary, R1 (`tasks/T24_section_vocab.md`)
-- [ ] **T25** — Score: experience-mandatory, drop-as-zero, R2 (`tasks/T25_score_partial.md`)
+- [x] **T25** — Score: experience-mandatory, drop-as-zero, R2 (`tasks/T25_score_partial.md`)
 - [ ] **T26** — verify_quote: section-fallback + per-stage cap, R3 (`tasks/T26_verify_fallback.md`)
 - [ ] **T27** — Role normalization (polarity-flipped + LLM fallback) + salary 3-shot, R4+R5 (`tasks/T27_role_normalize.md`) — *deps T28*
 - [ ] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`)
