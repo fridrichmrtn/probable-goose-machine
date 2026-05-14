@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
-from gander.obs import emit
+from gander.obs import emit, subscribe
 from gander.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
 from gander.verify import verify_quote
+
+# Per-stage cap on `verify_section_miss` events tolerated before declaring the
+# stage section-blind. Half-plus-one of the 4 components — a CV that loses
+# section restriction on >2 anchors has effectively no section vocabulary, and
+# PRD §4.5's section-restriction signal is gone. Fail closed rather than let
+# the whole-CV fallback silently carry every anchor (T26).
+_SECTION_MISS_CAP = 2
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "score.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -80,14 +88,22 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
 
         verified: dict[str, Component] = {}
         dropped = 0
-        for comp in raw.components:
-            if comp.name in verified:
-                dropped += 1
-                continue
-            if verify_quote(comp.anchor.quote, redacted.text, section=comp.anchor.section):
-                verified[comp.name] = comp
-            else:
-                dropped += 1
+        section_miss_count = 0
+
+        def _count_section_miss(record: dict[str, Any]) -> None:
+            nonlocal section_miss_count
+            if record.get("event") == "verify_section_miss":
+                section_miss_count += 1
+
+        with subscribe(_count_section_miss):
+            for comp in raw.components:
+                if comp.name in verified:
+                    dropped += 1
+                    continue
+                if verify_quote(comp.anchor.quote, redacted.text, section=comp.anchor.section):
+                    verified[comp.name] = comp
+                else:
+                    dropped += 1
 
         emit(
             "score",
@@ -96,6 +112,17 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
             verified=len(verified),
             dropped=dropped,
         )
+
+        if section_miss_count > _SECTION_MISS_CAP:
+            emit("score", "section_blind_fail", miss_count=section_miss_count)
+            return StageFailure(
+                stage="score",
+                user_message=(
+                    "Section anchors unavailable on this CV — could not verify "
+                    "scoring components against named sections."
+                ),
+                debug_detail=(f"section_miss_count={section_miss_count} cap={_SECTION_MISS_CAP}"),
+            )
 
         required = set(COMPONENT_WEIGHTS.keys())
         missing = required - verified.keys()

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unicodedata
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
+from gander.obs import subscribe
 from gander.schemas import Anchor
 from gander.verify import drop_unverified, verify_quote
 
@@ -20,6 +22,14 @@ Led migration from monolith to microservices across three quarters.
 
 ## Education
 Charles University, MFF UK, MSc in Computer Science, 2018.
+"""
+
+# CZ source for bilingual-CV regression coverage (T26 — § Pracovní zkušenosti).
+SOURCE_CZ = """## Pracovní zkušenosti
+Vedl tým šesti inženýrů na migraci platformy z monolitu na mikroslužby.
+
+## Dovednosti
+Python, PyTorch, asynchronní pipeliny, vektorové databáze.
 """
 
 # Same 6-word phrase appears twice → fails uniqueness rule for 6-word quotes.
@@ -47,6 +57,8 @@ def test_five_word_quote_rejected() -> None:
 
 
 def test_section_mismatch_returns_false() -> None:
+    # Section header IS present; quote lives in a DIFFERENT section.
+    # After T26: section-restricted on header hit, no whole-CV fallback.
     skills_quote = "python, pytorch, async pipelines, vector databases, distributed"
     assert verify_quote(skills_quote, SOURCE, section="experience") is False
 
@@ -56,9 +68,45 @@ def test_section_match_returns_true() -> None:
     assert verify_quote(quote, SOURCE, section="experience") is True
 
 
-def test_missing_section_returns_false() -> None:
+def test_verify_quote_section_match_cz() -> None:
+    # Bilingual CV: model anchors with the CZ section name. Header is present.
+    quote = "vedl tým šesti inženýrů na migraci"
+    assert verify_quote(quote, SOURCE_CZ, section="Pracovní zkušenosti") is True
+
+
+def test_verify_quote_section_miss_falls_back() -> None:
+    # Source has the quote in body but NO `## SectionName` header for the
+    # name the model picked → whole-CV substring fallback rescues the anchor.
     quote = "recommendation system that reduced churn by"
+    assert verify_quote(quote, SOURCE, section="references") is True
+
+
+def test_verify_quote_section_miss_quote_also_missing() -> None:
+    quote = "this exact phrase appears nowhere in the source corpus"
     assert verify_quote(quote, SOURCE, section="references") is False
+
+
+def test_verify_section_miss_event_emitted() -> None:
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        assert (
+            verify_quote(
+                "recommendation system that reduced churn by", SOURCE, section="references"
+            )
+            is True
+        )
+    miss = next(e for e in events if e["event"] == "verify_section_miss")
+    assert miss["section"] == "references"
+    assert miss["fallback"] == "whole_cv"
+    # Called outside any stage_boundary → current_stage default is None.
+    assert miss["stage"] is None
+
+
+def test_verify_section_miss_event_not_emitted_on_header_hit() -> None:
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        verify_quote("recommendation system that reduced churn by", SOURCE, section="experience")
+    assert not any(e["event"] == "verify_section_miss" for e in events)
 
 
 def test_punctuation_preserved_in_normalization() -> None:
