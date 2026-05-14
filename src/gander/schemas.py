@@ -126,12 +126,28 @@ class GrowthAction(BaseModel):
 
 class Score(BaseModel):
     components: list[Component]
+    # Components the model returned but verify_quote could not anchor to the CV.
+    # Renderer surfaces these in the footer so the reviewer can see which
+    # categories were silently zero-weighted (PRD §4.5 "drop, don't fabricate").
+    dropped: list[ComponentName] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _require_one_component_per_category(self) -> Score:
+    def _require_experience_component(self) -> Score:
+        # T25: experience is mandatory; {skills, education, soft_signals} may be
+        # dropped. Each surviving category may appear at most once. Dropped
+        # components contribute 0 to `total` (the weighted formula is unchanged —
+        # missing weights simply don't sum). Re-normalizing was rejected: it lets
+        # a senior who drops 3 components report total = experience.score_0_100,
+        # which can land above a junior with all 4 verified and break PRD §5.4
+        # differentiation. Drop-as-zero preserves cross-CV calibration.
         names = [c.name for c in self.components]
-        if set(names) != set(COMPONENT_WEIGHTS.keys()) or len(names) != len(COMPONENT_WEIGHTS):
-            raise ValueError(f"Score requires exactly one component per category; got {names}")
+        if len(names) != len(set(names)):
+            raise ValueError(f"Score components must be unique per category; got {names}")
+        unknown = set(names) - set(COMPONENT_WEIGHTS.keys())
+        if unknown:
+            raise ValueError(f"Score has unknown component names: {sorted(unknown)}")
+        if "experience" not in names:
+            raise ValueError("Score requires an `experience` component (T25: mandatory)")
         return self
 
     @computed_field  # type: ignore[prop-decorator]

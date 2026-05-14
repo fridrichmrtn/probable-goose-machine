@@ -1,7 +1,7 @@
 # T25 — Score: experience-mandatory + re-normalized total (R2)
 
-Status: todo
-Owner: ai-ml-engineer
+Status: done
+Owner: ai-ml-engineer (stream-b)
 Depends on: —
 Unblocks: T29, T30
 Estimate: ~45 min
@@ -49,4 +49,35 @@ uv run mypy src/
 
 ## Outcome
 
-(fill in when done — actual normalization formula, tests counts, any prompt-side change considered)
+Drop-as-zero shipped — no re-normalization. Final shape:
+
+- `schemas.Score._require_experience_component` accepts any subset of
+  `{skills, education, soft_signals}` provided `experience` is present.
+  `total` formula unchanged: `int(sum(c.score_0_100 * COMPONENT_WEIGHTS[c.name]) + 0.5)`.
+  Missing categories silently contribute 0 — surviving weights sum to <1.0,
+  so the depressed total is automatic.
+- `Score.dropped: list[ComponentName]` defaults to `[]`; populated by
+  `score_profile` when the partial branch fires.
+- `score.score_profile` branches on `experience in missing` for fail-closed
+  vs partial. Emits new `score_partial` event with `dropped=` and
+  `surviving=` payload when partial fires; existing `score_components` /
+  `score_total` events unchanged.
+- `report._score_section` renders only surviving component cells in the
+  HTML table and appends a one-line italic footer
+  `_Note: N component(s) dropped (Skills): no anchor verified against CV text._`
+  when `score.dropped` is non-empty. Footer wording matches the §Deliverables
+  spec verbatim.
+
+Test counts (all fast, all green): +7 score tests (1 retooled +
+`test_score_no_partial_when_all_verify`, +6 new partial tests), +1 schema
+test (`test_score_accepts_partial_components_with_dropped`), +1 retooled
+schema test (renamed `test_score_rejects_missing_experience_component`),
++1 render test (`test_render_body_partial_score_shows_dropped_footer`).
+Full fast suite: 262 passed.
+
+No prompt change. The prompt at `src/gander/prompts/score.md` continues to
+ask the model for 4 components; if it returns 4 but one anchor fails to
+verify, the partial path handles it cleanly. Whether the model could
+shortcut to 3 components on purpose is left to T29's bilingual eval —
+adding "you may return 3" to the prompt without that signal would invite
+the model to skip the harder categories.
