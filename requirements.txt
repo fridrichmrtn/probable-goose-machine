@@ -135,6 +135,8 @@ pydub==0.25.1
     # via gradio
 pygments==2.20.0
     # via rich
+pymupdf==1.27.2.3
+    # via gander
 pypdf==6.11.0
     # via gander
 pypdfium2==5.8.0

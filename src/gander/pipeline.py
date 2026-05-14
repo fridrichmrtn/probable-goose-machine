@@ -172,10 +172,10 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
         # short-circuits on profile=None).
         yield state.snapshot()
 
-        # === L1 ingest (sync) ===
+        # === L1 ingest (async) ===
         state.statuses["profile"] = "running"
         yield state.snapshot()
-        text_result = extract_text(file_bytes, filename)
+        text_result = await extract_text(file_bytes, filename)
         if isinstance(text_result, StageFailure):
             state.profile = StageFailure(
                 stage="profile",

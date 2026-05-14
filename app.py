@@ -110,6 +110,15 @@ button.primary:disabled,
     color: #fed7aa !important; opacity: 0.7;
   }
 }
+body.dark .gander-hero h1 { color: #f4f4f5; }
+body.dark .gander-hero p { color: #d4d4d8; }
+body.dark .gander-hero .mascot { color: #d4d4d8; }
+body.dark .gander-caption { color: #a1a1aa; }
+body.dark button.primary:disabled,
+body.dark .gradio-container button.primary:disabled {
+  background: #7c2d12 !important; border-color: #7c2d12 !important;
+  color: #fed7aa !important; opacity: 0.7;
+}
 </style>"""
 
 _HERO_HTML = """
@@ -137,8 +146,8 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         gr.HTML(_HERO_CSS + _HERO_HTML)
         file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
         gr.HTML(
-            '<p class="gander-caption">PDF or DOCX, max 10 MB. Text-based PDFs only — '
-            "scanned/image PDFs aren't supported. Not retained after processing.</p>"
+            '<p class="gander-caption">PDF or DOCX, max 10 MB. PDF page images and DOCX '
+            "text may be sent to MiniMax for extraction. Files are not retained by Gander.</p>"
         )
         run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])

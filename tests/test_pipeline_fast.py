@@ -101,7 +101,7 @@ def _redacted(text: str = "redacted cv text") -> RedactedCV:
 def _patch_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Wire every stage to return canned-success values via pipeline imports."""
 
-    def _ingest_ok(file_bytes: bytes, filename: str) -> str:
+    async def _ingest_ok(file_bytes: bytes, filename: str) -> str:
         return "raw text"
 
     def _redact_ok(text: str) -> RedactedCV:
@@ -214,7 +214,7 @@ async def test_ingest_failure_short_circuits_and_cascades(
 ) -> None:
     _patch_happy_path(monkeypatch)
 
-    def _ingest_fail(file_bytes: bytes, filename: str) -> StageFailure:
+    async def _ingest_fail(file_bytes: bytes, filename: str) -> StageFailure:
         return StageFailure(stage="ingest", user_message="Cannot read PDF")
 
     monkeypatch.setattr(pipeline, "extract_text", _ingest_fail)
