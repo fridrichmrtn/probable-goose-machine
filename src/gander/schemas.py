@@ -110,7 +110,12 @@ class SalaryEstimate(BaseModel):
     high: int
     currency: str
     period: Literal["month", "year"]
-    sources: list[Source]
+    # Non-empty: salary.py rejects any estimate whose sources don't intersect the
+    # DDG inputs, so an empty `sources` is already a stage failure downstream.
+    # Enforcing here lets `LLMClient.complete_json`'s ValidationError-retry loop
+    # recover the rare MiniMax sample that drops the field instead of bubbling
+    # all the way to `StageFailure(debug_detail='model_urls=[]')`.
+    sources: list[Source] = Field(min_length=1)
     reasoning: str
 
     @model_validator(mode="after")

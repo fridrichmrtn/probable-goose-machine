@@ -21,7 +21,8 @@ HARD RULES — read carefully, violations cause the whole stage to fail:
 2. Every `sources[i].snippet` MUST be a contiguous substring of the corresponding input snippet. Trim to the fragment that supports your range; do not paraphrase or splice.
 3. `low < high`, both integers, no thousand separators, no currency symbols inside the numbers.
 4. If fewer than 2 input results corroborate a range, emit your tightest defensible range and name the gap in `reasoning`. Do not fabricate. **Carve-out:** Rule 4 does NOT apply when `is_management=true` and the snippets are IC-only — in that case, extrapolate above the highest IC row and name the extrapolation in `reasoning` (e.g. "Snippets reflect IC pay (~150k); candidate is Head-level with 12y → estimating 220-280k based on typical management premium for CZ data leadership"). Without this carve-out, Rule 4 fights the senior lift.
-5. Never emit the candidate name, employer, or any PII in `reasoning` or `snippet`.
+5. `sources` MUST contain at least one entry from `results`. Even under the Rule 4 carve-out (extrapolating above IC snippets for a management candidate), cite the IC-top rows that anchored your extrapolation — an empty `sources` array fails the stage. If you can name a number, you can name the row it came from.
+6. Never emit the candidate name, employer, or any PII in `reasoning` or `snippet`.
 
 Seniority anchoring (CRITICAL — read before estimating):
 - Estimate at the candidate's stated `seniority` band, not the median of the surfaced sources. The snippets are evidence about the market, not a recipe for the answer.

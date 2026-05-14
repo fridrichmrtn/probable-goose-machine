@@ -406,6 +406,39 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
     return text
 
 
+def _redact_repeated_known_names(text: str, audit: list[Redaction]) -> str:
+    """Mask later exact repeats of names already identified in the header.
+
+    Multi-page PDFs often repeat the candidate name in footers. The header
+    detector intentionally finds only the first clean name candidate; this
+    pass uses that high-confidence literal to remove exact repeats without
+    guessing new names elsewhere in the document.
+
+    Caller must invoke this BEFORE `_NAME_LABEL` runs, so the audit at this
+    point only carries header-confirmed names. Even then, two guards stay in
+    place: require >=2 tokens (single-token names like "Name: May" would
+    otherwise broadcast across the document), and bracket the literal with
+    Unicode-aware word boundaries so "Jan" never corrupts "January"/"Django".
+    """
+    known_names: list[str] = []
+    for redaction in audit:
+        if redaction.kind != "name":
+            continue
+        original = redaction.original
+        if not original or len(original.split()) < 2:
+            continue
+        if original in known_names:
+            continue
+        known_names.append(original)
+    out = text
+    for name in known_names:
+        if name not in out:
+            continue
+        pattern = re.compile(rf"(?<!\w){re.escape(name)}(?!\w)")
+        out = _replace_with_audit(out, pattern, "name", "[NAME]", audit)
+    return out
+
+
 def redact(text: str) -> RedactedCV | StageFailure:
     """Redact PII from CV text and return the result alongside an audit log.
 
@@ -431,6 +464,9 @@ def redact(text: str) -> RedactedCV | StageFailure:
         out = _replace_postcode(out, audit)
         out = _replace_year(out, audit)
         out = _redact_header_name(out, audit)
+        # Repeats pass runs BEFORE the labelled `Name: X` pass — see docstring
+        # on `_redact_repeated_known_names` for why ordering matters.
+        out = _redact_repeated_known_names(out, audit)
         out = _replace_with_audit(out, _NAME_LABEL, "name", "[NAME]", audit)
 
         counts: dict[str, int] = {

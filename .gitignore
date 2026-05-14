@@ -4,12 +4,8 @@
 .claude/.cache/
 CLAUDE.local.md
 
-# Codex — project config committed; ignore per-user state
-.codex/auth.json
-.codex/cache/
-.codex/log/
-.codex/logs_*.sqlite*
-.codex/installation_id
+# Codex — local per-user state only; not tracked in git
+.codex/
 
 # Per-invocation worktrees
 .worktrees/

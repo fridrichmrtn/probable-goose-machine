@@ -205,6 +205,29 @@ def test_salary_estimate_rejects_inverted_range() -> None:
 
 
 @pytest.mark.fast
+def test_salary_estimate_rejects_empty_sources() -> None:
+    """An empty `sources` list must fail schema validation.
+
+    `salary.estimate_salary` would reject it downstream anyway (the
+    URL-in-inputs filter on line ~255 produces `StageFailure(... model_urls=[])`),
+    but enforcing the invariant at the schema layer lets
+    `LLMClient.complete_json`'s ValidationError-retry loop recover the rare
+    MiniMax sample that drops the field instead of bubbling the failure to
+    the user. See `tests/test_acceptance.py::test_salary_ranges_dont_overlap`
+    for the regression this guards against.
+    """
+    with pytest.raises(ValidationError):
+        SalaryEstimate(
+            low=80_000,
+            high=120_000,
+            currency="CZK",
+            period="month",
+            sources=[],
+            reasoning="market data",
+        )
+
+
+@pytest.mark.fast
 def test_salary_source_rejects_non_url() -> None:
     with pytest.raises(ValidationError):
         Source(url="not a url", snippet="...", domain="example.com")
