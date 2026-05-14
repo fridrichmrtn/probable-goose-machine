@@ -4,6 +4,8 @@ import re
 import unicodedata
 from typing import TypeVar
 
+from gander import obs
+
 T = TypeVar("T")
 
 _WS = re.compile(r"\s+")
@@ -38,13 +40,27 @@ def verify_quote(quote: str, source: str, *, section: str | None = None) -> bool
       - <6 words → False.
       - 6–7 words → must appear exactly once.
       - >=8 words → must appear at least once.
-      - if section given, search is restricted to text under `## <section>`.
+      - if section given, search is restricted to the body under any H1–H6
+        header whose text matches `<section>` (NFC, case-insensitive).
+      - if section given but no matching header exists, fall back to whole-source
+        match and emit `verify_section_miss` (T26 — bilingual CVs lose every
+        anchor when section vocab misaligns; the 6/8-word literal floor still
+        defends §4.5). The emit is attributed to the active stage_boundary
+        (`obs.current_stage`), or `None` when called outside one — verify is a
+        utility, not a stage.
     """
     if section is not None:
         sub = _section_text(source, section)
         if sub is None:
-            return False
-        haystack = sub
+            obs.emit(
+                obs.current_stage.get(),
+                "verify_section_miss",
+                section=section,
+                fallback="whole_cv",
+            )
+            haystack = source
+        else:
+            haystack = sub
     else:
         haystack = source
 
