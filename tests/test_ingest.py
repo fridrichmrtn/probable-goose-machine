@@ -223,6 +223,22 @@ def test_section_vocabulary_en_extended(en_header: str) -> None:
 
 
 @pytest.mark.fast
+def test_long_all_caps_czech_header_is_promoted() -> None:
+    """Regression: a long all-caps Czech header (> 40 chars, with diacritics)
+    must still be recognised as a section header.
+
+    Before this fix the `_MAX_HEADER_CHARS=40` gate ran first and the ASCII-only
+    all-caps regex rejected diacritic uppercase letters — both combined hid
+    real Czech CV headers like the one below from the section annotator,
+    shifting section boundaries and breaking downstream anchor verification.
+    """
+    header = "PRACOVNÍ ZKUŠENOSTI A PROFESNÍ KARIÉRA V BANCE"
+    assert len(header) > 40
+    out = _annotate_sections(f"{header}\nVedl tým 4 datových vědců.\n")
+    assert f"## {header}" in out, f"long all-caps CZ header should be promoted: {out!r}"
+
+
+@pytest.mark.fast
 def test_inline_languages_not_promoted() -> None:
     """A paragraph sentence that mentions 'languages' is not a section header."""
     sentence = "He learned several languages including French and German."
