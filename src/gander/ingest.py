@@ -272,7 +272,7 @@ async def _extract_docx(file_bytes: bytes) -> str:
             source_overlap=_source_overlap(deterministic, candidate),
         )
         return candidate
-    except (httpx.HTTPError, RuntimeError, TimeoutError, ValueError, _IngestLLMReject) as exc:
+    except Exception as exc:
         reason = exc.reason if isinstance(exc, _IngestLLMReject) else "api_error"
         obs.emit(
             "ingest",

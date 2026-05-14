@@ -147,7 +147,8 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
         gr.HTML(
             '<p class="gander-caption">PDF or DOCX, max 10 MB. PDF page images and DOCX '
-            "text may be sent to MiniMax for extraction. Files are not retained by Gander.</p>"
+            "text may be sent to the configured LLM provider (MiniMax by default) for "
+            "extraction. Files are not retained by Gander.</p>"
         )
         run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])

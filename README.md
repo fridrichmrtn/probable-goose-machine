@@ -21,8 +21,10 @@ Bootstrap stub — full README lands in T23. See `tasks/PLAN.md` and `tasks/T23_
 ## Ingest Privacy Note
 
 By default, Gander uses LLM-based extraction. PDF pages are rendered to images
-and DOCX source text may be sent to MiniMax for transcription/normalization.
-Uploaded files are not retained by Gander after processing.
+and DOCX source text may be sent to the configured LLM provider for
+transcription/normalization (MiniMax by default; Anthropic when
+`GANDER_LLM_PROVIDER=anthropic`). Uploaded files are not retained by Gander
+after processing.
 
 Set `GANDER_INGEST_MODE=text` to use deterministic local PDF/DOCX text
 extraction only.

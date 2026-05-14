@@ -303,6 +303,39 @@ async def test_docx_text_llm_low_overlap_falls_back_to_deterministic_text(
 
 
 @pytest.mark.fast
+async def test_docx_text_llm_provider_error_falls_back_to_deterministic_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    source = [
+        "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards.",
+        "Experience Owned fraud model lifecycle for synthetic finance platform.",
+        "Education CVUT FIT Prague MSc Informatics 2021.",
+    ]
+
+    class ProviderError(Exception):
+        pass
+
+    async def _provider_error(self: LLMClient, **_kwargs: object) -> str:
+        raise ProviderError("synthetic provider outage")
+
+    monkeypatch.setattr(LLMClient, "complete_text", _provider_error)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_text(_docx_bytes(source), "cv.docx")
+
+    assert isinstance(result, str)
+    assert "Owned fraud model lifecycle for synthetic finance platform" in result
+    fallback = [e for e in events if e["event"] == "ingest_llm_fallback"]
+    assert fallback
+    assert fallback[0]["file_type"] == "docx"
+    assert fallback[0]["reason"] == "api_error"
+    assert fallback[0]["exc_type"] == "ProviderError"
+
+
+@pytest.mark.fast
 async def test_docx_fixture_vision_mode_preserves_role_and_sections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
