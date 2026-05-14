@@ -277,3 +277,28 @@ Report: tasks/T19_dev-report.md (in dev/T19-judge-tests)
 - [ai-ml-engineer] tests/test_confidence_judge.py:21,27,33 — `# type: ignore[arg-type]` for `HttpUrl` strings repeats; a `_src(url, snippet, domain)` factory would remove the noise. Acceptable in a 6-test file.
 - [hiring-manager] tests/test_confidence_judge.py:138 — add an inline note that the `insufficient|disagree` regex mirrors `_RATIONALE_LOW_REGEX` in the SUT, so the check is a protocol guard, not an LLM-behavior probe.
 - [ai-ml-engineer] tests/test_confidence_judge.py:35-43 — single-source test uses a snippet identical to one of the three-agreeing snippets; vary the body so "single source" is the dominant signal if Step A rubric drifts toward content scoring.
+
+## ui-polish-pass-2 — 2026-05-14T09:46Z
+Report: tasks/dev-report.md (in dev/ui-polish-pass-2)
+
+### Should-fix
+- [ux-engineer] src/gander/report.py (dark-mode `.pill.running`) — `#fbbf24` hue reads as warning/caution rather than progress; consider amber that's clearly distinct from `.pill.failed` semantics, or a non-yellow accent (e.g., `#60a5fa` blue) for "in flight".
+- [ux-engineer] src/gander/report.py — score-table CSS scoped via `.gander-output table` is broad; prefer `.gander-output table.gander-components` (or a similar dedicated class on the rendered table) so future markdown tables inside the same wrapper don't inherit the centered/bordered treatment.
+- [ux-engineer] app.py — `visible=False` → `visible=True` on first yield may regress the aria-live "Profile running" announcement on the very first transition because the live region is mounted on the same tick. Verify with VoiceOver / NVDA, or pre-mount the wrapper invisibly via `visible="hidden"` instead of `False`.
+- [product-owner] app.py — `handle()` lacks a try/finally envelope around the `async for report in pipeline_run(...)` loop. An unexpected exception escapes as a stack trace into Gradio's toast (violating PRD §4.6 "useful messages, not stack traces"); wrap and yield the §4.6 callout on `except Exception`.
+- [product-owner] app.py:1-13 — module docstring still says "the `gr.Markdown` body is initialised empty — never with `render_body(_initial_report())`". After this pass the body is initialised `visible=False`, so the comment is partially stale; refresh to describe the visibility-toggle pattern.
+- [hiring-manager] app.py `_HERO_CSS` — `button.primary, .gradio-container button.primary` doubles selectors AND uses `!important`. Pick one: either drop the container-prefixed selector (the `!important` already wins) or drop `!important` (and rely on the higher-specificity selector). Current state is cargo-cult specificity.
+- [hiring-manager] app.py `_HERO_CSS` — `button.primary:focus-visible { outline: 2px solid #1d4ed8 }` uses a cool blue against a warm `#92400e` button; visually jarring. Derive the focus ring from the brand (a darker amber or neutral `currentColor`) for cohesion.
+- [hiring-manager] app.py `_HERO_CSS` (dark-mode block) — dark-mode disabled button uses `#7c2d12`, which is the same color as the light-mode primary `:hover`. Two semantically different states sharing a color is a tell. Pick a distinct dark-mode disabled tone (e.g., `#a3490d` at lower opacity).
+- [qa-engineer] tests/ — no unit test exercises the `handle()` async iterator's yield shape (visibility flags + value contents). A regression where a yield forgets `visible=True` ships without a failing test. Add an async test using `gr.update`-aware assertions.
+- [qa-engineer] tests/ — no contract test pins the PRD §4.6 user-visible error strings ("Unable to read this file. Please upload a valid PDF or DOCX."). String drift in `app.py` ships without a failing test. Add a string-equality assertion.
+- [qa-engineer] tests/ — no test detects a forgotten `visible=True` on a streaming yield. Could be covered by the same async-iterator test above.
+- [codex] app.py — `AsyncIterator[tuple[dict[str, Any], dict[str, Any]]]` typing is more specific than Gradio's actual `gr.update` return contract. Either weaken to `tuple[Any, Any]` or import the precise `gr.events` update type if exported.
+
+### Nits
+- [ux-engineer] app.py `_HERO_CSS` — the `@keyframes ganderPulse` block is duplicated logic with `prefers-reduced-motion` override; consider a CSS custom property `--pulse-duration` set to `0s` in the reduced-motion block instead of `animation: none`.
+- [product-owner] app.py — caption uses a single em-dash inside a sentence that already has two clauses separated by a period; reads slightly heavy. Could split: "Text-based PDFs only. Scanned/image PDFs aren't supported."
+- [hiring-manager] app.py — `_HERO_CSS + _HERO_HTML` string concatenation at the `gr.HTML(...)` call site is unusual; either keep as-is with a comment or merge into one template literal.
+- [hiring-manager] src/gander/report.py — `_CSS` is now ~75 lines inside a single Python string; moving to a sibling `.css` file (read at import) would improve syntax highlighting and lint coverage, but the import-time `read_text()` adds an FS dependency. Defer.
+- [qa-engineer] tasks/dev-plan.md — verification block lists six gates but doesn't enumerate the observable browser checks (no orange bar, no dead gap, button states); the manual-check artifact is missing from the dev-report.
+- [codex] app.py — `_read_error_report()` rebuilds the full `Report` shape per error branch; a tiny `_make_failed_initial(message)` factory would shorten the two error-branch yields by ~5 lines each.
