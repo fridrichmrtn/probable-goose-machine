@@ -35,6 +35,15 @@ T00 ──┬── T01 ── T02 ──┬── T05 (spike, gates stage tasks
                                                   └────────────────┬───────────────────┤
                                                                    ▼                   ▼
                                                                 T21 (eval_corpus)  T23 (README)
+
+# Post-ship hardening (bilingual-senior regression on Profile.pdf)
+
+T24 (section vocab) ─┐
+T25 (score partial) ─┤
+T26 (verify fallback)┤
+T27 (role normalize) ┴── T29 (CZ senior fixture) ── T30 (§5.4 CI gate, closes T17)
+T28 (redact + tenure)
+T31 (multimodal spike) — parallel, no merge
 ```
 
 ## Task list
@@ -65,5 +74,13 @@ T00 ──┬── T01 ── T02 ──┬── T05 (spike, gates stage tasks
 | T21 | scripts/eval_corpus.py — 10-CV live runner | T15, T06 | software-engineer | 45 min |
 | T22 | L9 HF Space + secrets wiring | T16 | software-engineer | 45 min |
 | T23 | L9 README incl. Decisions section | T17–T22 | (owner) | 90 min |
+| T24 | Multilingual section vocabulary (R1) | — | software-engineer | 45 min |
+| T25 | Score: experience-mandatory + re-normalized total (R2) | — | ai-ml-engineer | 45 min |
+| T26 | verify_quote: section-fallback + telemetry (R3) | — | software-engineer | 30 min |
+| T27 | Role normalization + salary integration (R4+R5) | — | ai-ml-engineer | 75 min |
+| T28 | Redact: tagline-headline name fix + deterministic tenure (R6+R7) | — | software-engineer | 45 min |
+| T29 | Acceptance eval: bilingual CZ senior fixture #11 | T24, T25, T26, T27 | ai-ml-engineer | 2h |
+| T30 | §5.4 differentiation eval wired into CI (closes T17) | T29 | ai-ml-engineer | 60 min |
+| T31 | SPIKE: multimodal vision ingest as L1+L2 alternative | — | ai-ml-engineer | 1–2 sessions |
 
-**Total estimate**: ~14h across all tasks. Parallelizable phases (T07–T13, T17–T20) can compress wall time substantially.
+**Total estimate**: ~14h for T00–T23; +~6h for T24–T30 hardening; T31 is a parallel spike. T24–T28 are independent and parallelizable; T29 fans them in; T30 closes T17.

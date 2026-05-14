@@ -13,24 +13,24 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T05** — MiniMax capability spike (`tasks/T05_spike.md`) — *gates T07–T13*
 
 ## Stage workers (parallel after T05)
-- [ ] **T07** — L1 ingestion (`tasks/T07_ingest.md`)
-- [ ] **T08** — L2 PII redaction (`tasks/T08_redact.md`)
-- [ ] **T09** — L3 profile extraction (`tasks/T09_extract.md`)
-- [ ] **T10** — L4a scorer (`tasks/T10_score.md`)
-- [ ] **T11** — L4b salary (CZ-localized) (`tasks/T11_salary.md`)
-- [ ] **T12** — L4c confidence judge (`tasks/T12_confidence.md`)
-- [ ] **T13** — L5 growth plan (`tasks/T13_growth.md`)
+- [x] **T07** — L1 ingestion (`tasks/T07_ingest.md`)
+- [x] **T08** — L2 PII redaction (`tasks/T08_redact.md`)
+- [x] **T09** — L3 profile extraction (`tasks/T09_extract.md`)
+- [x] **T10** — L4a scorer (`tasks/T10_score.md`)
+- [x] **T11** — L4b salary (CZ-localized) (`tasks/T11_salary.md`)
+- [x] **T12** — L4c confidence judge (`tasks/T12_confidence.md`)
+- [x] **T13** — L5 growth plan (`tasks/T13_growth.md`)
 
 ## Corpus + integration
-- [ ] **T06** — CV corpus part 2: remaining 8 (`tasks/T06_cvs_part2.md`) — *parallel with stage workers*
-- [ ] **T14** — Report renderer (`tasks/T14_render.md`) — *parallel after T01*
-- [ ] **T15** — Pipeline orchestrator (`tasks/T15_pipeline.md`)
+- [x] **T06** — CV corpus part 2: remaining 8 (`tasks/T06_cvs_part2.md`) — *parallel with stage workers*
+- [x] **T14** — Report renderer (`tasks/T14_render.md`) — *parallel after T01*
+- [x] **T15** — Pipeline orchestrator (`tasks/T15_pipeline.md`)
 
 ## UI + tests
-- [ ] **T16** — Gradio UI (`tasks/T16_ui.md`)
+- [x] **T16** — Gradio UI (`tasks/T16_ui.md`)
 - [ ] **T17** — Acceptance tests (`tasks/T17_acceptance.md`)
 - [ ] **T18** — Failure tests (`tasks/T18_failures.md`)
-- [ ] **T19** — Confidence-judge tests (`tasks/T19_judge_tests.md`)
+- [x] **T19** — Confidence-judge tests (`tasks/T19_judge_tests.md`)
 - [ ] **T20** — Bias smoke test (`tasks/T20_bias.md`)
 - [ ] **T21** — `scripts/eval_corpus.py` (`tasks/T21_eval_corpus.md`)
 - [ ] **QA01** — QA audit of plan + task testability (stub at `tasks/qa_audit.md`; re-run via real `qa-engineer` after merge)
@@ -38,3 +38,13 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 ## Ship
 - [x] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
 - [ ] **T23** — README finalize (`tasks/T23_readme.md`)
+
+## Post-ship hardening (Profile.pdf bilingual-senior regression — see plan)
+- [ ] **T24** — Multilingual section vocabulary, R1 (`tasks/T24_section_vocab.md`)
+- [ ] **T25** — Score: experience-mandatory + re-normalized total, R2 (`tasks/T25_score_partial.md`)
+- [ ] **T26** — verify_quote: section-fallback + telemetry, R3 (`tasks/T26_verify_fallback.md`)
+- [ ] **T27** — Role normalization + salary integration, R4+R5 (`tasks/T27_role_normalize.md`)
+- [ ] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`)
+- [ ] **T29** — Acceptance eval: bilingual senior fixture #11 + assertions (`tasks/T29_cz_senior_fixture.md`) — *deps T24, T25, T26, T27*
+- [ ] **T30** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *deps T29*
+- [ ] **T31** — SPIKE: multimodal vision ingest as L1+L2 alternative (`tasks/T31_multimodal_spike.md`) — *parallel; spike-only, no production code*

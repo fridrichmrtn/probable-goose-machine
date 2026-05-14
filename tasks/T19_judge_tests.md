@@ -1,6 +1,6 @@
 # T19 — L8 confidence-judge tests
 
-Status: todo
+Status: done
 Owner: ai-ml-engineer
 Depends on: T12
 Unblocks: —
