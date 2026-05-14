@@ -82,6 +82,14 @@ class Profile(BaseModel):
     detected_role: str
     detected_location: str | None
     detected_years_experience: int = Field(ge=0, le=70)
+    # Populated post-LLM by gander.normalize.normalize_role (R4/R5 in T27).
+    # When set, salary.build_queries + estimate_salary use these in place of
+    # the raw `detected_role`, so non-market headlines (Member of Staff,
+    # Data Gardener, …) don't drive DDG and the LLM salary estimator anchors
+    # at the candidate's actual seniority band.
+    canonical_role: str | None = None
+    seniority_band: str | None = None
+    is_management: bool = False
 
 
 class Source(BaseModel):
