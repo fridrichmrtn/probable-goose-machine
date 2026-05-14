@@ -1,6 +1,6 @@
 # T38 — Low-evidence profile gate (non-CV uploads cascade gracefully)
 
-Status: doing
+Status: done
 Owner: software-engineer
 Depends on: —
 Unblocks: —
@@ -63,4 +63,8 @@ Manual end-to-end (post-merge):
 
 ## Outcome
 
-(populated on completion)
+Implemented in PR #22. `extract_profile` now computes a post-verification,
+distinct-anchor composite evidence score and returns `LOW_EVIDENCE_MSG` before
+downstream stages run when too little CV structure survived. Fast tests cover
+empty profiles, hallucinated anchors that all drop, duplicate evidence, and the
+pipeline cascade path; CI static/live passed on the PR.

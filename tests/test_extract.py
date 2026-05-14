@@ -419,23 +419,55 @@ def test_cv_composite_score_weights() -> None:
     """Composite weighs experience>education>skills=soft_signals; empty lists
     score 0 and admit nothing. Threshold of 3 is the document-level guard
     against fabricated salary on a sparse profile."""
-    item = ProfileItem(text="x", anchor=Anchor(quote="q"))
+    skill = ProfileItem(text="skill", anchor=Anchor(quote="skill evidence quote"))
+    experience = ProfileItem(text="experience", anchor=Anchor(quote="experience evidence quote"))
+    education = ProfileItem(text="education", anchor=Anchor(quote="education evidence quote"))
+    soft_signal = ProfileItem(text="soft", anchor=Anchor(quote="soft evidence quote"))
     empty = {"skills": [], "experience": [], "education": [], "soft_signals": []}
     assert _cv_composite_score(empty) == 0
 
-    one_skill = {**empty, "skills": [item]}
+    one_skill = {**empty, "skills": [skill]}
     assert _cv_composite_score(one_skill) == 1  # below threshold
 
-    one_education = {**empty, "education": [item]}
+    one_education = {**empty, "education": [education]}
     assert _cv_composite_score(one_education) == 2  # below threshold
 
-    one_experience = {**empty, "experience": [item]}
+    one_experience = {**empty, "experience": [experience]}
     assert _cv_composite_score(one_experience) == 3  # meets threshold
 
-    mixed = {"skills": [item], "experience": [], "education": [item], "soft_signals": [item]}
+    mixed = {
+        "skills": [skill],
+        "experience": [],
+        "education": [education],
+        "soft_signals": [soft_signal],
+    }
     assert _cv_composite_score(mixed) == 4  # 1 + 0 + 2 + 1
 
     assert MIN_CV_SCORE == 3
+
+
+@pytest.mark.fast
+def test_cv_composite_score_counts_duplicate_evidence_once() -> None:
+    duplicate_skill = ProfileItem(text="skill", anchor=Anchor(quote="same evidence quote"))
+    duplicate_skill_case = ProfileItem(
+        text="skill again",
+        anchor=Anchor(quote="Same  evidence quote"),
+    )
+    duplicate_experience = ProfileItem(
+        text="experience",
+        anchor=Anchor(quote="same evidence quote"),
+    )
+    empty = {"skills": [], "experience": [], "education": [], "soft_signals": []}
+
+    repeated_skills = {**empty, "skills": [duplicate_skill, duplicate_skill_case, duplicate_skill]}
+    assert _cv_composite_score(repeated_skills) == 1
+
+    repeated_across_fields = {
+        **empty,
+        "skills": [duplicate_skill],
+        "experience": [duplicate_experience],
+    }
+    assert _cv_composite_score(repeated_across_fields) == 3
 
 
 @pytest.mark.fast

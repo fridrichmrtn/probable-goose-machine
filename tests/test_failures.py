@@ -102,6 +102,14 @@ async def _collect(it: Any) -> list[Report]:
     return [r async for r in it]
 
 
+def _read_cv_fixture_bytes(name: str) -> bytes:
+    fixture = Path(__file__).resolve().parent / "fixtures" / "cvs" / name
+    file_bytes = fixture.read_bytes()
+    if file_bytes.startswith(b"version https://git-lfs.github.com/"):
+        pytest.fail(f"{fixture.name} is an unresolved LFS pointer. Run `git lfs pull`.")
+    return file_bytes
+
+
 def _patch_non_salary_stages(monkeypatch: pytest.MonkeyPatch) -> None:
     """Patch every stage worker EXCEPT estimate_salary, so the real salary
     module — including its DDGS seam — runs end-to-end while the rest of the
@@ -287,9 +295,9 @@ async def test_extract_validation_error_cascades_to_every_downstream_stage(
     monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     # Use a real CV docx so ingest succeeds and we actually reach extract.
-    fixture = Path(__file__).resolve().parent / "fixtures" / "cvs" / "01_junior_da_novotny.docx"
-    file_bytes = fixture.read_bytes()
-    reports = await _collect(pipeline.run(file_bytes, fixture.name))
+    fixture_name = "01_junior_da_novotny.docx"
+    file_bytes = _read_cv_fixture_bytes(fixture_name)
+    reports = await _collect(pipeline.run(file_bytes, fixture_name))
     final = reports[-1]
 
     assert isinstance(final.profile, StageFailure)
@@ -346,9 +354,9 @@ async def test_low_evidence_profile_cascades_to_every_downstream_stage(
 
     # Real docx so ingest+redact actually run; the anchors above won't appear
     # in the redacted text, so drop_unverified strips every item.
-    fixture = Path(__file__).resolve().parent / "fixtures" / "cvs" / "01_junior_da_novotny.docx"
-    file_bytes = fixture.read_bytes()
-    reports = await _collect(pipeline.run(file_bytes, fixture.name))
+    fixture_name = "01_junior_da_novotny.docx"
+    file_bytes = _read_cv_fixture_bytes(fixture_name)
+    reports = await _collect(pipeline.run(file_bytes, fixture_name))
     final = reports[-1]
 
     assert isinstance(final.profile, StageFailure)

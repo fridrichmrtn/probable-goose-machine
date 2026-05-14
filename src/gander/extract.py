@@ -8,6 +8,7 @@ anchor does not survive `verify_quote` (PRD §4.6 hallucination guard).
 from __future__ import annotations
 
 import time
+import unicodedata
 from pathlib import Path
 
 from gander import obs
@@ -37,8 +38,19 @@ MIN_CV_SCORE = 3
 
 
 def _cv_composite_score(kept_lists: dict[str, list[ProfileItem]]) -> int:
-    """Sum of weighted counts across post-verification list fields."""
-    return sum(_CV_EVIDENCE_WEIGHTS[field] * len(kept_lists[field]) for field in _LIST_FIELDS)
+    """Sum of best weights for distinct post-verification evidence anchors."""
+    evidence_weights: dict[str, int] = {}
+    for field in _LIST_FIELDS:
+        field_weight = _CV_EVIDENCE_WEIGHTS[field]
+        for item in kept_lists[field]:
+            key = _evidence_key(item.anchor.quote)
+            evidence_weights[key] = max(field_weight, evidence_weights.get(key, 0))
+    return sum(evidence_weights.values())
+
+
+def _evidence_key(quote: str) -> str:
+    """Normalize an anchor quote so duplicate evidence counts once."""
+    return " ".join(unicodedata.normalize("NFC", quote).casefold().split())
 
 
 def load_prompt(name: str) -> str:
