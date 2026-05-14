@@ -34,7 +34,7 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check .
 
-      - name: Mypy (strict, src/jobfit)
+      - name: Mypy (strict, src/gander)
         run: uv run mypy src/
 
       - name: Pytest (fast)
@@ -68,7 +68,7 @@ jobs:
       - name: Pytest (live)
         env:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
-          JOBFIT_MODEL_PROFILE: ci
+          GANDER_MODEL_PROFILE: ci
         # --reruns 1 absorbs MiniMax sampling variance at the anchor-survival gate
         # (verified-quote ratio sits near the 80% floor; one retry drops the
         # cross-fixture flake rate from ~50% to ~10%). Applies to live only —
