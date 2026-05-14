@@ -199,14 +199,20 @@ def _iter_anchored(
 
 
 def test_all_claims_substring_verified(triplet: _TripletRun) -> None:
-    """Every anchor quote on every report must survive `verify_quote` against the source CV."""
+    """Every anchor quote on every report must survive `verify_quote` against the
+    *redacted* CV text — the same source the pipeline's extract/score/growth stages
+    pre-verified against. Verifying against `raw_cv_text` instead would spuriously
+    fail quotes that legitimately contain redaction markers like `[YEAR]`, `[NAME]`,
+    or `[URL]`.
+    """
     failures: list[str] = []
     for fname in TRIPLET:
         report = triplet.reports[fname]
         profile = _require_profile(report, fname)
         score = _require_score(report, fname)
         growth = _require_growth(report, fname)
-        source = report.raw_cv_text
+        source = report.redacted_cv_text
+        assert source, f"{fname}: redacted_cv_text empty — pipeline did not run L2 redact"
         for origin, quote, section in _iter_anchored(profile, score, growth):
             if not verify_quote(quote, source, section=section):
                 failures.append(
