@@ -268,6 +268,180 @@ async def test_senior_fixture_scores_above_70() -> None:
     assert result.total > 70, f"senior fixture scored {result.total}, expected >70"
 
 
+@pytest.mark.fast
+async def test_score_section_blind_fail_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # CV body has all 4 anchorable phrases but NO `## SectionName` headers.
+    # Each component anchor is section-tagged → every verify_quote call hits
+    # the whole-CV fallback. 4 misses > cap of 2 → stage fails closed with
+    # section_blind_fail rather than silently letting fallback carry it.
+    cv_text = (
+        "Built a recommendation system that reduced churn by eighteen percent.\n"
+        "Mentored four junior engineers across two squads in the platform team.\n"
+        "Holds a masters degree in computer science from a top university.\n"
+        "Python, PyTorch, async pipelines, vector databases, distributed systems work.\n"
+    )
+    redacted = RedactedCV(text=cv_text, audit_log=[])
+    item = ProfileItem(text="x", anchor=Anchor(quote="recommendation system that reduced churn by"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="engineer",
+        detected_location=None,
+        detected_years_experience=5,
+    )
+
+    payload = _ComponentList(
+        components=[
+            Component(
+                name="skills",
+                score_0_100=70,
+                justification=".",
+                anchor=Anchor(
+                    quote="python, pytorch, async pipelines, vector databases",
+                    section="Skills",
+                ),
+            ),
+            Component(
+                name="experience",
+                score_0_100=65,
+                justification=".",
+                anchor=Anchor(
+                    quote="recommendation system that reduced churn by",
+                    section="Work Experience",
+                ),
+            ),
+            Component(
+                name="education",
+                score_0_100=55,
+                justification=".",
+                anchor=Anchor(
+                    quote="masters degree in computer science from",
+                    section="Education",
+                ),
+            ),
+            Component(
+                name="soft_signals",
+                score_0_100=60,
+                justification=".",
+                anchor=Anchor(
+                    quote="mentored four junior engineers across two squads",
+                    section="Work Experience",
+                ),
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(redacted, profile)
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "score"
+    assert "section anchors unavailable" in result.user_message.lower()
+
+    blind_evt = next(e for e in events if e["event"] == "section_blind_fail")
+    assert blind_evt["stage"] == "score"
+    assert blind_evt["miss_count"] == 4
+
+    miss_events = [e for e in events if e["event"] == "verify_section_miss"]
+    assert len(miss_events) == 4
+
+
+@pytest.mark.fast
+async def test_score_section_miss_under_cap_does_not_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Two of four anchors miss their section header. 2 ≤ cap=2 → stage still
+    # completes; the fallback rescues the anchors and verified components ship.
+    cv_text = (
+        "## Skills\n"
+        "Python, PyTorch, async pipelines, vector databases, distributed systems work.\n"
+        "## Work Experience\n"
+        "Built a recommendation system that reduced churn by eighteen percent.\n"
+        "Mentored four junior engineers across two squads in the platform team.\n"
+        "Holds a masters degree in computer science from a top university.\n"
+    )
+    redacted = RedactedCV(text=cv_text, audit_log=[])
+    item = ProfileItem(text="x", anchor=Anchor(quote="recommendation system that reduced churn by"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="engineer",
+        detected_location=None,
+        detected_years_experience=5,
+    )
+
+    payload = _ComponentList(
+        components=[
+            Component(
+                name="skills",
+                score_0_100=70,
+                justification=".",
+                anchor=Anchor(
+                    quote="python, pytorch, async pipelines, vector databases",
+                    section="Skills",
+                ),
+            ),
+            Component(
+                name="experience",
+                score_0_100=65,
+                justification=".",
+                anchor=Anchor(
+                    quote="recommendation system that reduced churn by",
+                    section="Work Experience",
+                ),
+            ),
+            # Section "Education" not in CV → falls back, quote present → verified.
+            Component(
+                name="education",
+                score_0_100=55,
+                justification=".",
+                anchor=Anchor(
+                    quote="masters degree in computer science from",
+                    section="Education",
+                ),
+            ),
+            # Section "Soft Signals" not in CV → falls back, quote present → verified.
+            Component(
+                name="soft_signals",
+                score_0_100=60,
+                justification=".",
+                anchor=Anchor(
+                    quote="mentored four junior engineers across two squads",
+                    section="Soft Signals",
+                ),
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(redacted, profile)
+
+    assert isinstance(result, Score), f"expected Score, got {type(result).__name__}: {result}"
+    miss_events = [e for e in events if e["event"] == "verify_section_miss"]
+    assert len(miss_events) == 2
+    assert not any(e["event"] == "section_blind_fail" for e in events)
+
+
 @pytest.mark.live
 @pytest.mark.slow
 async def test_score_calibration_variance_on_mid_fixture() -> None:
