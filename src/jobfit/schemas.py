@@ -137,13 +137,22 @@ class Score(BaseModel):
 
 
 class Report(BaseModel):
-    profile: Profile | StageFailure
-    score: Score | StageFailure
-    salary: SalaryEstimate | StageFailure
-    confidence: Confidence | StageFailure
-    growth: list[GrowthAction] | StageFailure
+    # Block fields permit `None` so the L6 pipeline (T15) can yield intermediate
+    # streaming states where downstream stages have not produced output yet.
+    # Renderer treats `None` as "not yet rendered, skip the section"; StageFailure
+    # remains the "stage attempted and failed" representation.
+    profile: Profile | StageFailure | None = None
+    score: Score | StageFailure | None = None
+    salary: SalaryEstimate | StageFailure | None = None
+    confidence: Confidence | StageFailure | None = None
+    growth: list[GrowthAction] | StageFailure | None = None
     statuses: dict[StageName, StageStatus]
     raw_cv_text: str
+    # Populated by the L6 pipeline subscriber on every yield; aggregates the
+    # `usd_cost` and `duration_ms` fields emitted by jobfit.llm `llm_call`
+    # events. Footer in jobfit.report interpolates these.
+    total_cost_usd: float = 0.0
+    total_latency_ms: int = 0
 
     @model_validator(mode="after")
     def _require_exact_status_keys(self) -> Report:

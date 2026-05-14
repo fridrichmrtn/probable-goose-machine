@@ -1,6 +1,6 @@
 """L6 report renderer — pure functions producing tracker HTML and body markdown.
 
-The renderer is a pure function of a `Report`. Every yield in the L7 pipeline
+The renderer is a pure function of a `Report`. Every yield in the L6 pipeline
 re-renders both surfaces from the same model; no UI state lives here.
 
 Status-key mapping (display label -> schema key): the T14 spec listed pill
@@ -104,8 +104,10 @@ _CSS = """<style>
 # interpolated mid-string. Backslash MUST come first so subsequent escapes are
 # not re-escaped. Set chosen to neutralise: `](payload)` link injection,
 # `*`/`_` emphasis, backtick code spans, `!` for `![alt](url)` images. Block-
-# level metacharacters (`#`, `+`, `-`, `|`) only have meaning at line-start;
-# user strings here are always interpolated mid-line so they stay raw.
+# level metacharacters (`#`, `+`, `-`, `|`, fenced code, table pipes) only
+# matter at line-start; `_md` collapses newlines + whitespace runs downstream
+# so an LLM-controlled string cannot escape an inline context into a heading,
+# list, table, or blockquote.
 _MD_ESCAPE = str.maketrans(
     {
         "\\": "\\\\",
@@ -127,14 +129,22 @@ def _esc(text: str) -> str:
 
 
 def _md(text: str) -> str:
-    """Escape for markdown interpolation: HTML-escape, then escape md metacharacters.
+    """Escape for markdown interpolation: HTML-escape, neutralise md metacharacters,
+    and collapse whitespace so block-level tokens cannot appear at line-start.
 
     Use for any user-controllable string flowing into a markdown context
     (callouts, source lines, salary reasoning, confidence rationale, growth
     actions). Content nested inside an HTML block (`<details>`, `<blockquote>`,
     `<p>`) only needs `_esc` — CommonMark does not parse markdown inside HTML.
+
+    Newlines (and runs of whitespace) collapse to a single space so an
+    LLM-controlled value like ``"ok\\n# Pwned"`` cannot inject a heading,
+    list, table, or fenced code block. ``_failure_callout_md`` splits its
+    input on newlines BEFORE calling ``_md`` per line, so multi-line failure
+    messages are preserved through that path.
     """
-    return escape(text, quote=True).translate(_MD_ESCAPE)
+    escaped = escape(text, quote=True).translate(_MD_ESCAPE)
+    return " ".join(escaped.split())
 
 
 def _pill_html(label: str, status: StageStatus, tooltip: str | None) -> str:
@@ -183,7 +193,9 @@ def _failure_callout_md(failure: StageFailure) -> str:
     return "\n".join(quoted)
 
 
-def _score_section(score: Score | StageFailure) -> str:
+def _score_section(score: Score | StageFailure | None) -> str:
+    if score is None:
+        return ""
     if isinstance(score, StageFailure):
         return "## Score\n\n" + _failure_callout_md(score)
 
@@ -228,7 +240,9 @@ def _source_line(src: Source) -> str:
     return f'- [{domain}] — "{snippet}"'
 
 
-def _salary_section(salary: SalaryEstimate | StageFailure) -> str:
+def _salary_section(salary: SalaryEstimate | StageFailure | None) -> str:
+    if salary is None:
+        return ""
     if isinstance(salary, StageFailure):
         return "## Salary\n\n" + _failure_callout_md(salary)
 
@@ -241,14 +255,18 @@ def _salary_section(salary: SalaryEstimate | StageFailure) -> str:
     return f"## Salary\n\n{range_line}\n\n{_md(salary.reasoning)}\n\n### Sources\n\n{sources_md}"
 
 
-def _confidence_section(conf: Confidence | StageFailure) -> str:
+def _confidence_section(conf: Confidence | StageFailure | None) -> str:
+    if conf is None:
+        return ""
     if isinstance(conf, StageFailure):
         return "## Confidence\n\n" + _failure_callout_md(conf)
     badge = _CONFIDENCE_BADGE[conf.tier]
     return f"## Confidence\n\n**{badge}** — {_md(conf.rationale)}"
 
 
-def _growth_section(growth: list[GrowthAction] | StageFailure) -> str:
+def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
+    if growth is None:
+        return ""
     if isinstance(growth, StageFailure):
         return "## Plan\n\n" + _failure_callout_md(growth)
     if not growth:
@@ -264,17 +282,24 @@ def _growth_section(growth: list[GrowthAction] | StageFailure) -> str:
     return "## Plan\n\n" + "\n".join(lines)
 
 
-def _footer() -> str:
+def _footer(report: Report) -> str:
     weight_rows = "\n".join(
         f"- **{_COMPONENT_DISPLAY[name]}** — {int(weight * 100)}%"
         for name, weight in COMPONENT_WEIGHTS.items()
+    )
+    # Format with 4 decimals on cost (covers the 1e-4 USD floor of cheap-model
+    # MiniMax calls); latency rendered in ms so the reviewer can compare to the
+    # 60s budget without unit conversion.
+    totals_line = (
+        f"_Total cost: ${report.total_cost_usd:.4f} · "
+        f"Total latency: {report.total_latency_ms:,} ms_"
     )
     return (
         "<details>"
         "<summary>How is this scored?</summary>\n\n"
         "Component weights:\n\n"
         f"{weight_rows}\n\n"
-        "_(cost / latency totals — populated by T15)_\n\n"
+        f"{totals_line}\n\n"
         "</details>"
     )
 
@@ -284,9 +309,14 @@ def render_body(report: Report) -> str:
 
     Top-level short-circuit: when `report.profile` is a `StageFailure`, returns
     ONLY the failure callout — the rest of the pipeline depends on profile, so
-    rendering downstream blocks would be misleading. Stage failures further
-    down render inline as warning callouts and the rest of the body continues.
+    rendering downstream blocks would be misleading. When `report.profile is
+    None` (T15 pipeline initial state, before profile extraction completes),
+    returns an empty string — the tracker carries the pending state.
+    Stage failures further down render inline as warning callouts and the rest
+    of the body continues.
     """
+    if report.profile is None:
+        return ""
     if isinstance(report.profile, StageFailure):
         return _failure_callout_html(report.profile)
 
@@ -295,6 +325,8 @@ def render_body(report: Report) -> str:
         _salary_section(report.salary),
         _confidence_section(report.confidence),
         _growth_section(report.growth),
-        _footer(),
+        _footer(report),
     ]
-    return "\n\n".join(sections)
+    # Filter out empty sections so back-to-back blank lines don't accumulate
+    # when intermediate blocks are still None.
+    return "\n\n".join(s for s in sections if s)
