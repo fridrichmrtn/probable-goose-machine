@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import time
+import unicodedata
 from io import BytesIO
 from pathlib import Path
 
@@ -20,18 +20,81 @@ EMPTY_MSG = "This file appears to be empty or too short to be a CV."
 
 SECTION_NAMES: frozenset[str] = frozenset(
     {
+        # English (existing + new for title-case headers seen in CZ/EN CVs)
         "experience",
         "work experience",
+        "professional experience",
         "education",
         "skills",
         "projects",
         "summary",
         "profile",
+        "languages",
+        "certifications",
+        "honors-awards",
+        "awards",
+        "publications",
+        "contact",
+        # Czech — section labels common on bilingual CZ/EN CVs
+        "pracovní zkušenosti",
+        "zkušenosti",
+        "vzdělání",
+        "dovednosti",
+        "nejčastější dovednosti",
+        "jazyky",
+        "certifikace",
+        "ocenění",
+        "publikace",
+        "projekty",
+        "shrnutí",
+        "profil",
+        "kontakt",
     }
 )
 MIN_TEXT_CHARS = 100
+# The length gate exists ONLY to keep long paragraph sentences that contain a
+# section keyword (e.g. "He learned several languages…") out of the vocab-match
+# branch. 40 chars covers every alias plus typical decorations (trailing colon,
+# single trailing word). It does NOT apply to the all-caps branch: real CVs
+# sometimes use long all-caps section headers, especially in Czech where
+# diacritics make labels longer (e.g. "PRACOVNÍ ZKUŠENOSTI A PROFESNÍ KARIÉRA").
+_MAX_HEADER_CHARS = 40
 
-_ALL_CAPS_HEADER = re.compile(r"^[A-Z][A-Z &/]{6,}$")
+
+def _is_all_caps_header(s: str) -> bool:
+    """Unicode-aware all-caps section heuristic.
+
+    Accepts a line that is at least 7 chars long, starts with an uppercase
+    letter, and contains only uppercase letters plus the decorations seen on
+    real CV headers (space, ampersand, slash). Unicode-aware so Czech
+    diacritics like Í/Š/É count as uppercase letters — the previous ASCII-only
+    regex silently dropped every all-caps Czech header.
+    """
+    if len(s) < 7 or not s[0].isupper():
+        return False
+    has_letter = False
+    for ch in s:
+        if ch.isalpha():
+            if not ch.isupper():
+                return False
+            has_letter = True
+        elif ch not in " &/":
+            return False
+    return has_letter
+
+
+def _normalize_for_section_match(s: str) -> str:
+    """NFD-decompose, drop combining marks (= strip diacritics), lowercase,
+    collapse internal whitespace. So `Vzdělání` and `vzdelani` and
+    `  VZDĚLÁNÍ  ` all hash the same key."""
+    decomposed = unicodedata.normalize("NFD", s)
+    no_marks = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return " ".join(no_marks.lower().split())
+
+
+_NORMALIZED_SECTION_NAMES: frozenset[str] = frozenset(
+    _normalize_for_section_match(name) for name in SECTION_NAMES
+)
 
 
 def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
@@ -153,9 +216,19 @@ def _looks_like_section_header(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
-    if _ALL_CAPS_HEADER.fullmatch(stripped):
+    # All-caps branch: trusted enough to bypass the length gate. The strict
+    # shape (uppercase letters + space/&// only) already rules out paragraph
+    # sentences. Long Czech all-caps labels live here.
+    if _is_all_caps_header(stripped):
         return True
-    return stripped.lower() in SECTION_NAMES
+    # Vocab-match branch: the length gate applies here because this branch is
+    # the one prone to false positives — paragraph sentences containing a
+    # section keyword normalise to a vocab miss only because the surrounding
+    # words push them past the threshold. Without the gate, "He learned
+    # several languages…" risks promotion if it ever shortens.
+    if len(stripped) > _MAX_HEADER_CHARS:
+        return False
+    return _normalize_for_section_match(stripped) in _NORMALIZED_SECTION_NAMES
 
 
 def _annotate_sections(text: str) -> str:
