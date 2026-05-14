@@ -3,7 +3,6 @@
 Report: tasks/dev-report.md (in dev/t01-schemas)
 
 ### Should-fix
-- [ai-ml-engineer] src/jobfit/schemas.py — `Report` lacks `total_cost_usd: float = 0.0` and `total_duration_ms: int = 0` aggregate fields. PLAN §M3 (`test_per_run_cost_budget`) + README per-run cost figure will need them; better to land in T01 contract than retrofit after T15 ships.
 - [ai-ml-engineer] src/jobfit/schemas.py — `GrowthAction.mechanism: str` is unanchored. PLAN §M4 Jaccard test only covers `what`; mechanism could become copy-paste boilerplate ("builds in-demand skills") and pass.
 - [product-owner] src/jobfit/schemas.py — Add `Confidence.judged_by: Literal["independent"]` (or similar tracking field) so PRD §4.3 separation is encoded in the type, not just convention.
 - [product-owner] src/jobfit/schemas.py — Add a `+30%` calibration field (per-action `expected_salary_delta_pct: int | None` or top-level `growth.target_uplift_pct: int = 30`) so T13/T17 can verify PRD §3 / §4.4 instead of trusting prose.
@@ -131,7 +130,6 @@ Report: T14 commit on `feat/block-c-corpus-render`.
 - [ai-ml-engineer] §4.6 strings not pinned as constants — PRD §4.6 user-facing failure copy ("Unable to read this file…", "Insufficient market data for this profile", "Could not generate this section reliably") is set per-call by upstream stages with no central registry; a string-drift regression has no test coverage. Cross-task: belongs to whichever task owns each stage worker (T07 ingest, T11 salary, etc.) — pin the strings as module-level constants and assert on them in the per-stage tests.
 - [ai-ml-engineer] Top-level callout MD vs HTML inconsistency — `src/jobfit/report.py:245` short-circuit returns an HTML `<div class="jobfit-callout">` while every other failure path returns a markdown `> ⚠ …` blockquote. Works under Gradio's mixed renderer today but will surprise the next maintainer. Decision: when T16 wires the UI host, settle on one shape end-to-end (likely HTML for both) and align.
 - [product-owner] Footer callout CSS glyph — `src/jobfit/report.py:98` — `.jobfit-callout::before` prepends `⚠` via CSS. The markdown variant (`_failure_callout_md`) prepends a literal `⚠` in the rendered text. If T16's host applies the CSS class to the markdown-rendered blockquote as well, both glyphs would stack. Verify no double-glyph when T16 wires the UI.
-- [software-engineer] Cost/latency footer placeholder — `src/jobfit/report.py:222-234` — footer carries `_(cost / latency totals — populated by T15)_` until T15 lands `total_cost_usd` / `total_duration_ms` aggregate fields on `Report`. Tracked here AND in the existing t01-schemas should-fix at `backlog.md:6`.
 
 ## T11 — 2026-05-10T18:30Z
 Report: tasks/T11_dev-report.md (in feat/block-b-late-stages)
