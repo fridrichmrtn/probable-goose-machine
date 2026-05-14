@@ -201,6 +201,155 @@ async def test_validation_error_from_llm_becomes_stage_failure(
     assert not verify_events, "verify event must not fire on the failure path"
 
 
+@pytest.mark.fast
+async def test_tenure_override_event_emitted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """T28 R7: when L2 produced a deterministic tenure that differs from the
+    LLM's `detected_years_experience` by >=1, the extract stage emits a
+    `tenure_override` event with `llm`, `deterministic`, `delta` payload AND
+    overrides the value on the returned Profile (so salary's years>=10 gate
+    cannot be misled by LLM variance on `[YEAR] - [YEAR]` patterns).
+
+    Required per PRD §4.8 — the override is the load-bearing behaviour, the
+    event is the load-bearing observable. Together they close the silent-
+    override class identified in lessons.md (2026-05-14)."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    llm_profile = Profile(
+        skills=[],
+        experience=[],
+        education=[],
+        soft_signals=[],
+        detected_role="Senior Engineer",
+        detected_location="Prague",
+        detected_years_experience=7,  # LLM says 7
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    redacted = RedactedCV(
+        text="Senior Engineer\n[YEAR] - Present\n",
+        audit_log=[],
+        years_experience_deterministic=10,  # L2 says 10
+    )
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    # Override applied on the returned Profile.
+    assert result.detected_years_experience == 10
+    # Override event fired with documented payload.
+    override = [e for e in events if e["event"] == "tenure_override" and e["stage"] == "extract"]
+    assert override, f"expected tenure_override event, got {events!r}"
+    assert override[0]["llm"] == 7
+    assert override[0]["deterministic"] == 10
+    assert override[0]["delta"] == 3
+
+
+@pytest.mark.fast
+async def test_tenure_override_silent_when_delta_below_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No event when |delta| < 1 — only decision-changing deltas are surfaced.
+    The override still applies (deterministic always wins when present), but
+    we don't want noise in the obs stream from rounding-error-class deltas."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    llm_profile = Profile(
+        skills=[],
+        experience=[],
+        education=[],
+        soft_signals=[],
+        detected_role="Senior Engineer",
+        detected_location="Prague",
+        detected_years_experience=10,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    redacted = RedactedCV(
+        text="Senior Engineer\n",
+        audit_log=[],
+        years_experience_deterministic=10,
+    )
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert result.detected_years_experience == 10
+    override = [e for e in events if e["event"] == "tenure_override"]
+    assert not override, f"unexpected tenure_override event, got {events!r}"
+
+
+@pytest.mark.fast
+async def test_tenure_override_skipped_when_no_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When L2 found no parseable date range (`years_experience_deterministic
+    is None`), the LLM's value survives untouched — there's nothing to
+    override and we don't synthesise a 0."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    llm_profile = Profile(
+        skills=[],
+        experience=[],
+        education=[],
+        soft_signals=[],
+        detected_role="Senior Engineer",
+        detected_location="Prague",
+        detected_years_experience=7,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    redacted = RedactedCV(text="Senior Engineer\n", audit_log=[])  # default None
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert result.detected_years_experience == 7  # LLM value preserved
+    override = [e for e in events if e["event"] == "tenure_override"]
+    assert not override
+
+
 _LIVE_FIXTURES = sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glob("*.docx")))
 
 

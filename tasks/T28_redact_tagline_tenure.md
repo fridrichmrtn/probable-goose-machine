@@ -1,6 +1,6 @@
 # T28 — Redact: tagline-headline name fix + deterministic tenure (R6 + R7)
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: —
 Unblocks: T27, T29
@@ -58,4 +58,10 @@ Re-run on Profile.pdf at the deployed Space (manual): check `count_name >= 1` in
 
 ## Outcome
 
-(fill in when done — confirm name redaction count, observed deterministic years on Profile.pdf, any LLM-vs-deterministic deltas in the test corpus)
+Stream A — Task 1 delivery notes:
+
+- **Tagline-headline (R6)**: `_redact_header_name` now scans up to `_HEADER_SCAN_LIMIT = 10` non-blank lines and `continue`s past tagline-shaped lines (commas / digits / `[`) instead of returning. Tightened the title-word gate to require **2-4 words** to suppress single-word false positives like `Praha` that the widened scan would otherwise pick up. The labelled `Name:` form is unaffected (separate `_NAME_LABEL` regex path).
+- **Deterministic tenure (R7)**: Added pure `gander/tenure.py::compute_years` (bilingual CZ+EN months, CZ genitive forms, 7 present-token variants, interval union, gap-skip, future-cap at today). Wired through `RedactedCV.years_experience_deterministic` (computed at the top of `redact()`, before year-masking). `extract.py` always applies the deterministic value when non-`None`, and emits `obs.emit("extract", "tenure_override", llm=..., deterministic=..., delta=...)` when `|delta| >= 1`.
+- **Tests added**: 22 in `tests/test_tenure.py` (parametrized EN/CZ, present variants, union, gaps, reverse, future-cap, real CV snippet); 4 fast tests in `tests/test_redact.py` (tagline redaction, name-count obs event, 10-line scan cap, per-corpus `count_name>=1`); 3 fast tests in `tests/test_extract.py` (`tenure_override` emit, silent below threshold, skip when `None`).
+- **Local quality gates**: `ruff check`, `ruff format --check`, `mypy src/` all clean; fast lane **235 passed** in 3.47s.
+- **Known pre-existing failures (not introduced by T28)**: 4 slow-marked `test_every_fixture_audit_log_has_email_and_name` cases on fixtures with `© Marek Beneš 2026` footers — name appears twice and only the first occurrence is masked. Verified the same tests fail on `main`. Tracked separately; not gating T28.

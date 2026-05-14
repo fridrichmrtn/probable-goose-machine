@@ -60,7 +60,27 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             total_kept += len(kept)
             total_dropped += dropped
 
-        verified = profile.model_copy(update=kept_lists)
+        # Deterministic tenure override (PRD §4.7 + R7 in T28): when L2's
+        # date-range parser produced a value, it wins over the LLM's count so
+        # salary's years>=10 lift gate cannot be misled by `[YEAR] - [YEAR]`
+        # variance. Emit `tenure_override` when |delta| >= 1 — that's the
+        # decision-changing threshold for the salary gate.
+        update: dict[str, object] = dict(kept_lists)
+        if redacted.years_experience_deterministic is not None:
+            llm_years = profile.detected_years_experience
+            det_years = redacted.years_experience_deterministic
+            delta = abs(det_years - llm_years)
+            if delta >= 1:
+                obs.emit(
+                    "extract",
+                    "tenure_override",
+                    llm=llm_years,
+                    deterministic=det_years,
+                    delta=delta,
+                )
+            update["detected_years_experience"] = det_years
+
+        verified = profile.model_copy(update=update)
         obs.emit("extract", "verify", dropped=total_dropped, kept=total_kept)
         obs.emit("extract", "done", duration_ms=_ms(), kept=total_kept)
         return verified
