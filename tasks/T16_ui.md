@@ -1,6 +1,6 @@
 # T16 — L7 Gradio UI + stage tracker
 
-Status: todo
+Status: done
 Owner: ux-engineer
 Depends on: T14 (T15 needed for live, but mockable)
 Unblocks: T22
