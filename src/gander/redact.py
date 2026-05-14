@@ -406,6 +406,26 @@ def _redact_header_name(text: str, audit: list[Redaction]) -> str:
     return text
 
 
+def _redact_repeated_known_names(text: str, audit: list[Redaction]) -> str:
+    """Mask later exact repeats of names already identified in the header.
+
+    Multi-page PDFs often repeat the candidate name in footers. The header
+    detector intentionally finds only the first clean name candidate; this
+    pass uses that high-confidence literal to remove exact repeats without
+    guessing new names elsewhere in the document.
+    """
+    known_names = []
+    for redaction in audit:
+        if redaction.kind == "name" and redaction.original not in known_names:
+            known_names.append(redaction.original)
+    out = text
+    for name in known_names:
+        if not name or name not in out:
+            continue
+        out = _replace_with_audit(out, re.compile(re.escape(name)), "name", "[NAME]", audit)
+    return out
+
+
 def redact(text: str) -> RedactedCV | StageFailure:
     """Redact PII from CV text and return the result alongside an audit log.
 
@@ -432,6 +452,7 @@ def redact(text: str) -> RedactedCV | StageFailure:
         out = _replace_year(out, audit)
         out = _redact_header_name(out, audit)
         out = _replace_with_audit(out, _NAME_LABEL, "name", "[NAME]", audit)
+        out = _redact_repeated_known_names(out, audit)
 
         counts: dict[str, int] = {
             "email": 0,
