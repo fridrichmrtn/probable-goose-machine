@@ -2,8 +2,15 @@
 
 The user's manual gauging surface. Runs every fixture under
 `tests/fixtures/cvs/*.{pdf,docx}` through the live L1→L5 pipeline,
-writes per-CV markdown reports + a SUMMARY.md table, and exits
-non-zero on any top-level pipeline failure (ingest / redact / extract).
+writes per-CV markdown reports + a SUMMARY.md table.
+
+Exit codes:
+    0 = all fixtures produced a meaningful report.
+    1 = at least one fixture had a top-level pipeline failure
+        (profile or score returned StageFailure — the report
+        cannot be judged meaningfully without them).
+    2 = setup error: fixture dir missing, no fixtures matched,
+        or an unresolved Git LFS pointer was found.
 
 Usage:
     uv run python scripts/eval_corpus.py
@@ -33,12 +40,30 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "reports"
 SUPPORTED_SUFFIXES = (".pdf", ".docx")
+PROFILE_CHOICES = ("local", "ci")
+LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/"
 
 
 def _iter_fixture_paths(fixture_dir: Path) -> Iterable[Path]:
     for path in sorted(fixture_dir.iterdir()):
         if path.suffix.lower() in SUPPORTED_SUFFIXES:
             yield path
+
+
+def _display_path(path: Path) -> str:
+    """Repo-relative if possible, otherwise absolute. `--output-dir` may point
+    outside the repo, in which case `relative_to(REPO_ROOT)` would raise."""
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _cell(value: object) -> str:
+    """Escape an LLM-produced string for a markdown table cell. Newlines
+    break the row; literal `|` breaks the column boundary."""
+    text = str(value)
+    return text.replace("\n", " ").replace("\r", " ").replace("|", r"\|")
 
 
 def _format_salary(report: object) -> str:
@@ -164,8 +189,9 @@ def _write_summary(
     table_lines = []
     for i, row in enumerate(rows, start=1):
         table_lines.append(
-            f"| {i:02d} | {row['cv']} | {row['format']} | {row['score']} "
-            f"| {row['salary']} | {row['confidence']} | {row['growth']} "
+            f"| {i:02d} | {_cell(row['cv'])} | {_cell(row['format'])} "
+            f"| {_cell(row['score'])} | {_cell(row['salary'])} "
+            f"| {_cell(row['confidence'])} | {_cell(row['growth'])} "
             f"| ${float(row['cost']):.4f} | {float(row['latency']):.1f} |"  # type: ignore[arg-type]
         )
     totals_lines = [
@@ -181,6 +207,12 @@ def _write_summary(
 
 
 async def _run_corpus(fixture_dir: Path, output_dir: Path, profile: str) -> int:
+    if not fixture_dir.exists() or not fixture_dir.is_dir():
+        print(
+            f"Fixture directory not found or not a directory: {fixture_dir}",
+            file=sys.stderr,
+        )
+        return 2
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = list(_iter_fixture_paths(fixture_dir))
     if not paths:
@@ -195,6 +227,13 @@ async def _run_corpus(fixture_dir: Path, output_dir: Path, profile: str) -> int:
     for path in paths:
         print(f"→ {path.name}", flush=True)
         file_bytes = path.read_bytes()
+        if file_bytes.startswith(LFS_POINTER_PREFIX):
+            print(
+                f"{path.name} is an unresolved Git LFS pointer. "
+                "Run `git lfs pull` (CI uses actions/checkout@v4 with lfs: true).",
+                file=sys.stderr,
+            )
+            return 2
         t0 = time.perf_counter()
         report = await _run_one(file_bytes, path.name)
         latency_s = time.perf_counter() - t0
@@ -221,7 +260,7 @@ async def _run_corpus(fixture_dir: Path, output_dir: Path, profile: str) -> int:
             top_level_failures.append(path.name)
 
     summary_path = _write_summary(output_dir, rows, profile, total_cost, latencies)
-    print(f"Wrote {summary_path.relative_to(REPO_ROOT)}")
+    print(f"Wrote {_display_path(summary_path)}")
 
     if top_level_failures:
         print(
@@ -233,11 +272,17 @@ async def _run_corpus(fixture_dir: Path, output_dir: Path, profile: str) -> int:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    env_profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
+    if env_profile not in PROFILE_CHOICES:
+        raise SystemExit(
+            f"GANDER_MODEL_PROFILE={env_profile!r} is not one of {PROFILE_CHOICES}. "
+            "Unset it or pass --profile explicitly."
+        )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("local", "ci"),
-        default=os.environ.get("GANDER_MODEL_PROFILE", "local"),
+        choices=PROFILE_CHOICES,
+        default=env_profile,
         help="GANDER_MODEL_PROFILE for this run (default: env or 'local').",
     )
     parser.add_argument(
