@@ -97,7 +97,7 @@ _CSS = """<style>
 }
 .gander-callout::before { content: "⚠"; margin-right: 0.4rem; }
 @media (prefers-reduced-motion: reduce) { .pill { transition: none; } }
-.gander-output .prose, .gander-output .md {
+.gander-output {
   max-width: 72ch; margin-inline: auto;
 }
 .gander-output table {
