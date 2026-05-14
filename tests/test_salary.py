@@ -371,6 +371,134 @@ async def test_estimate_salary_replaces_llm_snippets_with_input_snippets(
     assert "malicious-impostor.example" not in surviving_domains
 
 
+@pytest.mark.fast
+def test_build_queries_drops_non_market_headline() -> None:
+    """T27 R4: when normalize rewrites the headline, queries use the canonical role.
+
+    Member-of-Staff style: the verbatim headline must NOT appear; the canonical
+    role MUST appear; at least one query carries a management-anchor token.
+    """
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Member of Staff",
+        detected_location="Prague",
+        detected_years_experience=12,
+        canonical_role="head of data science",
+        seniority_band="head",
+        is_management=True,
+    )
+    queries = build_queries(profile)
+    joined = " || ".join(queries).lower()
+    assert "member of staff" not in joined
+    assert any("head of data science" in q.lower() for q in queries)
+    assert any("manager" in q.lower() for q in queries), (
+        "management profile must surface a management-anchor query"
+    )
+
+
+@pytest.mark.fast
+def test_build_queries_management_non_cz_uses_eur_token() -> None:
+    """T27 fix: management anchor must NOT inject CZK for non-CZ locations.
+
+    A Berlin/Vienna management profile should target EUR sources; hardcoding
+    CZK biases DDG toward Czech salary boards and contradicts the non-CZ
+    locality queries.
+    """
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Head of Engineering",
+        detected_location="Berlin",
+        detected_years_experience=8,
+        canonical_role="head of engineering",
+        seniority_band="head",
+        is_management=True,
+    )
+    queries = build_queries(profile)
+    # P1: no query may inject CZK on a non-CZ location.
+    for q in queries:
+        assert "CZK" not in q, f"non-CZ profile must never carry CZK token: {q}"
+    # The management anchor is the query containing the literal " manager " token
+    # injected by the template (`{canonical} manager salary ...`).
+    mgmt_anchor = next(q for q in queries if " manager " in q.lower())
+    assert "EUR" in mgmt_anchor, f"management anchor must target EUR on non-CZ: {mgmt_anchor}"
+
+
+@pytest.mark.fast
+def test_build_queries_cz_management_senior_keeps_both_signals() -> None:
+    """T27 fix: CZ + management + senior must keep BOTH management and senior EUR.
+
+    Previously the queries[:4] cap dropped the senior EUR cross-check when
+    management prepended a query: 3 locality + 1 mgmt = 4, then senior appends
+    to index 4 and gets sliced off. The cap is now 5 to fit all attached signals.
+    """
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Head of Data",
+        detected_location="Prague",
+        detected_years_experience=14,
+        canonical_role="head of data",
+        seniority_band="head",
+        is_management=True,
+    )
+    queries = build_queries(profile)
+    assert any("manager" in q.lower() for q in queries), "management anchor must survive"
+    assert any("EUR" in q and "Europe" in q for q in queries), (
+        "senior EUR cross-check must survive next to the management anchor"
+    )
+
+
+@pytest.mark.fast
+def test_build_queries_handles_tagline_shape() -> None:
+    """T27 R4: tagline-shape headlines (`|`, `@`) are dropped in favor of canonical."""
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Data Gardener | AI @Stealth",
+        detected_location="Prague",
+        detected_years_experience=8,
+        canonical_role="senior data scientist",
+        seniority_band="senior",
+        is_management=False,
+    )
+    queries = build_queries(profile)
+    assert any("senior data scientist" in q.lower() for q in queries)
+    for q in queries:
+        assert "|" not in q
+        assert "@" not in q
+
+
+@pytest.mark.fast
+def test_salary_prompt_3shot_present() -> None:
+    """T27 R5: salary prompt must carry all three example types (junior / senior / mgmt)."""
+    prompt_path = (
+        Path(__file__).resolve().parent.parent / "src" / "gander" / "prompts" / "salary.md"
+    )
+    body = prompt_path.read_text(encoding="utf-8")
+    lower = body.lower()
+    assert "example 1" in lower and "junior" in lower
+    assert "example 2" in lower and "senior" in lower
+    assert "example 3" in lower
+    assert "is_management" in body
+    assert "head" in lower
+    assert "carve-out" in lower, "Rule 4 carve-out language must be present"
+    assert "anchor" in lower, "seniority anchoring instruction must be present"
+
+
 @pytest.mark.live
 @pytest.mark.slow
 @pytest.mark.xdist_group("ddg")
