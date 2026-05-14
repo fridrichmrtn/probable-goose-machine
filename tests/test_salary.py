@@ -371,6 +371,75 @@ async def test_estimate_salary_replaces_llm_snippets_with_input_snippets(
     assert "malicious-impostor.example" not in surviving_domains
 
 
+@pytest.mark.fast
+def test_build_queries_drops_non_market_headline() -> None:
+    """T27 R4: when normalize rewrites the headline, queries use the canonical role.
+
+    Member-of-Staff style: the verbatim headline must NOT appear; the canonical
+    role MUST appear; at least one query carries a management-anchor token.
+    """
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Member of Staff",
+        detected_location="Prague",
+        detected_years_experience=12,
+        canonical_role="head of data science",
+        seniority_band="head",
+        is_management=True,
+    )
+    queries = build_queries(profile)
+    joined = " || ".join(queries).lower()
+    assert "member of staff" not in joined
+    assert any("head of data science" in q.lower() for q in queries)
+    assert any("manager" in q.lower() for q in queries), (
+        "management profile must surface a management-anchor query"
+    )
+
+
+@pytest.mark.fast
+def test_build_queries_handles_tagline_shape() -> None:
+    """T27 R4: tagline-shape headlines (`|`, `@`) are dropped in favor of canonical."""
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Data Gardener | AI @Stealth",
+        detected_location="Prague",
+        detected_years_experience=8,
+        canonical_role="senior data scientist",
+        seniority_band="senior",
+        is_management=False,
+    )
+    queries = build_queries(profile)
+    assert any("senior data scientist" in q.lower() for q in queries)
+    for q in queries:
+        assert "|" not in q
+        assert "@" not in q
+
+
+@pytest.mark.fast
+def test_salary_prompt_3shot_present() -> None:
+    """T27 R5: salary prompt must carry all three example types (junior / senior / mgmt)."""
+    prompt_path = (
+        Path(__file__).resolve().parent.parent / "src" / "gander" / "prompts" / "salary.md"
+    )
+    body = prompt_path.read_text(encoding="utf-8")
+    lower = body.lower()
+    assert "example 1" in lower and "junior" in lower
+    assert "example 2" in lower and "senior" in lower
+    assert "example 3" in lower
+    assert "is_management" in body
+    assert "head" in lower
+    assert "carve-out" in lower, "Rule 4 carve-out language must be present"
+    assert "anchor" in lower, "seniority anchoring instruction must be present"
+
+
 @pytest.mark.live
 @pytest.mark.slow
 @pytest.mark.xdist_group("ddg")
