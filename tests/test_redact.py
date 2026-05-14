@@ -480,6 +480,57 @@ def test_marker_decorated_city_line_does_not_consume_name() -> None:
     assert name_audits[0].original == "Jan Novák"
 
 
+@pytest.mark.fast
+def test_header_name_repeated_in_footer_redacted() -> None:
+    """T28 follow-up: multi-page PDFs repeat the header name in page footers.
+    The header detector stops at the first match, so the repeat pass must mask
+    later exact occurrences of the high-confidence header name.
+    """
+    cv = (
+        "Jana Nováková\n"
+        "Senior Engineer\n"
+        "Experience: built data pipelines.\n"
+        "page 2 - Jana Nováková\n"
+    )
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    assert "Jana Nováková" not in result.text, result.text
+    name_audits = [r for r in result.audit_log if r.kind == "name"]
+    assert len(name_audits) >= 2
+    assert all(r.original == "Jana Nováková" for r in name_audits)
+
+
+@pytest.mark.fast
+def test_repeat_pass_does_not_corrupt_lookalike_words() -> None:
+    """P1 from PR #20 review: a single-token name from `Name: Jan` must not
+    rewrite unrelated tokens like `January` / `Django`. The repeat pass
+    requires >=2 tokens and matches on Unicode-aware word boundaries.
+    """
+    cv = "Name: Jan\nWorked at Django since January 2018.\n"
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    assert "Name: [NAME]" in result.text
+    # Lookalike words must survive intact.
+    assert "Django" in result.text
+    assert "January" in result.text
+
+
+@pytest.mark.fast
+def test_repeat_pass_word_boundary_protects_compound_token() -> None:
+    """Even with a >=2-token header name like `Jan Novák`, a substring inside
+    a longer word (`Jan Novákovi` — Czech dative form) must NOT be rewritten.
+    Word boundaries guard against partial-token replacement.
+    """
+    cv = "Jan Novák\nSenior Engineer\nEmail sent to Jan Novákovi yesterday.\n"
+    result = redact(cv)
+    assert isinstance(result, RedactedCV)
+    # Header line was masked.
+    name_audits = [r for r in result.audit_log if r.kind == "name"]
+    assert any(r.original == "Jan Novák" for r in name_audits)
+    # The dative-form compound MUST survive.
+    assert "Jan Novákovi" in result.text
+
+
 _CORPUS_TXT_FIXTURES = sorted(_FIXTURE_DIR.glob("*.txt"))
 
 
