@@ -65,24 +65,23 @@ def build_queries(profile: Profile) -> list[str]:
             f"{role} mzda CZK 2025",
             f"{role} salary czech republic site:glassdoor.com",
         ]
+        mgmt_currency_token = "CZK 2025"
     else:
         city = location.strip() if location else "Europe"
         queries = [
             f"{role} salary {city} site:glassdoor.com OR site:levels.fyi",
             f"{role} salary EUR 2025 {city}",
         ]
+        mgmt_currency_token = "EUR 2025"
 
-    # Management-specific anchor: prepend so it's first up against the DDG cap.
     if profile.is_management and canonical:
-        queries.insert(0, f"{canonical} manager salary {city} CZK 2025")
+        queries.insert(0, f"{canonical} manager salary {city} {mgmt_currency_token}")
 
-    # Senior EUR cross-check is the senior-specific market signal: lifts the cap
-    # to 4 so it survives next to the locality queries.
     if profile.detected_years_experience >= 10:
         queries.append(f"senior {role} salary EUR Europe")
-        return queries[:4]
 
-    return queries[:3]
+    # Cap covers all attached signals: 2-3 locality + optional management + optional senior.
+    return queries[:5]
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential_jitter(initial=1, max=3), reraise=True)
