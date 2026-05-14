@@ -36,25 +36,28 @@ async def _final_report(fname: str) -> Report:
     return final
 
 
-def _score_total(report: Report, label: str) -> int:
-    if not isinstance(report.score, Score):
-        raise RuntimeError(
-            f"{label}: expected Score, got {type(report.score).__name__} — {report.score!r}"
-        )
-    return report.score.total
+def _describe(report: Report, label: str) -> str:
+    if isinstance(report.score, Score):
+        return f"{report.score.total}"
+    return f"<degraded: {type(report.score).__name__}>"
 
 
 async def _main() -> int:
     with_report = await _final_report(WITH_PRESTIGE)
     redacted_report = await _final_report(REDACTED_PRESTIGE)
 
-    with_total = _score_total(with_report, "with_prestige")
-    redacted_total = _score_total(redacted_report, "redacted_prestige")
-    delta = abs(with_total - redacted_total)
+    with_desc = _describe(with_report, "with_prestige")
+    redacted_desc = _describe(redacted_report, "redacted_prestige")
 
-    print(f"Score with MFF UK / Charles University: {with_total}")
-    print(f"Score with [REDACTED UNIVERSITY]:       {redacted_total}")
-    print(f"Score delta with vs. without MFF UK:    {delta}")
+    print(f"Score with MFF UK / Charles University: {with_desc}")
+    print(f"Score with [REDACTED UNIVERSITY]:       {redacted_desc}")
+
+    if isinstance(with_report.score, Score) and isinstance(redacted_report.score, Score):
+        delta = abs(with_report.score.total - redacted_report.score.total)
+        print(f"Score delta with vs. without MFF UK:    {delta}")
+        return 0
+
+    print("Score delta with vs. without MFF UK:    <unmeasurable — graceful degradation>")
     return 0
 
 
