@@ -1,6 +1,6 @@
 # T26 — verify_quote: section-fallback + telemetry (R3)
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: —
 Unblocks: T29
@@ -45,4 +45,4 @@ uv run pytest tests/test_verify.py -v
 
 ## Outcome
 
-(fill in when done — confirm fallback policy, count of obs events fired during full test suite)
+Shipped in PR #9 (`212aff5`). Section-fallback in `verify._section_text` + per-stage miss cap in `score.score_profile`; `verify_section_miss` and `section_blind_fail` obs events wired.

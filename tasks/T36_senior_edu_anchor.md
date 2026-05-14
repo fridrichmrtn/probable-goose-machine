@@ -3,8 +3,8 @@
 Status: open
 Owner: ai-ml-engineer (follow-up from T30 phase 1)
 Depends on: T24 (merged), T25 (merged), T26 (merged), T30 phase 1 (PR #10)
-Unblocks: removing the `@pytest.mark.xfail(strict=True)` on
-`tests/test_acceptance.py::test_score_spread_at_least_30`
+Unblocks: removing the `if senior.dropped:` partial-Score absorber branch
+in `tests/test_acceptance.py::test_score_spread_at_least_30` (lines 136-154)
 Estimate: ~60 min investigation + fix
 
 ## Symptom
@@ -24,10 +24,13 @@ re-normalize", PRD §4.5), senior's total compresses ~10–15 points below the
 full-Score baseline. PRD §5.4 differentiation gate (`senior.total -
 junior.total >= 30`) lands at 29 — off by one.
 
-The test `test_score_spread_at_least_30` is currently `xfail(strict=True)` on
-PR #10 so the rest of the acceptance suite can land. When this task fixes
-the anchor miss, the test will unexpectedly pass and strict-xfail will
-flag it for removal.
+`test_score_spread_at_least_30` ([tests/test_acceptance.py:132-155](../tests/test_acceptance.py#L132-L155))
+absorbs this with an inline `if senior.dropped:` branch added during the
+PR #10 self-heal. That branch enforces a relaxed `delta >= 20` + absolute
+`senior.total >= 65` floor when senior lands on the partial-Score path,
+and references this task by name. When T36 fixes the anchor miss, senior
+returns to full 4-of-4, the `if senior.dropped` branch becomes dead, and
+the unrelaxed `assert delta >= 30` resumes enforcing PRD §5.4.
 
 ## Root-cause hypotheses (in order of likelihood)
 
@@ -93,8 +96,10 @@ for e in events:
 
 ## Verification
 
-- `test_score_spread_at_least_30` un-xfails automatically (strict=True).
 - Senior 08 emits full 4-of-4 Score (no `dropped`).
+- Remove the `if senior.dropped:` branch (lines 136-154) from
+  `tests/test_acceptance.py::test_score_spread_at_least_30`; the
+  unrelaxed `assert delta >= 30` holds on a clean live run.
 - Local fast suite stays green.
 - One live acceptance run confirms the spread climbs back above 30 on the
   EN triplet.

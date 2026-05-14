@@ -1,6 +1,6 @@
 # T27 — Role normalization + salary integration (R4 + R5)
 
-Status: todo
+Status: done
 Owner: ai-ml-engineer
 Depends on: T28
 Unblocks: T29
@@ -69,4 +69,4 @@ Live verification deferred to T29 (which exercises the full senior-CV path throu
 
 ## Outcome
 
-(fill in when done — list of normalized headlines that landed; salary prompt diff summary; before/after on Profile.pdf if rerun)
+Shipped in PR #17 (`3cc0092`). `src/gander/normalize.py` (polarity-flipped market-token allowlist → tagline-shape → experience recovery → LLM fallback), `Profile` schema extended with `canonical_role`/`seniority_band`/`is_management`, `salary.build_queries` + `estimate_salary` use canonical fields, `prompts/salary.md` carries the 3-shot block. Live verification deferred to T29.

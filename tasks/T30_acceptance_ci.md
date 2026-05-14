@@ -1,6 +1,6 @@
 # T30 — §5.4 differentiation eval wired into CI (close T17)
 
-Status: todo
+Status: phase 1 done (PR #10, `dea3dcf`); phase 2 todo (CZ extension, deps T29)
 Owner: ai-ml-engineer
 Depends on: — (CZ extension deps T29)
 Unblocks: T17
@@ -74,4 +74,8 @@ Failure-mode mapping:
 
 ## Outcome
 
-(fill in when done — observed score spread, salary multiplier, per-run USD cost, link to first green CI run)
+**Phase 1 (EN triplet)** shipped in PR #10 (`dea3dcf`). Closed T17. Self-heal during the PR added two known-debt absorbers that survive merge:
+- inline `if senior.dropped:` branch in `test_score_spread_at_least_30` (owned by T36)
+- `_optional_growth` + `@flaky(reruns=2)` for DDG flakes (owned by T37)
+
+**Phase 2 (CZ extension)** pending — fans in T29's three CZ fixtures.
