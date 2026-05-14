@@ -1,6 +1,6 @@
 # T24 — Multilingual section vocabulary (R1)
 
-Status: todo
+Status: done
 Owner: software-engineer
 Depends on: —
 Unblocks: T26, T29
@@ -37,4 +37,20 @@ uv run pytest tests/ -v   # nothing else regresses
 
 ## Outcome
 
-(fill in when done — list of new aliases that landed, any deltas to the gate logic)
+`SECTION_NAMES` expanded from 7 EN entries to 27 entries (14 EN + 13 CZ).
+
+**EN additions** (existing 7 retained): `work experience`, `professional experience`, `languages`, `certifications`, `honors-awards`, `awards`, `publications`, `contact`.
+
+**CZ additions** (13): `pracovní zkušenosti`, `zkušenosti`, `vzdělání`, `dovednosti`, `nejčastější dovednosti`, `jazyky`, `certifikace`, `ocenění`, `publikace`, `projekty`, `shrnutí`, `profil`, `kontakt`.
+
+**Normalization approach**: NFD decompose + strip combining marks (`unicodedata.category(c) != "Mn"`) + lowercase + whitespace collapse. So `Vzdělání`, `vzdelani`, and `  VZDĚLÁNÍ  ` all hash to the same key. Comparison key is precomputed in `_NORMALIZED_SECTION_NAMES` (frozenset) at import time.
+
+**Gate logic**: `_looks_like_section_header` now rejects lines longer than `_MAX_HEADER_CHARS = 40` (covers every alias plus typical decorations like trailing colon / single trailing word, while excluding paragraph sentences that mention a section noun). Existing all-caps regex path retained.
+
+**Tests added** in `tests/test_ingest.py`:
+- `test_section_vocabulary_cz` — parametrized over 13 CZ aliases, with both original and NFD-stripped variants.
+- `test_section_vocabulary_en_extended` — parametrized over the 7 EN additions.
+- `test_inline_languages_not_promoted` — sentence form.
+- `test_inline_languages_list_not_promoted` — 54-char inline summary (exercises the length gate).
+
+**Verification**: `uv run pytest -m fast tests/test_ingest.py` → 39 passed. Full fast suite → 218 passed, 47 deselected. No adjacent-suite regressions.

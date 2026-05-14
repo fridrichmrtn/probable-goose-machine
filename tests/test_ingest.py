@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -160,6 +161,101 @@ def test_annotate_does_not_eat_short_acronyms() -> None:
 def test_annotate_does_not_double_annotate() -> None:
     out = _annotate_sections("## Experience\nExperience\nFoo\n")
     assert out.count("## Experience") == 1
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "cz_header",
+    [
+        "pracovní zkušenosti",
+        "zkušenosti",
+        "vzdělání",
+        "dovednosti",
+        "nejčastější dovednosti",
+        "jazyky",
+        "certifikace",
+        "ocenění",
+        "publikace",
+        "projekty",
+        "shrnutí",
+        "profil",
+        "kontakt",
+    ],
+)
+def test_section_vocabulary_cz(cz_header: str) -> None:
+    """CZ section aliases get promoted, preserving original casing.
+
+    Also covers casing variants (title-case) and diacritic-stripped variants
+    (`Vzdelani` for the model that strips diacritics) since both should hash
+    to the same normalised key.
+    """
+    title = cz_header.title()
+    out = _annotate_sections(f"{title}\nFoo\n")
+    assert f"## {title}" in out, f"{title!r} should be promoted to ## header"
+
+    no_diacritics = "".join(
+        c for c in unicodedata.normalize("NFD", title) if unicodedata.category(c) != "Mn"
+    )
+    if no_diacritics != title:
+        out2 = _annotate_sections(f"{no_diacritics}\nFoo\n")
+        assert f"## {no_diacritics}" in out2, (
+            f"diacritic-stripped {no_diacritics!r} should also be promoted"
+        )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "en_header",
+    [
+        "Professional Experience",
+        "Languages",
+        "Certifications",
+        "Honors-Awards",
+        "Awards",
+        "Publications",
+        "Contact",
+    ],
+)
+def test_section_vocabulary_en_extended(en_header: str) -> None:
+    """New title-case EN aliases get promoted."""
+    out = _annotate_sections(f"{en_header}\nFoo\n")
+    assert f"## {en_header}" in out, f"{en_header!r} should be promoted to ## header"
+
+
+@pytest.mark.fast
+def test_long_all_caps_czech_header_is_promoted() -> None:
+    """Regression: a long all-caps Czech header (> 40 chars, with diacritics)
+    must still be recognised as a section header.
+
+    Before this fix the `_MAX_HEADER_CHARS=40` gate ran first and the ASCII-only
+    all-caps regex rejected diacritic uppercase letters — both combined hid
+    real Czech CV headers like the one below from the section annotator,
+    shifting section boundaries and breaking downstream anchor verification.
+    """
+    header = "PRACOVNÍ ZKUŠENOSTI A PROFESNÍ KARIÉRA V BANCE"
+    assert len(header) > 40
+    out = _annotate_sections(f"{header}\nVedl tým 4 datových vědců.\n")
+    assert f"## {header}" in out, f"long all-caps CZ header should be promoted: {out!r}"
+
+
+@pytest.mark.fast
+def test_inline_languages_not_promoted() -> None:
+    """A paragraph sentence that mentions 'languages' is not a section header."""
+    sentence = "He learned several languages including French and German."
+    out = _annotate_sections(f"{sentence}\nFoo\n")
+    assert "##" not in out, f"sentence-length line should not be promoted: {out!r}"
+
+
+@pytest.mark.fast
+def test_inline_languages_list_not_promoted() -> None:
+    """A long inline `Languages: ...` summary line is not promoted (length gate).
+
+    Marek fixture has `Languages: Czech (native), English (C2), Russian (B1).`
+    which we want to remain content, not become a header.
+    """
+    line = "Languages: Czech (native), English (C2), Russian (B1)."
+    out = _annotate_sections(f"{line}\nFoo\n")
+    assert "## Languages" not in out, f"inline languages-summary should not be promoted: {out!r}"
 
 
 @pytest.mark.fast
