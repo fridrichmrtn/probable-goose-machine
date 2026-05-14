@@ -45,6 +45,30 @@ def _initial_report() -> Report:
     )
 
 
+def _read_error_report(user_message: str) -> Report:
+    """Report for pre-pipeline read failures (no file selected, OSError).
+
+    Profile is marked failed with the user-facing message; downstream stages
+    stay skipped so the tracker shows where the pipeline stopped.
+    """
+    failure = StageFailure(stage="profile", user_message=user_message)
+    return Report(
+        profile=failure,
+        score=None,
+        salary=None,
+        confidence=None,
+        growth=None,
+        statuses={
+            "profile": "failed",
+            "score": "skipped",
+            "salary": "skipped",
+            "confidence": "skipped",
+            "growth": "skipped",
+        },
+        raw_cv_text="",
+    )
+
+
 _HERO_CSS = """<style>
 .gander-hero {
   margin: 1rem 0 2.5rem; font-family: system-ui, sans-serif;
@@ -129,17 +153,21 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         file_path: str | None,
     ) -> AsyncIterator[tuple[dict[str, Any], dict[str, Any]]]:
         if file_path is None:
+            failed = _read_error_report("Select a CV first.")
             yield (
-                gr.update(visible=False),
-                gr.update(visible=True, value="*Select a CV first.*"),
+                gr.update(visible=True, value=render_tracker(failed)),
+                gr.update(visible=True, value=render_body(failed)),
             )
             return
         try:
             file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
         except OSError:
+            failed = _read_error_report(
+                "Unable to read this file. Please upload a valid PDF or DOCX."
+            )
             yield (
-                gr.update(visible=False),
-                gr.update(visible=True, value="*Could not read uploaded file. Please try again.*"),
+                gr.update(visible=True, value=render_tracker(failed)),
+                gr.update(visible=True, value=render_body(failed)),
             )
             return
         filename = Path(file_path).name
