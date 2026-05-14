@@ -2,34 +2,56 @@
 
 Status: todo
 Owner: ai-ml-engineer
-Depends on: T24, T25, T26, T27
-Unblocks: T30
-Estimate: ~2h
+Depends on: T24, T25, T26, T27, T28
+Unblocks: T30 (CZ extension only — EN-triplet baseline ships independently)
+Estimate: ~3h
 
 ## Goal
 
-Add a synthesized bilingual CZ/EN senior-management CV fixture so the regression class that broke on Profile.pdf is permanently guarded by a live test. The current corpus is 100% English with market-standard headline titles — none of the existing fixtures exercise CZ section headers, multi-column PDF stress, or non-market headline strings.
+Add **three** synthesized bilingual CZ/EN CV fixtures so the regression class that broke on Profile.pdf is permanently guarded by live tests. **Why three, not one**: a single CZ fixture replicates the operator-blindness that produced the EN-only corpus in the first place. T24's section-vocab regex would happily memorize fixture #11's exact aliases and pass; the next CZ CV with a slightly different header set would fail again. Three fixtures spanning shape variation force T24/T26/T27/T28 to actually generalize.
 
-The fixture must be fully synthesized (not derived from the operator's real CV) to keep `tests/` free of real-person PII. SOURCES.md must anchor a senior-management CZK row so deterministic salary asserts can run.
+The current corpus is 100% English with market-standard headline titles — none of the existing fixtures exercise CZ section headers, multi-column PDF stress, or non-market headline strings.
+
+Fixtures must be fully synthesized (not derived from the operator's real CV) to keep `tests/` free of real-person PII. SOURCES.md must anchor a senior-management CZK row per fixture so deterministic salary asserts can run.
 
 ## Deliverables
 
-- [ ] New persona text in `scripts/build_cv_fixtures.py`:
-  - **Persona**: Czech bilingual senior data leader, ~12y experience, current title `"Member of Staff"` at a stealth startup, prior `"Head of Data Science"` at a CZ retail company, prior `"Senior Manager, AI & Data"` at a CZ enterprise. PhD applied ML.
-  - **Headers in CZ**: `Pracovní zkušenosti`, `Vzdělání`, `Nejčastější dovednosti`, `Jazyky`, `Publikace`, `Certifikace`.
-  - **Mixed bullets**: some EN technical bullets, some CZ short bullets, mirroring the real Profile.pdf shape.
-  - **Headline tagline with comma**: `"Data Gardener | AI, Data Science & Engineering @Stealth"` (or equivalent) so T28's tagline fix is exercised end-to-end.
-- [ ] Render fixture to `tests/fixtures/cvs/11_cz_member_of_staff_<surname>.pdf` (multi-column layout matching the real Profile.pdf shape). Also render plaintext to `tests/fixtures/cvs/11_cz_member_of_staff_<surname>.txt` for fast tests.
-- [ ] `tests/fixtures/cvs/SOURCES.md`: add a new row for fixture #11 anchoring the expected senior-management salary band (e.g. 200k–300k CZK/mo gross), with at least 2 source URLs (platy.cz / profesia.cz) and a one-line provenance note.
+- [ ] **Three personas** in `scripts/build_cv_fixtures.py` spanning the CZ-CV shape space:
+  - **#11 — Bilingual senior at stealth startup** (`11_cz_bilingual_member_of_staff_<surname>`):
+    - ~12y exp, current `"Member of Staff"` at stealth, prior `"Head of Data Science"` at CZ retail, prior `"Senior Manager, AI & Data"` at CZ enterprise. PhD applied ML.
+    - Headers in CZ: `Pracovní zkušenosti`, `Vzdělání`, `Nejčastější dovednosti`, `Jazyky`, `Publikace`, `Certifikace`.
+    - Mixed bullets: some EN technical, some CZ short bullets — mirrors Profile.pdf shape.
+    - Headline tagline: `"Data Gardener | AI, Data Science & Engineering @Stealth"` (exercises T28 + T27 tagline-shape).
+    - Multi-column PDF layout (exercises F1).
+  - **#12 — Czech academic senior researcher** (`12_cz_academic_<surname>`):
+    - ~15y exp, current `"Vedoucí výzkumného týmu"` at a CZ university, prior `"Postdoctoral Researcher"` abroad. PhD + habilitation.
+    - Headers in CZ only: `Akademická praxe`, `Vzdělání`, `Publikace`, `Granty`, `Výuka`, `Konference`.
+    - Bullets in CZ only.
+    - Headline is a market-token CZ title (`Vedoucí výzkumného týmu`) — exercises T27 market-token allowlist on CZ tokens.
+    - Single-column PDF layout.
+  - **#13 — Czech corporate manager (no English at all)** (`13_cz_corporate_manazer_<surname>`):
+    - ~10y exp, current `"Manažer datového oddělení"` at a CZ bank, prior `"Senior analytik"` at a CZ telco, prior `"Datový analytik"` at a CZ retailer.
+    - Headers in CZ: `Praxe`, `Vzdělání`, `Dovednosti`, `Jazyky`, `Reference`.
+    - All bullets in CZ; no English anywhere.
+    - Headline `"Manažer datového oddělení"` — market-token CZ.
+    - Single-column PDF.
+- [ ] Render each persona to both `.pdf` and `.txt` under `tests/fixtures/cvs/`. **Determinism**: pin font + reportlab/weasyprint version in `scripts/build_cv_fixtures.py`; commit the resulting PDFs (not regenerated in CI). Document in script docstring: "regeneration requires reviewer sign-off; PDFs are committed artifacts".
+- [ ] `tests/fixtures/cvs/SOURCES.md`: add **three rows** (one per fixture) anchoring expected salary bands with ≥2 source URLs each (platy.cz / profesia.cz / paylab.cz). Calibrated to the persona's seniority + sector:
+  - #11 stealth-senior: 200–300k CZK/mo gross
+  - #12 academic-senior: 60–110k CZK/mo gross (academia is lower-paying)
+  - #13 corporate-manager: 110–180k CZK/mo gross
 - [ ] New `tests/test_acceptance_cz.py` (`@pytest.mark.live, slow`):
-  - Session-scoped fixture that runs the pipeline once on fixture #11, caches the `Report`.
-  - `test_score_succeeds_on_cz_senior` — `report.score` is `Score`, not `StageFailure`. `experience` component verified. `total >= 70`.
-  - `test_score_dropped_components_at_most_one` — `len(report.score.dropped) <= 1` (we expect all 4 to land but allow one drop under T25 policy).
-  - `test_salary_lands_in_senior_band` — `report.salary` is `SalaryEstimate`, `currency == "CZK"`, `period == "month"`, `high >= 180_000` (calibrated against SOURCES.md row #11).
-  - `test_salary_non_overlap_with_junior` — load fixture #1 junior report (reuse session cache from T30 if available), assert `senior.salary.low > junior.salary.high`.
-  - `test_pii_name_redacted` — assert at least one `kind="name"` entry in the audit log (T28 regression guard against the tagline bug).
-  - `test_pipeline_all_done` — `final.statuses["score"] == "done" and final.statuses["salary"] == "done"`.
-- [ ] CI wiring: add a path-filtered live job that runs `test_acceptance_cz.py` on PRs touching `src/gander/{score,salary,verify,ingest,redact,extract,normalize}.py` or `src/gander/prompts/**`. Run nightly otherwise. Path filter via GitHub Actions `paths:`.
+  - Session-scoped fixture that runs the pipeline once per CZ fixture, caches each `Report`.
+  - **Per-fixture assertions** (parametrize where possible):
+    - `test_score_succeeds_on_cz_<n>` — `report.score` is `Score`, not `StageFailure`. `experience` verified. `total >= 65` (lower than EN baseline; CZ verify_quote may drop 1 component).
+    - `test_score_dropped_components_at_most_one_on_cz_<n>` — `len(report.score.dropped) <= 1` per T25 policy.
+    - `test_salary_lands_in_expected_band_<n>` — currency CZK, period month, `low <= expected_low * 1.1` AND `high >= expected_high * 0.9` per SOURCES.md row.
+    - `test_pii_name_redacted_<n>` — `count_name >= 1` event fired per T28.
+    - `test_pipeline_all_done_<n>` — `final.statuses["score"] == "done" and final.statuses["salary"] == "done"`.
+    - `test_role_normalized_event_per_fixture_<n>` — assert `role_normalized` event fires per fixture, with `source` matching expected per persona (`tagline_shape` for #11, `market_token` for #12 + #13).
+  - **Cross-fixture**:
+    - `test_salary_non_overlap_with_junior_for_seniors` — for fixtures #11 and #13 (both senior+), `salary.low > junior_fixture(#1).salary.high`. Skip for #12 (academia is lower than senior IC).
+- [ ] CI wiring: add a path-filtered live job that runs `test_acceptance_cz.py` on PRs touching `src/gander/{score,salary,verify,ingest,redact,extract,normalize,tenure}.py` or `src/gander/prompts/**`. Run nightly otherwise. Path filter via GitHub Actions `paths:`.
 
 ## Verification
 
@@ -37,7 +59,7 @@ The fixture must be fully synthesized (not derived from the operator's real CV) 
 uv run pytest -m live tests/test_acceptance_cz.py -v
 ```
 
-Expected: all 6 tests pass after T24 + T25 + T26 + T27 + T28 land. Failure of any of the 6 means the fix surface didn't fully land.
+Expected: all per-fixture tests pass after T24 + T25 + T26 + T27 + T28 land. Failure on a *single* fixture isolates which root-cause class wasn't fully addressed (e.g. #12 fails on CZ academic header → T24 vocab gap; #13 fails on CZ-only bullets → T26 fallback cap or extract.md prompt).
 
 ## Reference
 

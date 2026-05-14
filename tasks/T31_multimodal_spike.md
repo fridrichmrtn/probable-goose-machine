@@ -1,10 +1,12 @@
 # T31 — SPIKE: multimodal vision ingest as L1+L2 alternative
 
-Status: todo
+Status: deferred-post-submission
 Owner: ai-ml-engineer
 Depends on: —
 Unblocks: —
 Estimate: ~1–2 sessions (spike, no production code)
+
+> **Deferred** (2026-05-14): submission deadline is today; this spike's outcome cannot influence T24/T28 in time. Pick up post-submission as round-2 architectural prep. Does not block T24–T30 hardening work.
 
 ## Goal
 
@@ -30,6 +32,7 @@ Cost: a single vision call replaces L1+L2's deterministic stages. Risk: vendor l
 
 ## Deliverables
 
+- [ ] **Precondition gate (do this first, ~10 min):** verify MiniMax exposes a vision modality on the OpenAI-compatible endpoint via a single API smoke call. If it does not, the spike concludes "do nothing" without writing the prototype script — provider singleness (CLAUDE.md / `gander.llm`) closes the option, and the rest of the deliverables are skipped. Document the API check result + endpoint version in `tasks/T31_dev-report.md` regardless of outcome.
 - [ ] Spike branch (`spike/multimodal-ingest`) — not merged.
 - [ ] Vendor scan: which VL models can consume PDF-as-image and return structured text?
   - **MiniMax**: does the OpenAI-compatible endpoint (`abab*`, `MiniMax-M*`) expose a `vision` modality? If not, this option is closed by the `gander.llm` provider-singleness constraint (CLAUDE.md).
