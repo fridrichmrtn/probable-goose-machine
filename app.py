@@ -4,10 +4,12 @@ The UI is a pure function of `Report` state: every yield from `pipeline.run`
 re-renders both the tracker HTML and the body markdown. No UI-side state.
 
 `_initial_report()` placeholder blocks are never rendered. `render_tracker`
-only reads `.statuses`, and the `gr.Markdown` body is initialised with a
-static "Upload a CV…" string — never with `render_body(_initial_report())`.
-Calling `render_body` on this report would short-circuit to a `StageFailure`
-callout because `report.profile` is a failure (see `report.py` line 290).
+only reads `.statuses`, and the `gr.Markdown` body is initialised empty —
+never with `render_body(_initial_report())`. Calling `render_body` on this
+report would short-circuit to a `StageFailure` callout because
+`report.profile` is a failure (see `report.py` line 290). The tracker is
+also initialised empty so the 5-pill row only appears once the user clicks
+Analyze CV (the handler's first yield calls `render_tracker(reading_report)`).
 """
 
 from __future__ import annotations
@@ -42,31 +44,74 @@ def _initial_report() -> Report:
     )
 
 
-with gr.Blocks(title="Gander — a closer look at any CV.") as demo:
-    gr.Markdown(
-        "# Gander\n"
-        "*a closer look at any CV*\n\n"
-        "Upload a CV — PDF or DOCX, max 10 MB. Not retained after processing."
+_HERO_CSS = """<style>
+.gander-hero {
+  margin: 1rem 0 2.5rem; font-family: system-ui, sans-serif;
+  display: flex; align-items: center; gap: 1.25rem;
+}
+.gander-hero .mascot { width: 64px; height: 64px; flex-shrink: 0; color: #344054; }
+.gander-hero .text { display: flex; flex-direction: column; gap: 0.4rem; }
+.gander-hero h1 {
+  margin: 0; font-size: 2.125rem; line-height: 1.2;
+  font-weight: 600; letter-spacing: -0.01em;
+}
+.gander-hero p  { margin: 0; color: #475467; font-size: 1.0625rem; line-height: 1.5; }
+.gander-caption { color: #667085; font-size: 0.85rem; margin: 0.75rem 0 1.25rem; }
+.gradio-container button.primary { margin-top: 0.5rem !important; }
+button.primary, .gradio-container button.primary {
+  background: #b54708 !important; border-color: #b54708 !important; color: #ffffff !important;
+}
+button.primary:hover, .gradio-container button.primary:hover {
+  background: #93370d !important; border-color: #93370d !important;
+}
+button.primary:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+@keyframes ganderPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+.pill.running { animation: ganderPulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .pill.running { animation: none; } }
+</style>"""
+
+_HERO_HTML = """
+<div class="gander-hero">
+  <svg class="mascot" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"
+       stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+       role="img" aria-label="Gander logo: a goose with a monocle">
+    <title>Gander</title>
+    <circle cx="34" cy="22" r="11"/>
+    <path d="M45 19 L 58 22 L 45 26"/>
+    <path d="M28 32 C 22 38, 30 46, 22 52 C 18 55, 14 56, 11 57"/>
+    <circle cx="34" cy="22" r="1.4" fill="currentColor" stroke="none"/>
+    <path d="M43 30 Q 45 35 41 38" stroke-dasharray="1.5 2"/>
+  </svg>
+  <div class="text">
+    <h1>Gander</h1>
+    <p>Take a closer look at any CV.</p>
+  </div>
+</div>
+"""
+
+
+with gr.Blocks(title="Gander · CV analysis") as demo:
+    gr.HTML(_HERO_CSS + _HERO_HTML)
+    file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
+    gr.HTML('<p class="gander-caption">PDF or DOCX, max 10 MB. Not retained after processing.</p>')
+    run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
+    tracker_html = gr.HTML(value="")
+    report_md = gr.Markdown(value="")
+
+    file_in.change(
+        lambda f: gr.Button(interactive=f is not None),
+        inputs=[file_in],
+        outputs=[run_btn],
     )
-    file_in = gr.File(file_types=[".pdf", ".docx"], label="CV", type="filepath")
-    run_btn = gr.Button("Generate report", variant="primary")
-    tracker_html = gr.HTML(value=render_tracker(_initial_report()))
-    report_md = gr.Markdown(value="*Upload a CV and click Generate report.*")
 
     async def handle(file_path: str | None) -> AsyncIterator[tuple[str, str]]:
         if file_path is None:
-            yield (
-                render_tracker(_initial_report()),
-                "*No file selected. Upload a PDF or DOCX (max 10 MB) and click Generate report.*",
-            )
+            yield ("", "*Select a CV first.*")
             return
         try:
             file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
         except OSError:
-            yield (
-                render_tracker(_initial_report()),
-                "*Could not read uploaded file. Please try again.*",
-            )
+            yield ("", "*Could not read uploaded file. Please try again.*")
             return
         filename = Path(file_path).name
 
@@ -82,7 +127,7 @@ with gr.Blocks(title="Gander — a closer look at any CV.") as demo:
             body = (
                 render_body(report)
                 if isinstance(report.profile, Profile)
-                else "*Generating report — stages running…*"
+                else "*Generating report…*"
             )
             yield render_tracker(report), body
 
