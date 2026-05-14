@@ -97,6 +97,25 @@ _CSS = """<style>
 }
 .gander-callout::before { content: "⚠"; margin-right: 0.4rem; }
 @media (prefers-reduced-motion: reduce) { .pill { transition: none; } }
+.gander-output .prose, .gander-output .md {
+  max-width: 72ch; margin-inline: auto;
+}
+.gander-output table {
+  border-collapse: collapse; margin: 0.5rem 0;
+}
+.gander-output th, .gander-output td {
+  border: 1px solid #e4e7ec; padding: 0.4rem 0.6rem; text-align: center;
+}
+@media (prefers-color-scheme: dark) {
+  .pill { background: #1f1f23; border-color: #3f3f46; color: #d4d4d8; }
+  .pill.pending { background: #1f1f23; border-color: #3f3f46; color: #a1a1aa; }
+  .pill.running { background: #422006; border-color: #f59e0b; color: #fbbf24; }
+  .pill.done    { background: #052e16; border-color: #22c55e; color: #4ade80; }
+  .pill.failed  { background: #450a0a; border-color: #ef4444; color: #fca5a5; }
+  .pill.skipped { background: #1f1f23; border-color: #3f3f46; color: #71717a; }
+  .gander-callout { background: #450a0a; color: #fecaca; border-left-color: #ef4444; }
+  .gander-output th, .gander-output td { border-color: #3f3f46; }
+}
 </style>"""
 
 
