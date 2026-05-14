@@ -331,6 +331,34 @@ def test_render_body_escapes_html_in_source_snippet() -> None:
 
 
 @pytest.mark.fast
+def test_render_body_partial_score_shows_dropped_footer() -> None:
+    # T25: partial Score renders only surviving components in the table and a
+    # one-line italic footer naming the dropped categories. The total reflects
+    # drop-as-zero arithmetic; the reviewer can see why the score is depressed
+    # without us silently omitting categories.
+    partial_score = Score(
+        components=[
+            _component("experience", 80),
+            _component("education", 60),
+            _component("soft_signals", 40),
+        ],
+        dropped=["skills"],
+    )
+    report = _make_report(score=partial_score)
+    out = render_body(report)
+
+    # Total: 80*0.30 + 60*0.20 + 40*0.15 = 24 + 12 + 6 = 42.
+    assert "## Score: 42/100" in out
+    # Surviving component labels in the table header; dropped one absent.
+    for label in ("Experience", "Education", "Soft"):
+        assert f"<th>{label}</th>" in out
+    assert "<th>Skills</th>" not in out
+    # Italic dropped-components footer (matches T25 §Deliverables wording).
+    assert "1 component(s) dropped (Skills)" in out
+    assert "no anchor verified against CV text" in out
+
+
+@pytest.mark.fast
 def test_render_body_score_failure_keeps_other_sections() -> None:
     failure = StageFailure(
         stage="score",

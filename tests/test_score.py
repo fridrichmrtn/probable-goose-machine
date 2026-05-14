@@ -44,22 +44,24 @@ def test_score_total_is_deterministic_weighted_sum() -> None:
     assert score.total == 69
 
 
-@pytest.mark.fast
-async def test_score_returns_stage_failure_when_anchor_unverifiable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    cv_text = (
-        "## Work Experience\n"
-        "Built a recommendation system that reduced churn by eighteen percent.\n"
-        "Mentored four junior engineers across two squads in the platform team.\n"
-        "## Education\n"
-        "MSc in Computer Science, accredited university, two thousand eighteen.\n"
-        "## Skills\n"
-        "Python, PyTorch, async pipelines, vector databases, distributed systems work.\n"
-    )
-    redacted = RedactedCV(text=cv_text, audit_log=[])
+# Shared CV body for the T25 partial-score scenarios. Each section header is
+# present so verify_quote's section-restricted path hits cleanly (no fallback,
+# no section_miss events) — the partial behaviour comes purely from which
+# anchor quotes verify, not from header misalignment.
+_T25_CV = (
+    "## Work Experience\n"
+    "Built a recommendation system that reduced churn by eighteen percent.\n"
+    "Mentored four junior engineers across two squads in the platform team.\n"
+    "## Education\n"
+    "MSc in Computer Science, accredited university, two thousand eighteen.\n"
+    "## Skills\n"
+    "Python, PyTorch, async pipelines, vector databases, distributed systems work.\n"
+)
+
+
+def _t25_profile() -> Profile:
     item = ProfileItem(text="x", anchor=Anchor(quote="recommendation system that reduced churn by"))
-    profile = Profile(
+    return Profile(
         skills=[item],
         experience=[item],
         education=[item],
@@ -69,44 +71,39 @@ async def test_score_returns_stage_failure_when_anchor_unverifiable(
         detected_years_experience=5,
     )
 
+
+# Anchor quotes that DO substring-match _T25_CV under their respective sections.
+_VERIFIES_SKILLS = Anchor(
+    quote="python, pytorch, async pipelines, vector databases", section="Skills"
+)
+_VERIFIES_EXPERIENCE = Anchor(
+    quote="recommendation system that reduced churn by", section="Work Experience"
+)
+_VERIFIES_EDUCATION = Anchor(
+    quote="msc in computer science, accredited university", section="Education"
+)
+_VERIFIES_SOFT = Anchor(
+    quote="mentored four junior engineers across two squads", section="Work Experience"
+)
+
+
+@pytest.mark.fast
+async def test_score_no_partial_when_all_verify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # T25 regression: 4-of-4 verify path must NOT take the partial branch.
+    # `score_partial` must NOT fire; `Score.dropped` must be empty.
     payload = _ComponentList(
         components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
             Component(
-                name="skills",
-                score_0_100=70,
-                justification=".",
-                anchor=Anchor(
-                    quote="python, pytorch, async pipelines, vector databases",
-                    section="Skills",
-                ),
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
             ),
             Component(
-                name="experience",
-                score_0_100=65,
-                justification=".",
-                anchor=Anchor(
-                    quote="recommendation system that reduced churn by",
-                    section="Work Experience",
-                ),
-            ),
-            # This one is unverifiable: paraphrased, not a substring of cv_text.
-            Component(
-                name="education",
-                score_0_100=55,
-                justification=".",
-                anchor=Anchor(
-                    quote="masters degree in computer science earned in twenty eighteen",
-                    section="Education",
-                ),
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
             ),
             Component(
-                name="soft_signals",
-                score_0_100=60,
-                justification=".",
-                anchor=Anchor(
-                    quote="mentored four junior engineers across two squads",
-                    section="Work Experience",
-                ),
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
             ),
         ]
     )
@@ -117,24 +114,290 @@ async def test_score_returns_stage_failure_when_anchor_unverifiable(
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
     monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
+    redacted = RedactedCV(text=_T25_CV, audit_log=[])
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        result = await score_profile(redacted, profile)
+        result = await score_profile(redacted, _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == []
+    assert {c.name for c in result.components} == set(
+        ("skills", "experience", "education", "soft_signals")
+    )
+    assert not any(e["event"] == "score_partial" for e in events)
+    components_evt = next(e for e in events if e["event"] == "score_components")
+    assert components_evt["verified"] == 4
+    assert components_evt["dropped"] == 0
+
+
+@pytest.mark.fast
+async def test_score_partial_missing_skills(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # T25: skills anchor paraphrased → only 3-of-4 verify. Result is a Score
+    # with dropped=["skills"], total reflects the weighted sum of survivors
+    # with skills contributing 0 (no re-normalization).
+    payload = _ComponentList(
+        components=[
+            # Paraphrase — won't match _T25_CV under the Skills section.
+            Component(
+                name="skills",
+                score_0_100=70,
+                justification=".",
+                anchor=Anchor(
+                    quote="rust, kafka, redis, distributed cache, message bus",
+                    section="Skills",
+                ),
+            ),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    redacted = RedactedCV(text=_T25_CV, audit_log=[])
+    result = await score_profile(redacted, _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == ["skills"]
+    assert {c.name for c in result.components} == {"experience", "education", "soft_signals"}
+    # Drop-as-zero: 65*0.30 + 55*0.20 + 60*0.15 = 19.5 + 11.0 + 9.0 = 39.5 → 40.
+    assert result.total == 40
+
+
+@pytest.mark.fast
+async def test_score_partial_missing_two(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # T25: skills + education both paraphrased; experience + soft_signals verify.
+    payload = _ComponentList(
+        components=[
+            Component(
+                name="skills",
+                score_0_100=70,
+                justification=".",
+                anchor=Anchor(
+                    quote="rust, kafka, redis, distributed cache, message bus",
+                    section="Skills",
+                ),
+            ),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education",
+                score_0_100=55,
+                justification=".",
+                anchor=Anchor(
+                    quote="doctorate degree from a prestigious overseas institution finally",
+                    section="Education",
+                ),
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    redacted = RedactedCV(text=_T25_CV, audit_log=[])
+    result = await score_profile(redacted, _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == ["education", "skills"]
+    assert {c.name for c in result.components} == {"experience", "soft_signals"}
+
+
+@pytest.mark.fast
+async def test_score_experience_missing_still_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # T25: experience is the only mandatory component. Dropping it must keep
+    # the existing fail-closed StageFailure path; the partial branch must NOT
+    # activate even though 3 other components verify.
+    payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience",
+                score_0_100=65,
+                justification=".",
+                anchor=Anchor(
+                    quote="led a transformational programme across six business units",
+                    section="Work Experience",
+                ),
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    redacted = RedactedCV(text=_T25_CV, audit_log=[])
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(redacted, _t25_profile())
+
     assert isinstance(result, StageFailure)
     assert result.stage == "score"
     assert "scoring components" in result.user_message.lower()
-
-    # Observability: the failure path must emit both the components counter
-    # and an explicit stage_failure event (PRD §4.8 — every stage failure
-    # carries stage + reason in the log stream).
-    components_evt = next(e for e in events if e["event"] == "score_components")
-    assert components_evt["stage"] == "score"
-    assert components_evt["dropped"] >= 1
-    assert components_evt["verified"] == 3
     failure_evt = next(e for e in events if e["event"] == "stage_failure")
-    assert failure_evt["stage"] == "score"
     assert failure_evt["reason"] == "missing_categories"
-    assert failure_evt["missing"] == ["education"]
+    assert "experience" in failure_evt["missing"]
+    assert not any(e["event"] == "score_partial" for e in events)
+
+
+@pytest.mark.fast
+def test_score_total_arithmetic_drop_as_zero() -> None:
+    # Concrete arithmetic per T25_score_partial.md §Deliverables:
+    # partial (exp:80, edu:60, soft:40; skills dropped) → 80*0.30 + 60*0.20 +
+    # 40*0.15 = 24 + 12 + 6 = 42 → int(42.0 + 0.5) = 42.
+    # full-4 baseline same + skills:50 → 42 + 0.35*50 = 59.5 → int(60.0) = 60.
+    # Same CV, fewer verified anchors → strictly lower total: the dropped
+    # component cannot be a net positive contributor.
+    partial = Score(
+        components=[
+            Component(
+                name="experience", score_0_100=80, justification=".", anchor=Anchor(quote="x")
+            ),
+            Component(
+                name="education", score_0_100=60, justification=".", anchor=Anchor(quote="x")
+            ),
+            Component(
+                name="soft_signals", score_0_100=40, justification=".", anchor=Anchor(quote="x")
+            ),
+        ],
+        dropped=["skills"],
+    )
+    full = Score(
+        components=[
+            Component(name="skills", score_0_100=50, justification=".", anchor=Anchor(quote="x")),
+            Component(
+                name="experience", score_0_100=80, justification=".", anchor=Anchor(quote="x")
+            ),
+            Component(
+                name="education", score_0_100=60, justification=".", anchor=Anchor(quote="x")
+            ),
+            Component(
+                name="soft_signals", score_0_100=40, justification=".", anchor=Anchor(quote="x")
+            ),
+        ],
+    )
+    assert partial.total == 42
+    assert full.total == 60
+    assert partial.total < full.total
+
+
+@pytest.mark.fast
+def test_score_partial_no_inflation_vs_full_verification() -> None:
+    # Regression guard against accidental re-normalization: a partial Score's
+    # total must equal a full Score whose dropped component contributes 0, and
+    # must be strictly less than a full Score whose dropped component has any
+    # positive score. If anyone re-introduces re-normalization, this test fails
+    # immediately because the partial total inflates above the score=0 baseline.
+    surviving = [
+        Component(name="experience", score_0_100=70, justification=".", anchor=Anchor(quote="x")),
+        Component(name="education", score_0_100=60, justification=".", anchor=Anchor(quote="x")),
+        Component(name="soft_signals", score_0_100=50, justification=".", anchor=Anchor(quote="x")),
+    ]
+    partial = Score(components=surviving, dropped=["skills"])
+    full_zero = Score(
+        components=surviving
+        + [Component(name="skills", score_0_100=0, justification=".", anchor=Anchor(quote="x"))]
+    )
+    full_low = Score(
+        components=surviving
+        + [Component(name="skills", score_0_100=1, justification=".", anchor=Anchor(quote="x"))]
+    )
+    full_high = Score(
+        components=surviving
+        + [Component(name="skills", score_0_100=100, justification=".", anchor=Anchor(quote="x"))]
+    )
+    # The equality with full_zero is the load-bearing regression guard: under
+    # re-normalization, partial would compute ~62 (40.5 / 0.65) and this line
+    # immediately reds. The bracket against full_high confirms the cap holds
+    # even when the dropped component carries maximum weight.
+    assert partial.total == full_zero.total
+    # full_low (score_0_100=1) adds 0.35 to the weighted sum — small enough
+    # that int(x+0.5) rounding can leave the total unchanged, so the bound is
+    # `<=` not `<`. The strict inequality is reserved for full_high below.
+    assert partial.total <= full_low.total
+    assert partial.total < full_high.total
+
+
+@pytest.mark.fast
+async def test_score_partial_emits_obs_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PRD §4.8: every emitted event must be CI-protected. This test exists so
+    # the `score_partial` event cannot be silently removed or renamed without
+    # turning the suite red. Asserts both the dropped/surviving payload shape
+    # and the stage attribution.
+    payload = _ComponentList(
+        components=[
+            Component(
+                name="skills",
+                score_0_100=70,
+                justification=".",
+                anchor=Anchor(
+                    quote="rust, kafka, redis, distributed cache, message bus",
+                    section="Skills",
+                ),
+            ),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    redacted = RedactedCV(text=_T25_CV, audit_log=[])
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(redacted, _t25_profile())
+
+    assert isinstance(result, Score)
+    partial_evt = next(e for e in events if e["event"] == "score_partial")
+    assert partial_evt["stage"] == "score"
+    assert partial_evt["dropped"] == ["skills"]
+    assert partial_evt["surviving"] == ["education", "experience", "soft_signals"]
 
 
 @pytest.mark.fast

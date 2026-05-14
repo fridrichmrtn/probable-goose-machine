@@ -217,10 +217,13 @@ def _score_section(score: Score | StageFailure | None) -> str:
     if isinstance(score, StageFailure):
         return "## Score\n\n" + _failure_callout_md(score)
 
-    # Build component lookup; schema guarantees one component per category.
+    # T25: schema allows partial Score (experience-mandatory; others optional).
+    # Render only surviving components — dropped categories are listed in the
+    # footer below so the reviewer sees they were zero-weighted, not omitted.
     by_name: dict[str, Component] = {c.name: c for c in score.components}
-    headers = "".join(f"<th>{_COMPONENT_DISPLAY[n]}</th>" for n in _COMPONENT_ORDER)
-    cells = "".join(f"<td>{by_name[n].score_0_100}</td>" for n in _COMPONENT_ORDER)
+    surviving = [n for n in _COMPONENT_ORDER if n in by_name]
+    headers = "".join(f"<th>{_COMPONENT_DISPLAY[n]}</th>" for n in surviving)
+    cells = "".join(f"<td>{by_name[n].score_0_100}</td>" for n in surviving)
     table = (
         '<table class="gander-components">'
         f"<thead><tr>{headers}</tr></thead>"
@@ -229,7 +232,7 @@ def _score_section(score: Score | StageFailure | None) -> str:
     )
 
     details_blocks: list[str] = []
-    for idx, name in enumerate(_COMPONENT_ORDER):
+    for idx, name in enumerate(surviving):
         comp = by_name[name]
         open_attr = " open" if idx == 0 else ""
         quote = _esc(comp.anchor.quote)
@@ -242,7 +245,16 @@ def _score_section(score: Score | StageFailure | None) -> str:
             "</details>"
         )
 
-    return f"## Score: {score.total}/100\n\n{table}\n\n" + "\n".join(details_blocks)
+    body = f"## Score: {score.total}/100\n\n{table}\n\n" + "\n".join(details_blocks)
+    if score.dropped:
+        # Italic single-line footer naming the dropped categories so the
+        # reviewer sees why the total is depressed (drop-as-zero, no re-norm).
+        names = ", ".join(_COMPONENT_DISPLAY[n] for n in score.dropped)
+        body += (
+            f"\n\n_Note: {len(score.dropped)} component(s) dropped ({names}): "
+            "no anchor verified against CV text._"
+        )
+    return body
 
 
 def _format_money(n: int) -> str:
