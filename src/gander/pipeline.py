@@ -59,7 +59,7 @@ _CASCADE_PROFILE_FAILED: dict[StageName, str] = {
     "confidence": "Cannot judge confidence without salary estimate.",
     "growth": "Cannot generate growth plan without profile extraction.",
 }
-_CONFIDENCE_NO_SALARY_RATIONALE = "Insufficient market data — see salary block."
+_CONFIDENCE_NO_SALARY_RATIONALE = "Insufficient market data. See salary block."
 _GROWTH_NO_BASELINE = "Cannot generate growth plan without scoring or salary baseline."
 _GROWTH_NEEDS_SCORE = (
     "Cannot generate growth plan without scoring; salary baseline alone is insufficient."

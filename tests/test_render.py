@@ -223,7 +223,7 @@ def test_render_body_populated_contains_expected_content() -> None:
     assert "<details open>" in out
     # Plan / growth list renders with literal markdown emphasis.
     assert "**learn rust**" in out
-    assert "*6 months*" in out
+    assert "*(6 months)*" in out
     # Confidence badge.
     assert "[!] High" in out
 

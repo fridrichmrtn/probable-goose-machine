@@ -218,7 +218,7 @@ def _score_section(score: Score | StageFailure | None) -> str:
         section = f" <em>({_esc(comp.anchor.section)})</em>" if comp.anchor.section else ""
         details_blocks.append(
             f"<details{open_attr}>"
-            f"<summary>{_COMPONENT_DISPLAY[name]} — {comp.score_0_100}/100</summary>"
+            f"<summary>{_COMPONENT_DISPLAY[name]}: {comp.score_0_100}/100</summary>"
             f"<p>{_esc(comp.justification)}</p>"
             f"<blockquote>“{quote}”{section}</blockquote>"
             "</details>"
@@ -232,12 +232,12 @@ def _format_money(n: int) -> str:
 
 
 def _source_line(src: Source) -> str:
-    # `[{domain}] — "{snippet}"` lives in a markdown context where a literal
+    # `[{domain}]: "{snippet}"` lives in a markdown context where a literal
     # `]` in domain or `](` in snippet would forge a link target. Route both
     # through `_md` so the brackets/parens stay inert text.
     snippet = _md(src.snippet)
     domain = _md(src.domain)
-    return f'- [{domain}] — "{snippet}"'
+    return f'- [{domain}]: "{snippet}"'
 
 
 def _salary_section(salary: SalaryEstimate | StageFailure | None) -> str:
@@ -261,7 +261,7 @@ def _confidence_section(conf: Confidence | StageFailure | None) -> str:
     if isinstance(conf, StageFailure):
         return "## Confidence\n\n" + _failure_callout_md(conf)
     badge = _CONFIDENCE_BADGE[conf.tier]
-    return f"## Confidence\n\n**{badge}** — {_md(conf.rationale)}"
+    return f"## Confidence\n\n**{badge}**: {_md(conf.rationale)}"
 
 
 def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
@@ -273,10 +273,10 @@ def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
         return "## Plan\n\n_(no actions)_"
     lines: list[str] = []
     for idx, action in enumerate(growth, start=1):
-        # Literal asterisks per spec: **What** — *N months* — Mechanism.
+        # Literal asterisks per spec: **What** *(N months)*: Mechanism.
         lines.append(
-            f"{idx}. **{_md(action.what)}** — "
-            f"*{action.time_horizon_months} months* — "
+            f"{idx}. **{_md(action.what)}** "
+            f"*({action.time_horizon_months} months)*: "
             f"{_md(action.mechanism)}"
         )
     return "## Plan\n\n" + "\n".join(lines)
@@ -284,7 +284,7 @@ def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
 
 def _footer(report: Report) -> str:
     weight_rows = "\n".join(
-        f"- **{_COMPONENT_DISPLAY[name]}** — {int(weight * 100)}%"
+        f"- **{_COMPONENT_DISPLAY[name]}**: {int(weight * 100)}%"
         for name, weight in COMPONENT_WEIGHTS.items()
     )
     # Format with 4 decimals on cost (covers the 1e-4 USD floor of cheap-model
