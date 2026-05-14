@@ -39,12 +39,12 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
 - [ ] **T23** — README finalize (`tasks/T23_readme.md`)
 
-## Post-ship hardening (Profile.pdf bilingual-senior regression — see plan)
+## Post-ship hardening (Profile.pdf bilingual-senior regression — see plan; revised after multi-agent review 2026-05-14)
 - [ ] **T24** — Multilingual section vocabulary, R1 (`tasks/T24_section_vocab.md`)
-- [ ] **T25** — Score: experience-mandatory + re-normalized total, R2 (`tasks/T25_score_partial.md`)
-- [ ] **T26** — verify_quote: section-fallback + telemetry, R3 (`tasks/T26_verify_fallback.md`)
-- [ ] **T27** — Role normalization + salary integration, R4+R5 (`tasks/T27_role_normalize.md`)
+- [ ] **T25** — Score: experience-mandatory, drop-as-zero, R2 (`tasks/T25_score_partial.md`)
+- [ ] **T26** — verify_quote: section-fallback + per-stage cap, R3 (`tasks/T26_verify_fallback.md`)
+- [ ] **T27** — Role normalization (polarity-flipped + LLM fallback) + salary 3-shot, R4+R5 (`tasks/T27_role_normalize.md`) — *deps T28*
 - [ ] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`)
-- [ ] **T29** — Acceptance eval: bilingual senior fixture #11 + assertions (`tasks/T29_cz_senior_fixture.md`) — *deps T24, T25, T26, T27*
-- [ ] **T30** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *deps T29*
-- [ ] **T31** — SPIKE: multimodal vision ingest as L1+L2 alternative (`tasks/T31_multimodal_spike.md`) — *parallel; spike-only, no production code*
+- [ ] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *deps T24, T25, T26, T27, T28*
+- [ ] **T30** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *phase 1 EN triplet ships independently; phase 2 CZ ext. deps T29*
+- [ ] ~~**T31** — SPIKE: multimodal vision ingest~~ — **deferred post-submission** (`tasks/T31_multimodal_spike.md`)

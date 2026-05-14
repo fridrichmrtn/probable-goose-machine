@@ -38,12 +38,14 @@ T00 ──┬── T01 ── T02 ──┬── T05 (spike, gates stage tasks
 
 # Post-ship hardening (bilingual-senior regression on Profile.pdf)
 
-T24 (section vocab) ─┐
-T25 (score partial) ─┤
-T26 (verify fallback)┤
-T27 (role normalize) ┴── T29 (CZ senior fixture) ── T30 (§5.4 CI gate, closes T17)
-T28 (redact + tenure)
-T31 (multimodal spike) — parallel, no merge
+T24 (section vocab) ──────────┐
+T25 (score partial) ──────────┤
+T26 (verify fallback) ────────┤
+T28 (redact+tenure) ─┬── T27 (role normalize) ──┤
+                     └─────────────────────────────┴── T29 (3 CZ fixtures) ── T30 phase 2 (CZ ext.)
+
+T30 phase 1 (EN triplet, closes T17) — independent, ships first
+T31 (multimodal spike) — DEFERRED post-submission
 ```
 
 ## Task list
@@ -75,12 +77,14 @@ T31 (multimodal spike) — parallel, no merge
 | T22 | L9 HF Space + secrets wiring | T16 | software-engineer | 45 min |
 | T23 | L9 README incl. Decisions section | T17–T22 | (owner) | 90 min |
 | T24 | Multilingual section vocabulary (R1) | — | software-engineer | 45 min |
-| T25 | Score: experience-mandatory + re-normalized total (R2) | — | ai-ml-engineer | 45 min |
-| T26 | verify_quote: section-fallback + telemetry (R3) | — | software-engineer | 30 min |
-| T27 | Role normalization + salary integration (R4+R5) | — | ai-ml-engineer | 75 min |
+| T25 | Score: experience-mandatory, drop-as-zero (R2) | — | ai-ml-engineer | 45 min |
+| T26 | verify_quote: section-fallback + per-stage cap (R3) | — | software-engineer | 45 min |
+| T27 | Role normalization (polarity-flipped + LLM fallback) + salary integration (R4+R5) | T28 | ai-ml-engineer | 90 min |
 | T28 | Redact: tagline-headline name fix + deterministic tenure (R6+R7) | — | software-engineer | 45 min |
-| T29 | Acceptance eval: bilingual CZ senior fixture #11 | T24, T25, T26, T27 | ai-ml-engineer | 2h |
-| T30 | §5.4 differentiation eval wired into CI (closes T17) | T29 | ai-ml-engineer | 60 min |
-| T31 | SPIKE: multimodal vision ingest as L1+L2 alternative | — | ai-ml-engineer | 1–2 sessions |
+| T29 | Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) | T24, T25, T26, T27, T28 | ai-ml-engineer | 3h |
+| T30 | §5.4 differentiation eval wired into CI (closes T17) — phase 1 EN triplet (no deps), phase 2 CZ ext. (T29) | — / T29 | ai-ml-engineer | 75 min |
+| T31 | SPIKE: multimodal vision ingest — **deferred post-submission** | — | ai-ml-engineer | 1–2 sessions |
 
-**Total estimate**: ~14h for T00–T23; +~6h for T24–T30 hardening; T31 is a parallel spike. T24–T28 are independent and parallelizable; T29 fans them in; T30 closes T17.
+**Total estimate**: ~14h for T00–T23; +~7h for T24–T30 hardening (T30 phase 1 + T24/T25/T26/T28 are parallelizable; T27 deps T28; T29 fans in T24–T28; T30 phase 2 deps T29). T31 deferred post-submission.
+
+**Critical path to close T17 today (no implementation, just deliverable closure)**: T30 phase 1 ships with EN triplet only — does not require T24–T29. The CZ extension (phase 2) layers in once T29 lands.

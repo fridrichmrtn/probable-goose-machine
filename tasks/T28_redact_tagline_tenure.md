@@ -3,7 +3,7 @@
 Status: todo
 Owner: software-engineer
 Depends on: —
-Unblocks: —
+Unblocks: T27, T29
 Estimate: ~45 min
 
 ## Goal
@@ -21,9 +21,12 @@ Two related defects surfaced by the bilingual senior CV run:
 - [ ] `src/gander/redact.py::_redact_header_name`:
   - When the first non-blank line contains `,`/`[`/digits AND has no markers, `continue` past it instead of `return text`. The intent is "this isn't a name candidate, look at the next line", not "abort".
   - Bound the scan to the first 10 non-blank lines so we don't scan the whole CV.
-- [ ] `tests/test_redact.py::test_tagline_headline_name_redacted`:
+- [ ] `tests/test_redact.py::test_tagline_headline_name_redacted` (**fast EN unit test, no live calls, no fixtures — `@pytest.mark.fast`**):
   - Input: a CV starting with `"Data Gardener | AI, Data Science & Engineering @Stealth\nPraha\nJana Nováková\n..."`.
   - Assert: `audit_log` contains a `kind="name"` entry; the tagline line is preserved (commas + words intact); `[NAME]` appears at the position of `Jana Nováková`.
+  - **Why this lives in T28 (not T29):** the §4.7 PII compliance contract must not depend on the CZ live fixture in T29 — that's a path-filtered/nightly live test that can flake on MiniMax/DDG. This unit test runs every PR via the fast CI lane.
+- [ ] `tests/test_redact.py::test_tagline_headline_emits_name_count_event` — uses `gander.obs.subscribe(callback)` to capture events; assert `count_name >= 1` event fires for the tagline-headline input. **Closes the silent-§4.7-miss class** that this regression exposed: today, redact succeeds even when no name is found, and only the audit log knows. With this test, CI fails if redact stops emitting.
+- [ ] `tests/test_redact.py::test_pii_count_event_per_corpus_fixture` — parametrize over `tests/fixtures/cvs/*.txt`. For each fixture, run the pipeline through L2 and assert `count_name >= 1` event fires. Catches per-fixture silent misses (e.g. another tagline-shaped CV slipping through).
 
 ### Deterministic tenure
 
@@ -34,7 +37,10 @@ Two related defects surfaced by the bilingual senior CV run:
 - [ ] `src/gander/extract.py`: when `redacted.years_experience_deterministic is not None`, override `profile.detected_years_experience` post-LLM. Emit `obs.emit("extract", "tenure_override", llm=profile.detected_years_experience, deterministic=redacted.years_experience_deterministic, delta=...)` when they differ by ≥1.
 - [ ] `tests/test_tenure.py`:
   - Parametrize over CZ + EN date forms: `"října 2015 - Present"`, `"Sept 2015 - Jan 2026"`, `"2015 - 2023"`, `"ledna 2017 - ledna 2021"` → expected years.
-  - Edge case: overlapping ranges shouldn't double-count.
+  - "Present" tokens to recognize (case-insensitive, accent-stripped): `present`, `current`, `now`, `nyní`, `současnost`, `současně`, `dosud`. Add cases for each.
+  - Edge case: overlapping intervals are **unioned, not summed**. `[(2015-2020), (2018-2023)]` → 8 years, not 10.
+  - Edge case: gaps are not counted. `[(2015-2017), (2020-2023)]` → 5 years (2+3), not 8.
+- [ ] `tests/test_extract.py::test_tenure_override_event_emitted` — uses `gander.obs.subscribe(callback)` to capture events; constructs a `RedactedCV` where `years_experience_deterministic=10` and the LLM returns `detected_years_experience=7`; asserts `tenure_override` event fires with `llm=7, deterministic=10, delta=3` payload. **Required per PRD §4.8.**
 
 ## Verification
 
