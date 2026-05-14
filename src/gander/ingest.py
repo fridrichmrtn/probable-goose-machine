@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from io import BytesIO
 from pathlib import Path
 
@@ -20,18 +21,58 @@ EMPTY_MSG = "This file appears to be empty or too short to be a CV."
 
 SECTION_NAMES: frozenset[str] = frozenset(
     {
+        # English (existing + new for title-case headers seen in CZ/EN CVs)
         "experience",
         "work experience",
+        "professional experience",
         "education",
         "skills",
         "projects",
         "summary",
         "profile",
+        "languages",
+        "certifications",
+        "honors-awards",
+        "awards",
+        "publications",
+        "contact",
+        # Czech — section labels common on bilingual CZ/EN CVs
+        "pracovní zkušenosti",
+        "zkušenosti",
+        "vzdělání",
+        "dovednosti",
+        "nejčastější dovednosti",
+        "jazyky",
+        "certifikace",
+        "ocenění",
+        "publikace",
+        "projekty",
+        "shrnutí",
+        "profil",
+        "kontakt",
     }
 )
 MIN_TEXT_CHARS = 100
+# A section header is a short standalone line, not a paragraph sentence that
+# happens to mention the word "Languages". 40 chars covers every alias above
+# plus typical decorations (trailing colon, single trailing word).
+_MAX_HEADER_CHARS = 40
 
 _ALL_CAPS_HEADER = re.compile(r"^[A-Z][A-Z &/]{6,}$")
+
+
+def _normalize_for_section_match(s: str) -> str:
+    """NFD-decompose, drop combining marks (= strip diacritics), lowercase,
+    collapse internal whitespace. So `Vzdělání` and `vzdelani` and
+    `  VZDĚLÁNÍ  ` all hash the same key."""
+    decomposed = unicodedata.normalize("NFD", s)
+    no_marks = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return " ".join(no_marks.lower().split())
+
+
+_NORMALIZED_SECTION_NAMES: frozenset[str] = frozenset(
+    _normalize_for_section_match(name) for name in SECTION_NAMES
+)
 
 
 def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
@@ -153,9 +194,11 @@ def _looks_like_section_header(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
+    if len(stripped) > _MAX_HEADER_CHARS:
+        return False
     if _ALL_CAPS_HEADER.fullmatch(stripped):
         return True
-    return stripped.lower() in SECTION_NAMES
+    return _normalize_for_section_match(stripped) in _NORMALIZED_SECTION_NAMES
 
 
 def _annotate_sections(text: str) -> str:
