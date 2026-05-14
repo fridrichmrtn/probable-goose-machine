@@ -57,6 +57,8 @@ def test_five_word_quote_rejected() -> None:
 
 
 def test_section_mismatch_returns_false() -> None:
+    # Section header IS present; quote lives in a DIFFERENT section.
+    # After T26: section-restricted on header hit, no whole-CV fallback.
     skills_quote = "python, pytorch, async pipelines, vector databases, distributed"
     assert verify_quote(skills_quote, SOURCE, section="experience") is False
 
@@ -84,13 +86,6 @@ def test_verify_quote_section_miss_quote_also_missing() -> None:
     assert verify_quote(quote, SOURCE, section="references") is False
 
 
-def test_verify_quote_section_match_quote_in_other_section() -> None:
-    # Section header IS present; quote lives in a DIFFERENT section. Today and
-    # after T26: section-restricted on header hit, no fallback. Returns False.
-    skills_quote = "python, pytorch, async pipelines, vector databases, distributed"
-    assert verify_quote(skills_quote, SOURCE, section="experience") is False
-
-
 def test_verify_section_miss_event_emitted() -> None:
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -103,7 +98,8 @@ def test_verify_section_miss_event_emitted() -> None:
     miss = next(e for e in events if e["event"] == "verify_section_miss")
     assert miss["section"] == "references"
     assert miss["fallback"] == "whole_cv"
-    assert miss["stage"] == "verify"
+    # Called outside any stage_boundary → current_stage default is None.
+    assert miss["stage"] is None
 
 
 def test_verify_section_miss_event_not_emitted_on_header_hit() -> None:
