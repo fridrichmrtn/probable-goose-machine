@@ -169,4 +169,7 @@ async def test_step_b_cannot_override_step_a_low() -> None:
     assert isinstance(result, Confidence)
     assert result.tier == "Low"
     assert re.search(r"insufficient|disagree", result.rationale, re.I)
-    next(e for e in events if e["event"] == "confidence_step_b")
+    step_b_events = [e for e in events if e["event"] == "confidence_step_b"]
+    assert step_b_events, (
+        f"expected at least one confidence_step_b event, got: {[e['event'] for e in events]}"
+    )
