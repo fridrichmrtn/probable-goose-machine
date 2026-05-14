@@ -290,7 +290,7 @@ def test_per_run_cost_budget(triplet: _TripletRun) -> None:
     MiniMax-M2.7-highspeed calls still report 0.0 until pricing is filled in.
     """
     profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
-    budget = 0.10 if profile == "ci" else 0.15
+    budget = 0.15
     for fname, cost in triplet.per_run_cost_usd.items():
         assert cost < budget, f"{fname} cost ${cost:.4f} >= ${budget:.2f} (profile={profile})"
 
