@@ -80,6 +80,7 @@ class _Run:
     """
 
     raw_cv_text: str = ""
+    redacted_cv_text: str = ""
     profile: Profile | StageFailure | None = None
     score: Score | StageFailure | None = None
     salary: SalaryEstimate | StageFailure | None = None
@@ -100,6 +101,7 @@ class _Run:
             growth=self.growth,
             statuses=dict(self.statuses),
             raw_cv_text=self.raw_cv_text,
+            redacted_cv_text=self.redacted_cv_text,
             total_cost_usd=self.total_cost_usd,
             total_latency_ms=self.total_latency_ms,
         )
@@ -201,6 +203,7 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
             yield state.snapshot()
             return
         redacted: RedactedCV = redacted_result
+        state.redacted_cv_text = redacted.text
 
         # === L3 extract (async) ===
         profile_result = await extract_profile(redacted)
