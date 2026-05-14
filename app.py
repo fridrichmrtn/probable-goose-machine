@@ -70,6 +70,7 @@ def _read_error_report(user_message: str) -> Report:
 
 
 _HERO_CSS = """<style>
+#gander-app { max-width: 72ch; margin-inline: auto; }
 .gander-hero {
   margin: 1rem 0 2.5rem; font-family: system-ui, sans-serif;
   display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem;
@@ -132,15 +133,16 @@ _HERO_HTML = """
 
 
 with gr.Blocks(title="Gander · CV analysis") as demo:
-    gr.HTML(_HERO_CSS + _HERO_HTML)
-    file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
-    gr.HTML(
-        '<p class="gander-caption">PDF or DOCX, max 10 MB. Text-based PDFs only — '
-        "scanned/image PDFs aren't supported. Not retained after processing.</p>"
-    )
-    run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
-    tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
-    report_md = gr.Markdown(value="", visible=False, elem_classes=["gander-output"])
+    with gr.Column(elem_id="gander-app"):
+        gr.HTML(_HERO_CSS + _HERO_HTML)
+        file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
+        gr.HTML(
+            '<p class="gander-caption">PDF or DOCX, max 10 MB. Text-based PDFs only — '
+            "scanned/image PDFs aren't supported. Not retained after processing.</p>"
+        )
+        run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
+        tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
+        report_md = gr.Markdown(value="", visible=False, elem_classes=["gander-output"])
 
     file_in.change(
         lambda f: gr.Button(interactive=f is not None),

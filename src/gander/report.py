@@ -71,25 +71,25 @@ _CONFIDENCE_BADGE: dict[str, str] = {
 
 _CSS = """<style>
 .tracker {
-  display: flex; gap: 0.5rem; flex-wrap: wrap;
+  display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
   font-family: system-ui, sans-serif; margin: 0 0 0.75rem 0;
 }
 .pill {
-  display: inline-flex; align-items: center; gap: 0.35rem;
-  padding: 0.25rem 0.7rem; border-radius: 999px;
-  border: 1px solid #d0d5dd; background: #f5f7fa; color: #344054;
-  font-size: 0.875rem; line-height: 1.2;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.2rem 0.65rem 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid #e4e7ec;
+  border-left: 3px solid #d0d5dd;
+  background: transparent; color: #475467;
+  font-size: 0.8125rem; line-height: 1.25;
+  transition: border-color 120ms ease, color 120ms ease;
 }
-.pill::before { content: attr(data-glyph); font-weight: 600; }
-.pill.pending { background: #f5f7fa; border-color: #d0d5dd; color: #667085; }
-.pill.running { background: #fff4e5; border-color: #f5a524; color: #7a4a00; }
-.pill.done { background: #ecfdf3; border-color: #12b76a; color: #027a48; }
-.pill.failed { background: #fef3f2; border-color: #f04438; color: #b42318; }
-.pill.skipped {
-  background: #f5f7fa; border-color: #d0d5dd; color: #98a2b3;
-  text-decoration: line-through;
-}
+.pill::before { content: attr(data-glyph); font-weight: 600; opacity: 0.75; }
+.pill.pending { border-left-color: #d0d5dd; color: #667085; }
+.pill.running { border-left-color: #f59e0b; color: #344054; }
+.pill.done    { border-left-color: #12b76a; color: #344054; }
+.pill.failed  { border-left-color: #f04438; color: #344054; }
+.pill.skipped { border-left-color: #d0d5dd; color: #98a2b3; text-decoration: line-through; }
 .pill:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
 .gander-callout {
   border-left: 4px solid #f04438; background: #fef3f2; color: #7a271a;
@@ -97,22 +97,21 @@ _CSS = """<style>
 }
 .gander-callout::before { content: "⚠"; margin-right: 0.4rem; }
 @media (prefers-reduced-motion: reduce) { .pill { transition: none; } }
-.gander-output {
-  max-width: 72ch; margin-inline: auto;
-}
-.gander-output table {
-  border-collapse: collapse; margin: 0.5rem 0;
-}
+.gander-output { padding-inline: 0.75rem; }
+.gander-output table { border-collapse: collapse; margin: 0.5rem 0; }
 .gander-output th, .gander-output td {
   border: 1px solid #e4e7ec; padding: 0.4rem 0.6rem; text-align: center;
 }
 @media (prefers-color-scheme: dark) {
-  .pill { background: #1f1f23; border-color: #3f3f46; color: #d4d4d8; }
-  .pill.pending { background: #1f1f23; border-color: #3f3f46; color: #a1a1aa; }
-  .pill.running { background: #422006; border-color: #f59e0b; color: #fbbf24; }
-  .pill.done    { background: #052e16; border-color: #22c55e; color: #4ade80; }
-  .pill.failed  { background: #450a0a; border-color: #ef4444; color: #fca5a5; }
-  .pill.skipped { background: #1f1f23; border-color: #3f3f46; color: #71717a; }
+  .pill {
+    border-color: #3f3f46; border-left-color: #52525b;
+    color: #a1a1aa; background: transparent;
+  }
+  .pill.pending { border-left-color: #52525b; color: #a1a1aa; }
+  .pill.running { border-left-color: #f59e0b; color: #e4e4e7; }
+  .pill.done    { border-left-color: #22c55e; color: #e4e4e7; }
+  .pill.failed  { border-left-color: #ef4444; color: #e4e4e7; }
+  .pill.skipped { border-left-color: #52525b; color: #71717a; }
   .gander-callout { background: #450a0a; color: #fecaca; border-left-color: #ef4444; }
   .gander-output th, .gander-output td { border-color: #3f3f46; }
 }
