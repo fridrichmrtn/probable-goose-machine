@@ -33,7 +33,7 @@ The user's manual gauging surface. Runs all 10 CVs through the live pipeline end
     ```
   - Exits non-zero if any CV produced a top-level `StageFailure` (ingest/redact failures) — those are bugs, not graceful degradation.
   - Concurrency: serial (avoid hammering DDG with 10 parallel queries from the same IP).
-  - Adds a `--profile {local,ci}` flag that just sets `JOBFIT_MODEL_PROFILE` env var for this run.
+  - Adds a `--profile {local,ci}` flag that just sets `GANDER_MODEL_PROFILE` env var for this run.
 - [ ] `reports/.gitkeep` + `.gitignore` covers `reports/*.md`.
 
 ## Verification

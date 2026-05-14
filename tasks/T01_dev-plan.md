@@ -6,17 +6,17 @@ Scope: the Pydantic contracts every other module compiles against, plus the mini
 
 ## Files to create
 
-- `src/jobfit/schemas.py` — all Pydantic v2 models the rest of the pipeline imports (RawCV → Report), plus the exported `COMPONENT_WEIGHTS` constant and `StageStatus` Literal alias.
-- `src/jobfit/errors.py` — `StageFailure` BaseModel and `stage_boundary(stage_name)` dual sync/async context manager.
+- `src/gander/schemas.py` — all Pydantic v2 models the rest of the pipeline imports (RawCV → Report), plus the exported `COMPONENT_WEIGHTS` constant and `StageStatus` Literal alias.
+- `src/gander/errors.py` — `StageFailure` BaseModel and `stage_boundary(stage_name)` dual sync/async context manager.
 - `tests/test_schemas.py` — four `@pytest.mark.fast` tests covering computed-field correctness, range validation, the `Report`-with-`StageFailure` slot pattern, and `stage_boundary` exception capture.
 
 ## Implementation order
 
-1. **`src/jobfit/errors.py` first.** `StageFailure` has no dependency on schemas; building it first lets `schemas.py` import it without a forward-reference dance for `StageFailure` itself (the forward-references are in the other direction — `Report` references `StageFailure`).
-2. **`src/jobfit/schemas.py`.** Imports `StageFailure` from `jobfit.errors`. Uses `from __future__ import annotations` so all `Profile | StageFailure` unions are strings at class-definition time; then `Report.model_rebuild()` at module bottom resolves them.
+1. **`src/gander/errors.py` first.** `StageFailure` has no dependency on schemas; building it first lets `schemas.py` import it without a forward-reference dance for `StageFailure` itself (the forward-references are in the other direction — `Report` references `StageFailure`).
+2. **`src/gander/schemas.py`.** Imports `StageFailure` from `gander.errors`. Uses `from __future__ import annotations` so all `Profile | StageFailure` unions are strings at class-definition time; then `Report.model_rebuild()` at module bottom resolves them.
 3. **`tests/test_schemas.py`.** Imports both modules; exercises behaviour, not implementation.
 
-## `src/jobfit/errors.py` — exact shape
+## `src/gander/errors.py` — exact shape
 
 ```python
 from __future__ import annotations
@@ -97,7 +97,7 @@ Notes:
 - Do NOT import `obs` here. The `# T02:` comment is the only reference; T02 will replace it with a real call.
 - Do NOT add a `__call__` decorator path. Spec asks for context-manager only; decorator usage isn't required by any T01 caller.
 
-## `src/jobfit/schemas.py` — exact shape
+## `src/gander/schemas.py` — exact shape
 
 Module skeleton:
 
@@ -108,7 +108,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field
 
-from jobfit.errors import StageFailure
+from gander.errors import StageFailure
 
 COMPONENT_WEIGHTS: dict[str, float] = {
     "skills": 0.35,
@@ -177,8 +177,8 @@ All four marked `@pytest.mark.fast`. File header:
 import pytest
 from pydantic import ValidationError
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.schemas import (
+from gander.errors import StageFailure, stage_boundary
+from gander.schemas import (
     Anchor,
     Component,
     Confidence,
@@ -224,14 +224,14 @@ No async test for `stage_boundary` in T01 — the dual sync/async shape is imple
 
 ```bash
 uv run pytest -m fast tests/test_schemas.py -v
-uv run mypy src/jobfit/schemas.py src/jobfit/errors.py
-uv run ruff check src/jobfit/schemas.py src/jobfit/errors.py tests/test_schemas.py
+uv run mypy src/gander/schemas.py src/gander/errors.py
+uv run ruff check src/gander/schemas.py src/gander/errors.py tests/test_schemas.py
 ```
 
 All three must exit 0. Also expected clean (sanity, but not gating):
 
 ```bash
-uv run ruff format --check src/jobfit/schemas.py src/jobfit/errors.py tests/test_schemas.py
+uv run ruff format --check src/gander/schemas.py src/gander/errors.py tests/test_schemas.py
 ```
 
 If `mypy` complains about `computed_field` decoration order, confirm the `# type: ignore[prop-decorator]` comment is on the `@computed_field` line and that `@property` is the inner decorator. Do not change Pydantic version or strip mypy strict mode to chase this.
@@ -245,12 +245,12 @@ If `mypy` complains about `computed_field` decoration order, confirm the `# type
 
 ## Out of scope (deferred to other tasks)
 
-- `src/jobfit/verify.py` (`verify_quote`, `drop_unverified`) — **T02**.
-- `src/jobfit/obs.py` (`emit`) — **T02**. The `# T02:` comment in `errors.py` is the wire-up marker; do not import `obs` here.
-- `src/jobfit/llm.py` (MiniMax-via-OpenAI-SDK async client) — **T02**.
+- `src/gander/verify.py` (`verify_quote`, `drop_unverified`) — **T02**.
+- `src/gander/obs.py` (`emit`) — **T02**. The `# T02:` comment in `errors.py` is the wire-up marker; do not import `obs` here.
+- `src/gander/llm.py` (MiniMax-via-OpenAI-SDK async client) — **T02**.
 - `tests/conftest.py`, sample-CV fixtures, marker registration helpers — **T02** / fixtures land alongside their consumers.
 - `.pre-commit-config.yaml`, `.github/workflows/ci.yml`, `.github/workflows/warm-keeper.yml` — **T03**.
 - `pyproject.toml` modifications — already complete in T00 (`pydantic>=2`, pytest markers, `asyncio_mode = "auto"`, mypy strict, ruff config all present).
 - Decorator-form `stage_boundary` (`@stage_boundary("foo") def f(): ...`) — not requested by any T01 caller; revisit only if T15 wants it.
 - Async test for `stage_boundary.__aenter__` — covered by T15 pipeline tests.
-- Any `__all__`, re-exports from `jobfit/__init__.py`, or convenience constructors. Callers import models by name from `jobfit.schemas`.
+- Any `__all__`, re-exports from `gander/__init__.py`, or convenience constructors. Callers import models by name from `gander.schemas`.

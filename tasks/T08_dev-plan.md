@@ -2,12 +2,12 @@
 
 Branch: `feat/block-a-early-stages`
 Worktree: `/home/mf/GitHub/probable-goose-machine/.worktrees/block-a`
-Scope: NEW files only — `src/jobfit/redact.py`, `tests/test_redact.py`.
-Read-only: `src/jobfit/{schemas,llm,verify,obs,errors,ingest}.py`.
+Scope: NEW files only — `src/gander/redact.py`, `tests/test_redact.py`.
+Read-only: `src/gander/{schemas,llm,verify,obs,errors,ingest}.py`.
 
 ## 1. File-by-file change list
 
-### 1.1 `src/jobfit/redact.py` (new)
+### 1.1 `src/gander/redact.py` (new)
 
 Public surface:
 
@@ -26,9 +26,9 @@ import re
 import time
 from typing import Final
 
-from jobfit import obs
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.schemas import RedactedCV, Redaction
+from gander import obs
+from gander.errors import StageFailure, stage_boundary
+from gander.schemas import RedactedCV, Redaction
 ```
 
 Module-level regexes (all compiled at import, all `Final`):
@@ -307,7 +307,7 @@ Every fast test gets a numbered item below; the slow test runs over every fixtur
 Slow tier:
 
 6. **`test_every_fixture_audit_log_has_email_and_name`** (`@pytest.mark.slow`, parametrized over `_FIXTURE_DIR` `*.pdf`/`*.docx`)
-   - Round-trip each fixture through `jobfit.ingest.extract_text` → `jobfit.redact.redact`. (Necessary because the fixtures are PDFs/DOCX, not raw text.)
+   - Round-trip each fixture through `gander.ingest.extract_text` → `gander.redact.redact`. (Necessary because the fixtures are PDFs/DOCX, not raw text.)
    - Assert `extract_text` returned a `str` (skip fixture with a clear pytest.fail if not — failures here are corpus regressions, not redact bugs).
    - Assert `isinstance(result, RedactedCV)`.
    - Assert `{r.kind for r in result.audit_log}` contains both `"email"` and `"name"`.
@@ -350,9 +350,9 @@ uv run pytest -m fast tests/test_redact.py -v
 uv run pytest -m slow tests/test_redact.py -v
 
 # Type + style + full pre-commit gate.
-uv run ruff format src/jobfit/redact.py tests/test_redact.py
-uv run ruff check src/jobfit/redact.py tests/test_redact.py
-uv run mypy src/jobfit
+uv run ruff format src/gander/redact.py tests/test_redact.py
+uv run ruff check src/gander/redact.py tests/test_redact.py
+uv run mypy src/gander
 
 # Full pre-commit (matches CI).
 uv run pre-commit run --all-files

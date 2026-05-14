@@ -1,13 +1,13 @@
 # /dev Report
 
-**Task:** T01 — Pydantic schemas + StageFailure + stage_boundary skeleton (foundation contracts for Job Fit & Salary Estimator)
+**Task:** T01 — Pydantic schemas + StageFailure + stage_boundary skeleton (foundation contracts for Gander)
 **Branch:** dev/t01-schemas
 **Worktree:** /home/mf/GitHub/probable-goose-machine/.worktrees/t01-schemas
 **Stack:** py, gradio (UI flag set on project; this diff has no UI surface)
 
 ## Files touched
-- src/jobfit/errors.py — `StageFailure` Pydantic model + `stage_boundary` dual sync/async context manager.
-- src/jobfit/schemas.py — Full Pydantic v2 contract surface (RawCV → Report), `COMPONENT_WEIGHTS`, `StageStatus`, `Score.total` `@computed_field` + heal-pass component-set validator, `Report.model_rebuild()`.
+- src/gander/errors.py — `StageFailure` Pydantic model + `stage_boundary` dual sync/async context manager.
+- src/gander/schemas.py — Full Pydantic v2 contract surface (RawCV → Report), `COMPONENT_WEIGHTS`, `StageStatus`, `Score.total` `@computed_field` + heal-pass component-set validator, `Report.model_rebuild()`.
 - tests/test_schemas.py — 6 fast-marked tests (parametrized to 10 collected items) covering Score weighting + duplicate/missing component rejection, GrowthAction range bounds, Report-with-StageFailure-in-each-block, and stage_boundary catch behavior.
 - tasks/T01_schemas.md — Status: todo → done; Outcome line.
 - tasks/todo.md — T01 checkbox ticked.
@@ -18,13 +18,13 @@
 | Command | Initial | After heal |
 |---|---|---|
 | `uv run pytest -m fast tests/test_schemas.py -v` | pass (8/8) | pass (10/10) |
-| `uv run mypy src/jobfit/schemas.py src/jobfit/errors.py` | pass | pass |
-| `uv run ruff check src/jobfit/schemas.py src/jobfit/errors.py tests/test_schemas.py` | pass | pass |
+| `uv run mypy src/gander/schemas.py src/gander/errors.py` | pass | pass |
+| `uv run ruff check src/gander/schemas.py src/gander/errors.py tests/test_schemas.py` | pass | pass |
 
 ## Review findings
 
 ### Must-fix (resolved this run)
-- [codex] src/jobfit/schemas.py — `Score.total` accepted duplicate/missing components; could exceed 100 or omit categories. Fixed: added `@model_validator(mode="after")` requiring `{c.name for c in components} == set(COMPONENT_WEIGHTS.keys())` AND no duplicates. Two new tests pin both rejection paths.
+- [codex] src/gander/schemas.py — `Score.total` accepted duplicate/missing components; could exceed 100 or omit categories. Fixed: added `@model_validator(mode="after")` requiring `{c.name for c in components} == set(COMPONENT_WEIGHTS.keys())` AND no duplicates. Two new tests pin both rejection paths.
 
 ### Must-fix (remaining — exhaustion)
 See `tasks/backlog.md` for full rationale. Two items deferred with clarifying docstrings instead of code changes:

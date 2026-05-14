@@ -12,16 +12,16 @@ Judge salary-estimate confidence (Low/Medium/High) **independently** of the esti
 
 ## Deliverables
 
-- [ ] `src/jobfit/prompts/confidence_step_a.md` — Step A system prompt:
+- [ ] `src/gander/prompts/confidence_step_a.md` — Step A system prompt:
   - Receives ONLY `sources` (URLs + snippets).
   - Walks the rubric: High = ≥3 independent sources agreeing within 25%; Medium = 2 sources OR wider agreement; Low = <2 sources OR disagreement >50%.
   - Outputs JSON `{"tier": "Low|Medium|High", "rationale_short": str}`.
   - Does **not** see the produced range.
-- [ ] `src/jobfit/prompts/confidence_step_b.md` — Step B system prompt:
+- [ ] `src/gander/prompts/confidence_step_b.md` — Step B system prompt:
   - Receives the produced `(low, high, currency, period)` plus Step A's tier (as a fact).
   - Writes one paragraph of human-readable rationale.
   - **Constraint enforced in code, not prompt**: if Step A's tier is "Low", the final rationale must contain "insufficient" or "disagree" (case-insensitive); else regenerate once.
-- [ ] `src/jobfit/confidence.py`:
+- [ ] `src/gander/confidence.py`:
   - **Exact signature** (do not add parameters):
     ```python
     async def judge(

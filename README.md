@@ -1,6 +1,6 @@
 ---
-title: Job Fit & Salary Estimator
-emoji: 📊
+title: Gander
+emoji: 🪿
 colorFrom: blue
 colorTo: indigo
 sdk: gradio

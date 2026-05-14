@@ -1,14 +1,14 @@
 # /dev Report — T09 L3 profile extraction
 
-**Task:** Implement T09 L3 profile extraction via MiniMax per `tasks/T09_extract.md`. New `src/jobfit/prompts/extract.md`, `src/jobfit/extract.py`, `tests/test_extract.py`. Profile extraction wired to `verify_quote`/`drop_unverified`, single `verify` event emit, stacked on T08 inside `feat/block-a-early-stages`.
+**Task:** Implement T09 L3 profile extraction via MiniMax per `tasks/T09_extract.md`. New `src/gander/prompts/extract.md`, `src/gander/extract.py`, `tests/test_extract.py`. Profile extraction wired to `verify_quote`/`drop_unverified`, single `verify` event emit, stacked on T08 inside `feat/block-a-early-stages`.
 **Branch:** `feat/block-a-early-stages` (3-commit Block A train: T07 → T08 → T09)
 **Worktree:** `/home/mf/GitHub/probable-goose-machine/.worktrees/block-a`
 **Stack:** py, gradio, precommit
 
 ## Files touched
 
-- `src/jobfit/prompts/extract.md` — new, 66 LOC. System prompt: verbatim 6-word literal-anchor rule, uniqueness clause from T05, evidence-not-surface clause, schema description, one 14-word literal-quote one-shot example.
-- `src/jobfit/extract.py` — new, 68 LOC. `async def extract_profile(redacted) -> Profile | StageFailure`, `load_prompt` helper, single aggregate `verify` event after filtering all four lists.
+- `src/gander/prompts/extract.md` — new, 66 LOC. System prompt: verbatim 6-word literal-anchor rule, uniqueness clause from T05, evidence-not-surface clause, schema description, one 14-word literal-quote one-shot example.
+- `src/gander/extract.py` — new, 68 LOC. `async def extract_profile(redacted) -> Profile | StageFailure`, `load_prompt` helper, single aggregate `verify` event after filtering all four lists.
 - `tests/test_extract.py` — new, +220 LOC initial, +59 net after heal (5 → 6 fast tests; live live setup chains `redact()`).
 - `tasks/T09_extract.md` — Status `todo` → `done`; Outcome paragraph rewritten in heal to drop the 70% rationale and pin the senior-fixture variance as a backlog item.
 - `tasks/T09_dev-plan.md` — 366-line implementation plan written by planner; left untracked (consistent with T07/T08 practice).
@@ -20,7 +20,7 @@
 |---|---|---|
 | `uv run ruff format` (extract.py, test_extract.py) | pass | pass |
 | `uv run ruff check` (extract.py, test_extract.py) | pass | pass |
-| `uv run mypy src/jobfit` | pass | pass |
+| `uv run mypy src/gander` | pass | pass |
 | `uv run pytest -m fast tests/test_extract.py -v` | 3 passed | **4 passed** (+1 parse-failure test) |
 | `uv run pytest -m fast` (whole suite) | 77 passed | **78 passed**, no regressions |
 | `uv run pre-commit run --all-files` | pass | pass |
@@ -42,10 +42,10 @@ None. Single heal iteration resolved all 5 must-fix items.
 
 ### Should-fix (deferred to backlog)
 
-- **[ai-ml-engineer]** `src/jobfit/prompts/extract.md` — senior fixture anchor-survival rate flakes on MiniMax-M2.7-highspeed; observed 60/85/85/92/100 across 5 runs. Live gate is now the spec-mandated 80%, so the senior fixture can flake. Next experiment: add a negative one-shot to the prompt and re-measure over ≥5 runs.
+- **[ai-ml-engineer]** `src/gander/prompts/extract.md` — senior fixture anchor-survival rate flakes on MiniMax-M2.7-highspeed; observed 60/85/85/92/100 across 5 runs. Live gate is now the spec-mandated 80%, so the senior fixture can flake. Next experiment: add a negative one-shot to the prompt and re-measure over ≥5 runs.
 - **[qa-engineer]** Cross-cutting — `stage_boundary` emits no duration event on failure (T07/T08/T09 all affected). Address at the boundary, not per-stage.
 - **[ai-ml-engineer]** Prompt nits: state `[]` is valid for any list field, relax the "unique" wording for 8+ word quotes, reconcile years range between prompt (0-50) and `Profile` schema (0-70).
-- **[hiring-manager]** `src/jobfit/extract.py:50` — `cast(Profile, raw)` is a typing-only no-op; drop or replace with `isinstance` runtime guard.
+- **[hiring-manager]** `src/gander/extract.py:50` — `cast(Profile, raw)` is a typing-only no-op; drop or replace with `isinstance` runtime guard.
 - **[hiring-manager]** `tests/test_extract.py:155` — `_LIVE_FIXTURES` glob runs at import time; silently empties on a fresh checkout. Move into a fixture or assert non-empty when `MINIMAX_API_KEY` is set.
 
 ### Nits

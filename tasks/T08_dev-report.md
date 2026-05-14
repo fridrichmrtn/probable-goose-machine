@@ -1,13 +1,13 @@
 # /dev Report — T08 L2 PII redaction
 
-**Task:** Implement T08 L2 PII redaction (regex-only) per `tasks/T08_redact.md`. New `src/jobfit/redact.py` with `def redact(text: str) -> RedactedCV | StageFailure`, regex pipeline for email/phone/URL/postcode/name/year, idempotent, wrapped in `stage_boundary("redact")` with obs.emit. New `tests/test_redact.py`. Flip T08 status to done in single commit.
+**Task:** Implement T08 L2 PII redaction (regex-only) per `tasks/T08_redact.md`. New `src/gander/redact.py` with `def redact(text: str) -> RedactedCV | StageFailure`, regex pipeline for email/phone/URL/postcode/name/year, idempotent, wrapped in `stage_boundary("redact")` with obs.emit. New `tests/test_redact.py`. Flip T08 status to done in single commit.
 **Branch:** `feat/block-a-early-stages` (shared with T07; T08 stacks on top of `9e8e20e`)
 **Worktree:** `/home/mf/GitHub/probable-goose-machine/.worktrees/block-a`
 **Stack:** py, gradio, precommit
 
 ## Files touched
 
-- `src/jobfit/redact.py` — new, 322 → ~340 LOC after heal. Pure-function regex pipeline + stage_boundary + obs.emit on done/error.
+- `src/gander/redact.py` — new, 322 → ~340 LOC after heal. Pure-function regex pipeline + stage_boundary + obs.emit on done/error.
 - `tests/test_redact.py` — new, 208 → ~280 LOC after heal. 17 fast + 3 slow tests.
 - `tasks/T08_redact.md` — `Status: todo` → `Status: done`; Outcome paragraph filled in.
 - `tasks/T08_dev-plan.md` — 366-line implementation plan written by planner; left untracked (not in scope, consistent with T07).
@@ -19,7 +19,7 @@
 |---|---|---|
 | `uv run ruff format` (redact.py, test_redact.py) | pass | pass |
 | `uv run ruff check` (redact.py, test_redact.py) | pass | pass |
-| `uv run mypy src/jobfit` | pass | pass |
+| `uv run mypy src/gander` | pass | pass |
 | `uv run pytest -m fast tests/test_redact.py -v` | 12 passed | **17 passed** (+5 healed tests) |
 | `uv run pytest -m slow tests/test_redact.py -v` | 3 passed | 3 passed (slow fixture assertions tightened) |
 | `uv run pytest -m fast` (whole suite) | 69 passed | **74 passed**, no regressions |
@@ -29,8 +29,8 @@
 
 ### Must-fix (resolved this run)
 
-- **[codex]** `src/jobfit/redact.py:243` — `_redact_header_name` bailed (returned text unchanged) when the first non-blank line was an already-emitted marker like `[EMAIL]`, leaving the actual name on the next line unredacted. **Fixed:** added `_MARKER_ONLY_LINE` regex and made the scan `continue` past marker-only lines rather than `return`. Test pins the contract: `"[EMAIL]\nJane Smith\n…"` → `Jane Smith` becomes `[NAME]`.
-- **[codex]** `src/jobfit/redact.py:81` — `_NAME_LABEL` used `\s+` between captured-name words; under `(?im)`, `\s` includes `\n`, so `Name: Jane\nExperience` could absorb the next section header into the name group. **Fixed:** replaced every `\s` inside `_NAME_LABEL` with `[ \t]` so the `(?m)` per-line anchor isn't undermined.
+- **[codex]** `src/gander/redact.py:243` — `_redact_header_name` bailed (returned text unchanged) when the first non-blank line was an already-emitted marker like `[EMAIL]`, leaving the actual name on the next line unredacted. **Fixed:** added `_MARKER_ONLY_LINE` regex and made the scan `continue` past marker-only lines rather than `return`. Test pins the contract: `"[EMAIL]\nJane Smith\n…"` → `Jane Smith` becomes `[NAME]`.
+- **[codex]** `src/gander/redact.py:81` — `_NAME_LABEL` used `\s+` between captured-name words; under `(?im)`, `\s` includes `\n`, so `Name: Jane\nExperience` could absorb the next section header into the name group. **Fixed:** replaced every `\s` inside `_NAME_LABEL` with `[ \t]` so the `(?m)` per-line anchor isn't undermined.
 - **[qa-engineer]** `tests/test_redact.py` — missing StageFailure return-path test; the `RedactedCV | StageFailure` type union was unenforced and the `assert cm.failure is not None` in `redact.py` would be stripped under `python -O`. **Fixed:** added `test_stage_failure_returned_when_pipeline_raises` using `monkeypatch.setattr(redact_module, "_URL", _BoomPattern())`. (Direct `setattr` on `re.Pattern.finditer` is C-read-only; swapping the module binding works around it.)
 - **[qa-engineer]** Missing observability test for failure path. **Fixed:** added `test_failure_path_emits_error_event` — uses `obs.subscribe` to capture events, triggers failure, asserts `error` event with `stage="redact"` and `exc_type="RuntimeError"`. Mirrors `tests/test_ingest.py:187-202`.
 - **[qa-engineer]** Slow fixture pass under-asserted — only checked audit_log *kinds*, not that emails/names were actually absent from `result.text`. A regression that records but fails to substitute would have silently passed. **Fixed:** for every `email`/`name` redaction in the slow fixture pass, the test now asserts `r.original not in result.text` AND the corresponding marker is present.

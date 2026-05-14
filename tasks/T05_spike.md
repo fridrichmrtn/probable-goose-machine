@@ -13,7 +13,7 @@ Before sinking time into all six pipeline stages on MiniMax, prove the model can
 ## Deliverables
 
 - [x] `scripts/spike_minimax.py`:
-  - Loads CVs #1 (junior) and #8 (senior) via `jobfit.ingest.extract_text` (or pypdf/python-docx directly if T07 isn't done yet — can stub).
+  - Loads CVs #1 (junior) and #8 (senior) via `gander.ingest.extract_text` (or pypdf/python-docx directly if T07 isn't done yet — can stub).
   - For each CV, runs **two** prompts:
     1. **Extract**: minimal Pydantic schema (`{"skills": [{"text": str, "anchor_quote": str}], "years_experience": int}`) — measures literal-copy rate of `anchor_quote` against source.
     2. **Score**: returns one component `{"name": "skills", "score_0_100": int, "anchor_quote": str}` — measures whether the score difference between junior and senior is meaningful.
@@ -29,7 +29,7 @@ Before sinking time into all six pipeline stages on MiniMax, prove the model can
 ## Decision logic if any gate fails
 
 1. Document failure in `tasks/lessons.md` with the table above.
-2. Set `JOBFIT_LLM_PROVIDER=anthropic` in `.env.example`; require `ANTHROPIC_API_KEY`.
+2. Set `GANDER_LLM_PROVIDER=anthropic` in `.env.example`; require `ANTHROPIC_API_KEY`.
 3. Re-run the spike against Claude Sonnet 4.6. If it passes, commit the swap; update `tasks/PLAN.md` § "Decisions" to note the swap; proceed.
 4. If both fail, the project is in trouble — escalate to user before continuing.
 

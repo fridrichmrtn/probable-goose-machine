@@ -12,7 +12,7 @@ Define the Pydantic contracts that every other module depends on, plus the `Stag
 
 ## Deliverables
 
-- [x] `src/jobfit/schemas.py` with the following models (Pydantic v2):
+- [x] `src/gander/schemas.py` with the following models (Pydantic v2):
   - `StageStatus = Literal["pending", "running", "done", "failed", "skipped"]`
   - `StageName = Literal["profile","score","salary","confidence","growth"]`
   - `RawCV(filename: str, content_bytes: bytes)` — pre-ingestion.
@@ -27,7 +27,7 @@ Define the Pydantic contracts that every other module depends on, plus the `Stag
   - `Confidence(tier: Literal["Low","Medium","High"], rationale: str)`
   - `GrowthAction(what: str, time_horizon_months: int, mechanism: str, anchor: Anchor)` with `time_horizon_months: int = Field(ge=1, le=24)`.
   - `Report(profile: Profile | StageFailure, score: Score | StageFailure, salary: SalaryEstimate | StageFailure, confidence: Confidence | StageFailure, growth: list[GrowthAction] | StageFailure, statuses: dict[StageName, StageStatus], raw_cv_text: str)` — every block plus a complete status map keyed by report block name.
-- [x] `src/jobfit/errors.py`:
+- [x] `src/gander/errors.py`:
   - `class StageFailure(BaseModel): stage: str; user_message: str; debug_detail: str | None = None`
   - `def stage_boundary(stage_name: str)` — decorator/context-manager that wraps a stage call: catches all `Exception`, emits an `obs.emit("error", stage=...)` event, and returns `StageFailure(stage=stage_name, user_message=...)`. Re-raises only `KeyboardInterrupt` and `SystemExit`.
 - [x] `tests/test_schemas.py` (`@pytest.mark.fast`):
@@ -42,15 +42,15 @@ Define the Pydantic contracts that every other module depends on, plus the `Stag
 
 ## Outputs (contract for downstream)
 
-- All schemas importable from `jobfit.schemas`.
-- `StageFailure` and `stage_boundary` importable from `jobfit.errors`.
-- Component weights live in a module-level constant `COMPONENT_WEIGHTS = {"skills": 0.35, "experience": 0.30, "education": 0.20, "soft_signals": 0.15}` exported from `jobfit.schemas` so the README and UI can show the same numbers.
+- All schemas importable from `gander.schemas`.
+- `StageFailure` and `stage_boundary` importable from `gander.errors`.
+- Component weights live in a module-level constant `COMPONENT_WEIGHTS = {"skills": 0.35, "experience": 0.30, "education": 0.20, "soft_signals": 0.15}` exported from `gander.schemas` so the README and UI can show the same numbers.
 
 ## Verification
 
 ```bash
 uv run pytest -m fast tests/test_schemas.py -v
-uv run mypy src/jobfit/schemas.py src/jobfit/errors.py
+uv run mypy src/gander/schemas.py src/gander/errors.py
 ```
 
 ## Reference

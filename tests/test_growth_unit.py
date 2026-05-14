@@ -4,12 +4,12 @@ from typing import Any
 
 import pytest
 
-import jobfit.growth as growth_mod
-from jobfit.errors import StageFailure
-from jobfit.growth import _GrowthList, _jaccard_4gram, plan_growth
-from jobfit.llm import LLMClient
-from jobfit.obs import subscribe
-from jobfit.schemas import (
+import gander.growth as growth_mod
+from gander.errors import StageFailure
+from gander.growth import _GrowthList, _jaccard_4gram, plan_growth
+from gander.llm import LLMClient
+from gander.obs import subscribe
+from gander.schemas import (
     Anchor,
     Component,
     GrowthAction,
@@ -868,7 +868,7 @@ async def test_plan_growth_returns_stage_failure_on_unexpected_error(
 
 @pytest.mark.fast
 def test_baseline_path_lives_inside_package() -> None:
-    """The smoke-check baseline must live inside `src/jobfit/` so a packaged
+    """The smoke-check baseline must live inside `src/gander/` so a packaged
     wheel install keeps the path resolvable. Pointing at `tests/fixtures/...`
     would silently lose the boilerplate check on any non-source distribution.
     Closes Copilot finding on growth.py:53.
@@ -876,6 +876,6 @@ def test_baseline_path_lives_inside_package() -> None:
     baseline = growth_mod._BASELINE_PATH
     assert baseline.name == "growth_baseline.json"
     assert baseline.parent.name == "data"
-    assert baseline.parent.parent.name == "jobfit"
+    assert baseline.parent.parent.name == "gander"
     # tests/ directory must NOT appear anywhere in the runtime path.
     assert "tests" not in baseline.parts

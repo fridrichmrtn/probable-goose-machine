@@ -12,7 +12,7 @@ The async iterator that runs the whole pipeline, yielding a fresh `Report` after
 
 ## Deliverables
 
-- [ ] `src/jobfit/pipeline.py`:
+- [ ] `src/gander/pipeline.py`:
   - **Public entrypoint**:
     ```python
     async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
@@ -65,7 +65,7 @@ uv run pytest -m live -k pipeline_smoke -v
 
 ## Outcome
 
-Shipped `src/jobfit/pipeline.py` with `run(file_bytes, filename) -> AsyncIterator[Report]`; sequential L1→L3, `asyncio.as_completed` fan-out for L4a/L4b, conditional L4c/L5, and an `obs.subscribe` cost/latency accumulator scoped to the run. 13 fast tests in `tests/test_pipeline_fast.py` cover initial yield, happy path, every failure cascade, salary-fail short-circuit of confidence (no LLM), score-or-salary-fail cascade of growth (Decision A — both required), cost accumulation, and concurrent fan-out (1ms-vs-50ms timing assertion). Live `tests/test_pipeline_smoke.py` exercises the orchestration plumbing without strong model-quality gating (T17 owns calibration).
+Shipped `src/gander/pipeline.py` with `run(file_bytes, filename) -> AsyncIterator[Report]`; sequential L1→L3, `asyncio.as_completed` fan-out for L4a/L4b, conditional L4c/L5, and an `obs.subscribe` cost/latency accumulator scoped to the run. 13 fast tests in `tests/test_pipeline_fast.py` cover initial yield, happy path, every failure cascade, salary-fail short-circuit of confidence (no LLM), score-or-salary-fail cascade of growth (Decision A — both required), cost accumulation, and concurrent fan-out (1ms-vs-50ms timing assertion). Live `tests/test_pipeline_smoke.py` exercises the orchestration plumbing without strong model-quality gating (T17 owns calibration).
 
 Spec drift closed in plan: `statuses["ingest"]/["redact"]` collapsed onto `profile=StageFailure` (T14 mapping); `Report` blocks made `T | StageFailure | None = None` and gained `total_cost_usd`/`total_latency_ms` fields; renderer footer interpolates them; renderer sections return `""` for `None` (pending) blocks; `plan_growth` signature uses real `(redacted, profile, score, mid, ccy)`; growth follows Decision A (cascade if either score or salary fails). Cross-task ripple stayed minimal — schema + renderer + their tests.
 

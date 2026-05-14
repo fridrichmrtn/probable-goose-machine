@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, computed_field, model_validator
 
-from jobfit.errors import StageFailure
+from gander.errors import StageFailure
 
 COMPONENT_WEIGHTS: dict[str, float] = {
     "skills": 0.35,
@@ -48,7 +48,7 @@ class Anchor(BaseModel):
 
     `section` names a CV section header (e.g., 'Work Experience', 'Education') — open
     vocabulary, not the closed Component.name set. Section-locality is enforced by
-    jobfit.verify.verify_quote (T02).
+    gander.verify.verify_quote (T02).
     """
 
     quote: str
@@ -149,8 +149,8 @@ class Report(BaseModel):
     statuses: dict[StageName, StageStatus]
     raw_cv_text: str
     # Populated by the L6 pipeline subscriber on every yield; aggregates the
-    # `usd_cost` and `duration_ms` fields emitted by jobfit.llm `llm_call`
-    # events. Footer in jobfit.report interpolates these.
+    # `usd_cost` and `duration_ms` fields emitted by gander.llm `llm_call`
+    # events. Footer in gander.report interpolates these.
     total_cost_usd: float = 0.0
     total_latency_ms: int = 0
 

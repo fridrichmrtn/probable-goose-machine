@@ -6,15 +6,15 @@ Scope: produce a 0–100 seniority score across four named components (`skills`,
 
 ## Files to create
 
-- `src/jobfit/prompts/score.md` — system prompt (markdown). Loaded at module-import time in `score.py` via a `pathlib.Path(__file__).parent / "prompts" / "score.md"` read.
-- `src/jobfit/score.py` — `score_profile(redacted, profile)` async entry point + an internal `_ComponentList` Pydantic model used solely to validate the LLM JSON envelope.
+- `src/gander/prompts/score.md` — system prompt (markdown). Loaded at module-import time in `score.py` via a `pathlib.Path(__file__).parent / "prompts" / "score.md"` read.
+- `src/gander/score.py` — `score_profile(redacted, profile)` async entry point + an internal `_ComponentList` Pydantic model used solely to validate the LLM JSON envelope.
 - `tests/test_score.py` — two `@pytest.mark.fast` tests (deterministic aggregation; drop-then-StageFailure) + two `@pytest.mark.live` tests (junior < 40, senior > 70) + one calibration `pytest.skip` placeholder.
 
 ## Files NOT to modify (read-only upstream)
 
-- `src/jobfit/schemas.py`, `src/jobfit/llm.py`, `src/jobfit/verify.py`, `src/jobfit/obs.py`, `src/jobfit/errors.py`. Imports only.
+- `src/gander/schemas.py`, `src/gander/llm.py`, `src/gander/verify.py`, `src/gander/obs.py`, `src/gander/errors.py`. Imports only.
 
-## Section 1 — `src/jobfit/prompts/score.md` (exact prompt text)
+## Section 1 — `src/gander/prompts/score.md` (exact prompt text)
 
 The prompt is the entire system message. It is committed as a `.md` file so a reviewer can read it without running code, and so prompt-only tweaks don't churn `score.py`.
 
@@ -73,7 +73,7 @@ Notes on prompt content:
 - The output schema is described once, in JSON-shaped pseudocode. We rely on `complete_json`'s native JSON-mode plus the `_ComponentList` Pydantic validator to enforce shape. We do NOT ask the model to emit a `total` — `Score.total` is a `computed_field` derived from the four `score_0_100` integers.
 - The "fail-closed via downstream verification" wording is deliberate: it tells the model not to invent quotes when evidence is thin, and acknowledges the drop path so the model isn't tempted to paraphrase into "safer" wording.
 
-## Section 2 — `src/jobfit/score.py`
+## Section 2 — `src/gander/score.py`
 
 ```python
 from __future__ import annotations
@@ -82,11 +82,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.obs import emit
-from jobfit.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
-from jobfit.verify import verify_quote
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.obs import emit
+from gander.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
+from gander.verify import verify_quote
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "score.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -187,7 +187,7 @@ What we pass and why:
 
 ## Section 3 — `_ComponentList` Pydantic schema (recap)
 
-Defined inline in `score.py`. Single field: `components: list[Component]`. Component is imported from `jobfit.schemas`. No additional validators. The reason to NOT add `min_length=4` / per-name uniqueness here is that we want missing categories to surface as a clean `StageFailure` with a counter, not as a `ValidationError` raised inside `complete_json`'s retry loop (which would either (a) waste an LLM call retrying a structurally-correct-but-incomplete payload or (b) bubble out as a generic stage exception with no anchor-drop counter).
+Defined inline in `score.py`. Single field: `components: list[Component]`. Component is imported from `gander.schemas`. No additional validators. The reason to NOT add `min_length=4` / per-name uniqueness here is that we want missing categories to surface as a clean `StageFailure` with a counter, not as a `ValidationError` raised inside `complete_json`'s retry loop (which would either (a) waste an LLM call retrying a structurally-correct-but-incomplete payload or (b) bubble out as a generic stage exception with no anchor-drop counter).
 
 ## Section 4 — Section-locality fallthrough behavior
 
@@ -212,9 +212,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from jobfit.errors import StageFailure
-from jobfit.llm import LLMClient
-from jobfit.schemas import (
+from gander.errors import StageFailure
+from gander.llm import LLMClient
+from gander.schemas import (
     Anchor,
     Component,
     Profile,
@@ -222,7 +222,7 @@ from jobfit.schemas import (
     RedactedCV,
     Score,
 )
-from jobfit.score import _ComponentList, score_profile
+from gander.score import _ComponentList, score_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
@@ -391,7 +391,7 @@ All three must pass. Pre-commit covers ruff + mypy on the new files. The fast su
 
 ## Definition of done
 
-- `src/jobfit/prompts/score.md`, `src/jobfit/score.py`, `tests/test_score.py` exist at the paths above.
+- `src/gander/prompts/score.md`, `src/gander/score.py`, `tests/test_score.py` exist at the paths above.
 - `pre-commit run --all-files` is green.
 - `uv run pytest -q -m fast tests/test_score.py` is green (2 tests pass, 1 skipped under `-m live`).
 - `uv run pytest -q -m live tests/test_score.py` is green when MINIMAX_API_KEY is set: junior < 40, senior > 70, calibration skipped with the documented message.

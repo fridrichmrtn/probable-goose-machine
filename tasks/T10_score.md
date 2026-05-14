@@ -12,11 +12,11 @@ Produce a 0–100 seniority score with four named components (skills / experienc
 
 ## Deliverables
 
-- [ ] `src/jobfit/prompts/score.md` — system prompt:
+- [ ] `src/gander/prompts/score.md` — system prompt:
   - Returns JSON: `{"components": [Component, Component, Component, Component]}` — one per `["skills","experience","education","soft_signals"]`.
   - Per component: integer score 0–100; one-sentence justification; `anchor.quote` as a literal ≥6-word substring of the redacted CV.
   - Anti-paraphrase reminder; explicit definitions of each component (skills = breadth+depth of named technologies; experience = years + role progression; education = formal credentials; soft_signals = leadership / communication / domain).
-- [ ] `src/jobfit/score.py`:
+- [ ] `src/gander/score.py`:
   - `async def score_profile(redacted: RedactedCV, profile: Profile) -> Score`:
     - Single `llm.complete_json(..., model="reasoning")` call returning the four components.
     - For each component, `verify_quote` against `redacted.text` (with `section=anchor.section` if set). Drops failures.
@@ -41,4 +41,4 @@ uv run pytest -m live tests/test_score.py -v
 
 ## Outcome
 
-Shipped `src/jobfit/prompts/score.md`, `src/jobfit/score.py`, `tests/test_score.py`; fast suite green (2 passed, 3 live deselected); live junior/senior bands and calibration variance pending MINIMAX_API_KEY-equipped run (covered by T17 acceptance).
+Shipped `src/gander/prompts/score.md`, `src/gander/score.py`, `tests/test_score.py`; fast suite green (2 passed, 3 live deselected); live junior/senior bands and calibration variance pending MINIMAX_API_KEY-equipped run (covered by T17 acceptance).

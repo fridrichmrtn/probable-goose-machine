@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from jobfit import obs
-from jobfit.obs import current_stage, emit, subscribe
+from gander import obs
+from gander.obs import current_stage, emit, subscribe
 
 pytestmark = pytest.mark.fast
 

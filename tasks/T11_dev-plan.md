@@ -1,12 +1,12 @@
 # T11 dev plan — L4b salary search + estimator (CZ-localized)
 
 Branch: `feat/block-b-late-stages` (existing worktree, no sub-worktree).
-Depends: T02, T05. Mirror T10 (`src/jobfit/score.py`) shape.
+Depends: T02, T05. Mirror T10 (`src/gander/score.py`) shape.
 
 ## 1. Files to create
 
-- [ ] `src/jobfit/prompts/salary.md` — system prompt for the estimator LLM call.
-- [ ] `src/jobfit/salary.py` — `build_queries`, `search`, `estimate_salary`.
+- [ ] `src/gander/prompts/salary.md` — system prompt for the estimator LLM call.
+- [ ] `src/gander/salary.py` — `build_queries`, `search`, `estimate_salary`.
 - [ ] `tests/test_salary.py` — 3 fast tests + 1 live slow test.
 
 No edits to upstream modules (`schemas.py`, `llm.py`, `errors.py`, `obs.py`, `verify.py`).
@@ -15,7 +15,7 @@ No edits to upstream modules (`schemas.py`, `llm.py`, `errors.py`, `obs.py`, `ve
 
 Sections:
 
-- **Role**: salary-range estimator for the JobFit pipeline. Default audience is CZ data/DS/ML.
+- **Role**: salary-range estimator for the Gander pipeline. Default audience is CZ data/DS/ML.
 - **Input**: a JSON array of `{title, snippet, url, domain}` search results plus the candidate context block (role, location, years).
 - **Output schema**: a single JSON object matching `SalaryEstimate`:
   - `low: int`, `high: int` — integers, `low < high`, no thousand separators.
@@ -35,7 +35,7 @@ Sections:
   - everything else → USD / year.
 - **Examples**: one tiny shaped example (3 inputs, 2 sources used) showing the URL-verbatim discipline. Keep under ~20 lines to control token cost.
 
-## 3. Module structure — `src/jobfit/salary.py`
+## 3. Module structure — `src/gander/salary.py`
 
 ### Imports
 
@@ -48,10 +48,10 @@ from urllib.parse import urlparse
 from ddgs import DDGS
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.obs import emit
-from jobfit.schemas import Profile, SalaryEstimate, Source
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.obs import emit
+from gander.schemas import Profile, SalaryEstimate, Source
 ```
 
 `_PROMPT_PATH` / `_SYSTEM_PROMPT` loaded at module import, mirroring `score.py`.
@@ -156,7 +156,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
 
 ## 4. Test design — `tests/test_salary.py`
 
-Use `pytest.mark.fast` / `pytest.mark.live`, `pytest.mark.slow` per project conventions. Patch via `monkeypatch.setattr("jobfit.salary.DDGS", ...)`.
+Use `pytest.mark.fast` / `pytest.mark.live`, `pytest.mark.slow` per project conventions. Patch via `monkeypatch.setattr("gander.salary.DDGS", ...)`.
 
 - [ ] **fast: build_queries CZ-locality** — construct a CZ `Profile` (location "Praha"); assert at least one query string contains `"platy.cz"` or `"profesia.cz"`; assert ≤3 queries returned.
 - [ ] **fast: empty DDG → StageFailure** — `DDGS().text` returns `[]`. `await estimate_salary(profile)` returns `StageFailure(stage="salary", user_message="Insufficient market data for this profile.")`. Assert `cm.failure` shape via the returned object.
@@ -165,11 +165,11 @@ Use `pytest.mark.fast` / `pytest.mark.live`, `pytest.mark.slow` per project conv
 
 ### Mock strategy details
 
-- Patch `jobfit.salary.DDGS` (the imported symbol) with a `MagicMock` whose context-manager protocol returns an object with `.text(...)` configured as a `Mock`. Pattern:
+- Patch `gander.salary.DDGS` (the imported symbol) with a `MagicMock` whose context-manager protocol returns an object with `.text(...)` configured as a `Mock`. Pattern:
   ```python
   fake = MagicMock()
   fake.__enter__.return_value.text.return_value = []  # or side_effect=...
-  monkeypatch.setattr("jobfit.salary.DDGS", lambda: fake)
+  monkeypatch.setattr("gander.salary.DDGS", lambda: fake)
   ```
 - For the LLM, the empty-results test never reaches the LLM (search raises first), so no `LLMClient` mock needed.
 - For the raising-DDG test, ditto.
@@ -189,9 +189,9 @@ Use `pytest.mark.fast` / `pytest.mark.live`, `pytest.mark.slow` per project conv
 
 ## 6. Verification commands
 
-- [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff format --check src/jobfit/salary.py src/jobfit/prompts/salary.md tests/test_salary.py`
-- [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff check src/jobfit/salary.py tests/test_salary.py`
-- [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run mypy src/jobfit/salary.py`
+- [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff format --check src/gander/salary.py src/gander/prompts/salary.md tests/test_salary.py`
+- [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run ruff check src/gander/salary.py tests/test_salary.py`
+- [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run mypy src/gander/salary.py`
 - [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run pre-commit run --all-files`
 - [ ] `cd /home/mf/GitHub/probable-goose-machine/.worktrees/block-b && uv run pytest -q -m fast tests/test_salary.py`
 - [ ] (optional, gated on `MINIMAX_API_KEY` and network) `uv run pytest -q -m "live and slow" tests/test_salary.py`

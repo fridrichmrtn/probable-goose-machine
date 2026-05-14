@@ -1,4 +1,4 @@
-# Job Fit & Salary Estimator — PRD
+# Gander — PRD
 
 **Version:** v0.11 (PRD, +observability)
 **Owner:** Martin (candidate)

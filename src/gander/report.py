@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from html import escape
 
-from jobfit.errors import StageFailure
-from jobfit.schemas import (
+from gander.errors import StageFailure
+from gander.schemas import (
     COMPONENT_WEIGHTS,
     REPORT_STAGE_NAMES,
     Component,
@@ -91,11 +91,11 @@ _CSS = """<style>
   text-decoration: line-through;
 }
 .pill:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
-.jobfit-callout {
+.gander-callout {
   border-left: 4px solid #f04438; background: #fef3f2; color: #7a271a;
   padding: 0.5rem 0.75rem; margin: 0.5rem 0; border-radius: 4px;
 }
-.jobfit-callout::before { content: "⚠"; margin-right: 0.4rem; }
+.gander-callout::before { content: "⚠"; margin-right: 0.4rem; }
 @media (prefers-reduced-motion: reduce) { .pill { transition: none; } }
 </style>"""
 
@@ -181,7 +181,7 @@ def render_tracker(report: Report) -> str:
 
 
 def _failure_callout_html(failure: StageFailure) -> str:
-    return f'<div class="jobfit-callout" role="alert">{_esc(failure.user_message)}</div>'
+    return f'<div class="gander-callout" role="alert">{_esc(failure.user_message)}</div>'
 
 
 def _failure_callout_md(failure: StageFailure) -> str:
@@ -204,7 +204,7 @@ def _score_section(score: Score | StageFailure | None) -> str:
     headers = "".join(f"<th>{_COMPONENT_DISPLAY[n]}</th>" for n in _COMPONENT_ORDER)
     cells = "".join(f"<td>{by_name[n].score_0_100}</td>" for n in _COMPONENT_ORDER)
     table = (
-        '<table class="jobfit-components">'
+        '<table class="gander-components">'
         f"<thead><tr>{headers}</tr></thead>"
         f"<tbody><tr>{cells}</tr></tbody>"
         "</table>"

@@ -25,9 +25,9 @@ Replace the bootstrap stub at `README.md` with:
   - Reuse the DAG ASCII from `tasks/PLAN.md`.
   - 1-paragraph stage descriptions.
   - **Highlight three design choices** in dedicated sub-sections (these are the "judgment" signals reviewers look for):
-    - "Confidence judged by a *different model* with a recompute-then-compare protocol" — link to `src/jobfit/confidence.py`.
-    - "Every claim is a substring-verified anchor with section locality" — link to `src/jobfit/verify.py`.
-    - "Per-stage cost + latency surfaced in the UI footer (and CI logs)" — link to `src/jobfit/obs.py`.
+    - "Confidence judged by a *different model* with a recompute-then-compare protocol" — link to `src/gander/confidence.py`.
+    - "Every claim is a substring-verified anchor with section locality" — link to `src/gander/verify.py`.
+    - "Per-stage cost + latency surfaced in the UI footer (and CI logs)" — link to `src/gander/obs.py`.
 - [ ] **Decisions** (written in first person, ~600 words, NOT a paste of PRD):
   - **MiniMax + token plan**: why a non-frontier provider in an AI-first hiring case study. Honest framing — the L0.5 spike validated it (quote the actual numbers from T05's outcome). Less-obvious provider is what the §1.4 "creativity" priority rewards.
   - **DuckDuckGo over paid search**: zero-setup ethos extends from reviewer to build itself; tradeoff (DDG rate-limits) noted with the §4.6 fallback as the safety net.

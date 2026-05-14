@@ -12,7 +12,7 @@ Pure-Python file → text extractor with format detection, scanned-PDF detection
 
 ## Deliverables
 
-- [ ] `src/jobfit/ingest.py`:
+- [ ] `src/gander/ingest.py`:
   - `def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure`:
     - dispatch on suffix (`.pdf`, `.docx`, `.doc` → fail with hint to convert).
     - PDF: try `pypdf` first; if extracted text < 100 chars, retry with `pdfplumber`.

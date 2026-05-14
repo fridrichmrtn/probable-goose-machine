@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.schemas import (
+from gander.errors import StageFailure, stage_boundary
+from gander.schemas import (
     Anchor,
     Component,
     ComponentName,

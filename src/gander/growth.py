@@ -24,11 +24,11 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.obs import emit
-from jobfit.schemas import GrowthAction, Profile, RedactedCV, Score
-from jobfit.verify import verify_quote
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.obs import emit
+from gander.schemas import GrowthAction, Profile, RedactedCV, Score
+from gander.verify import verify_quote
 
 _SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "growth.md").read_text(encoding="utf-8")
 

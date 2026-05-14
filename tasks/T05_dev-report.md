@@ -1,6 +1,6 @@
 # /dev Report — T05 MiniMax capability spike
 
-**Task:** Implement T05 — MiniMax capability spike. Deliverable `scripts/spike_minimax.py` per plan; reuse `jobfit.llm.LLMClient`, `jobfit.verify.verify_quote`, `jobfit.obs.subscribe`, `jobfit.errors.stage_boundary`; read junior + senior CV `.txt` fixtures directly. Sequential calls, inline minimal Pydantic schemas, ≥6-word anchor instruction, fail-loud on gate failure (no auto-swap to Anthropic), preflight key check exits with code 2.
+**Task:** Implement T05 — MiniMax capability spike. Deliverable `scripts/spike_minimax.py` per plan; reuse `gander.llm.LLMClient`, `gander.verify.verify_quote`, `gander.obs.subscribe`, `gander.errors.stage_boundary`; read junior + senior CV `.txt` fixtures directly. Sequential calls, inline minimal Pydantic schemas, ≥6-word anchor instruction, fail-loud on gate failure (no auto-swap to Anthropic), preflight key check exits with code 2.
 **Branch:** `dev/implement-t05-minimax-capability-spike`
 **Worktree:** `/home/mf/GitHub/probable-goose-machine/.worktrees/implement-t05-minimax-capability-spike`
 **Stack:** py, gradio, precommit
@@ -11,7 +11,7 @@
 ## Files touched
 
 - `scripts/spike_minimax.py` — new, 267 → 264 LOC after heal. Sequential 4-call spike, exit 0 on all-pass, exit 1 on gate failure, exit 2 on missing key.
-- `src/jobfit/py.typed` — empty marker file added so `mypy --strict scripts/spike_minimax.py` resolves the local `jobfit` package (PEP 561).
+- `src/gander/py.typed` — empty marker file added so `mypy --strict scripts/spike_minimax.py` resolves the local `gander` package (PEP 561).
 - `tasks/T05_dev-plan.md` — implementation checklist written by the planner agent in Phase 1; not committed (per `.gitignore` of plan artifacts is not in effect — left untracked deliberately, the orchestrator's `T05_dev-report.md` is the durable record).
 - `tasks/backlog.md` — appended a `## implement-t05-minimax-capability-spike` block with 7 nits (no should-fix items remained after heal). Auto-unions on merge via `merge=union` driver in `.gitattributes`.
 
@@ -32,8 +32,8 @@ The live spike run (with `MINIMAX_API_KEY` set, returns 0 on all-gates-pass) is 
 
 ### Must-fix (resolved this run)
 
-- **[ai-ml-engineer + product-owner + hiring-manager + codex consensus]** `scripts/spike_minimax.py:198-215` — JSON-mode survival gate was decorative. Original code counted `llm_call` events per call and treated `count == 1` as "first-try success", but `LLMClient.complete_json` (`src/jobfit/llm.py:131-142`) emits exactly **one** event per logical call from a `finally` block outside the retry loop, regardless of internal retries. The gate was vacuously always 1.0. **Fixed:** switched to direct exception accounting — `max_retries=0` on each call, wrap in `try/except (ValidationError, JSONDecodeError)`, count caught exceptions as JSON-mode failures. Anchor-rate / spread / latency gates skip `None` results gracefully.
-- **[ai-ml-engineer]** `scripts/spike_minimax.py` extract system prompt — instructed "≥6 consecutive words" but didn't warn about `verify_quote`'s uniqueness floor (`src/jobfit/verify.py:31`: 6-7 word quotes must be unique; ≥8 word quotes may repeat). A 6-word non-unique quote silently fails verification. **Fixed:** appended to extract prompt — *"Pick a quote that appears in the CV only once. If you cannot guarantee uniqueness, copy 8 or more consecutive words."*
+- **[ai-ml-engineer + product-owner + hiring-manager + codex consensus]** `scripts/spike_minimax.py:198-215` — JSON-mode survival gate was decorative. Original code counted `llm_call` events per call and treated `count == 1` as "first-try success", but `LLMClient.complete_json` (`src/gander/llm.py:131-142`) emits exactly **one** event per logical call from a `finally` block outside the retry loop, regardless of internal retries. The gate was vacuously always 1.0. **Fixed:** switched to direct exception accounting — `max_retries=0` on each call, wrap in `try/except (ValidationError, JSONDecodeError)`, count caught exceptions as JSON-mode failures. Anchor-rate / spread / latency gates skip `None` results gracefully.
+- **[ai-ml-engineer]** `scripts/spike_minimax.py` extract system prompt — instructed "≥6 consecutive words" but didn't warn about `verify_quote`'s uniqueness floor (`src/gander/verify.py:31`: 6-7 word quotes must be unique; ≥8 word quotes may repeat). A 6-word non-unique quote silently fails verification. **Fixed:** appended to extract prompt — *"Pick a quote that appears in the CV only once. If you cannot guarantee uniqueness, copy 8 or more consecutive words."*
 
 ### Should-fix (resolved this run, bundled in heal commit)
 
@@ -53,7 +53,7 @@ None. All 5 should-fix items were bundled into the heal commit.
 
 ### Nits (deferred to backlog)
 
-7 items — see `tasks/backlog.md`. Highlights: pin fixture paths to `Path(__file__).resolve()` instead of cwd; replace magic `4` with `len(cvs) * 2`; consider `.env` auto-loading; add few-shot examples to extract/score prompts; promote `_stage` helper into `obs.py` if T07/T08 reuse it; reduce 6-word constant duplication between prompt and `verify.py`; mention the new `src/jobfit/py.typed` marker in the upstream PR description.
+7 items — see `tasks/backlog.md`. Highlights: pin fixture paths to `Path(__file__).resolve()` instead of cwd; replace magic `4` with `len(cvs) * 2`; consider `.env` auto-loading; add few-shot examples to extract/score prompts; promote `_stage` helper into `obs.py` if T07/T08 reuse it; reduce 6-word constant duplication between prompt and `verify.py`; mention the new `src/gander/py.typed` marker in the upstream PR description.
 
 ## Hiring grade
 
@@ -66,7 +66,7 @@ Codex independently surfaced the JSON-survival gate bug at the same file:line as
 ## What this run does NOT prove
 
 - **Live MiniMax behavior.** The spike's four gates have not yet been exercised against `MiniMax-M2.7-highspeed`. The operator runs `uv run python scripts/spike_minimax.py` (with `MINIMAX_API_KEY` set) once to get the verdict.
-- **Cost re-verification.** `MODEL_PRICES` in `src/jobfit/llm.py` is currently zeroed pending the spike run; the `obs.subscribe` capture in this script will surface real `prompt_tokens`/`completion_tokens` to recost from. That recost is a follow-up, not part of T05's done condition.
+- **Cost re-verification.** `MODEL_PRICES` in `src/gander/llm.py` is currently zeroed pending the spike run; the `obs.subscribe` capture in this script will surface real `prompt_tokens`/`completion_tokens` to recost from. That recost is a follow-up, not part of T05's done condition.
 - **Anchor uniqueness on real model output.** The prompt warns the model about uniqueness; whether M2.7 actually copies 8+ words when it cannot guarantee uniqueness is itself a hypothesis the live run tests.
 
 ## Cleanup

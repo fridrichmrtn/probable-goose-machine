@@ -15,7 +15,7 @@ Get the public Hugging Face Space URL live. After this task, the reviewer can cl
 - [x] Confirm `README.md` (root) frontmatter is HF-Space-compliant:
   ```yaml
   ---
-  title: Job Fit & Salary Estimator
+  title: Gander
   emoji: 📊
   colorFrom: blue
   colorTo: indigo
@@ -35,7 +35,7 @@ Get the public Hugging Face Space URL live. After this task, the reviewer can cl
   - Via web UI on huggingface.co/new-space, or via `huggingface-cli` (login first).
   - SDK: Gradio. Hardware: free CPU (sufficient).
   - Set the Space secret: `MINIMAX_API_KEY`. (And `ANTHROPIC_API_KEY` if T05 spike triggered the swap.)
-  - Set repo variable `JOBFIT_MODEL_PROFILE=local` (Space uses the M1 profile, not the CI cheap profile).
+  - Set repo variable `GANDER_MODEL_PROFILE=local` (Space uses the M1 profile, not the CI cheap profile).
 - [x] Wire GitHub → HF Space sync:
   - Either: add HF Space as a git remote and `git push hf main`; OR enable "Sync from GitHub" in Space settings (preferred — push to GitHub once and it auto-deploys).
   - Document the chosen approach in this task's Outcome section.
@@ -65,8 +65,8 @@ curl -sfI $HF_SPACE_URL          # 200 OK
 **Configuration:**
 - SDK: Gradio 6.14.0, Python 3.11, hardware free CPU, public visibility.
 - Secrets: `MINIMAX_API_KEY` (from local `.env`).
-- Env vars: `JOBFIT_MODEL_PROFILE=local`, `PYTHONPATH=/app/src` (so `import jobfit` resolves once T07–T16 wires it; HF's pip step doesn't see source code, so editable install can't be used).
-- Created via `hf repo create probable-goose-machine --repo-type space --space-sdk gradio --public --secrets MINIMAX_API_KEY=… --env JOBFIT_MODEL_PROFILE=local --exist-ok`.
+- Env vars: `GANDER_MODEL_PROFILE=local`, `PYTHONPATH=/app/src` (so `import gander` resolves once T07–T16 wires it; HF's pip step doesn't see source code, so editable install can't be used).
+- Created via `hf repo create probable-goose-machine --repo-type space --space-sdk gradio --public --secrets MINIMAX_API_KEY=… --env GANDER_MODEL_PROFILE=local --exist-ok`.
 
 **Build status:** RUNNING (commit `37d8513`). First green build took ~62s from BUILDING→RUNNING. Both runtime URL and page URL return HTTP 200.
 
@@ -78,7 +78,7 @@ Token note: `HF_TOKEN` GH secret was seeded from local `hf auth token` (account-
 
 **Build issues encountered & fixed during deploy:**
 1. `uv export` writes its `Resolved N packages …` status line to stdout, not stderr — it became line 1 of `requirements.txt` and pip rejected with `Invalid requirement`. Fix: re-export with `--quiet`.
-2. `uv export` emits `-e .` for the project itself; HF's pip-install step has only `requirements.txt` mounted (project source is COPYd to `/app` afterwards), so `-e .` resolved to an empty dir and failed with "neither setup.py nor pyproject.toml found". Fix: add `--no-emit-project` to the export, set `PYTHONPATH=/app/src` Space env var so `import jobfit` works post-COPY.
+2. `uv export` emits `-e .` for the project itself; HF's pip-install step has only `requirements.txt` mounted (project source is COPYd to `/app` afterwards), so `-e .` resolved to an empty dir and failed with "neither setup.py nor pyproject.toml found". Fix: add `--no-emit-project` to the export, set `PYTHONPATH=/app/src` Space env var so `import gander` works post-COPY.
 3. HF auto-injects `gradio[oauth,mcp]==6.14.0` into the build's pip install. The `[mcp]` extra requires `pydantic<=2.12.5,>=2.11.10`; our unbounded `pydantic>=2` resolved to 2.13.4 and pip hit `ResolutionImpossible`. Fix: `pydantic>=2,<2.13` in pyproject.toml; `uv lock` resolved to 2.12.5.
 
 **Warm-keeper plumbing:**

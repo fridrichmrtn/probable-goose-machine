@@ -1,6 +1,6 @@
 # /dev Report — T12 L4c confidence judge (recompute-then-compare)
 
-**Task:** Implement T12 — L4c confidence judge. Deliverables: `src/jobfit/prompts/confidence_step_a.md`, `src/jobfit/prompts/confidence_step_b.md`, `src/jobfit/confidence.py`, `tests/test_confidence_unit.py`. Hard contract: Step A receives ONLY sources (no `low`/`high`/`currency`/`period`); Step B receives the produced range plus Step A's tier-as-fact; Step B can never override Step A's tier; regenerate Step B once when Low tier rationale lacks `insufficient|disagree` (code-enforced, not prompt-enforced).
+**Task:** Implement T12 — L4c confidence judge. Deliverables: `src/gander/prompts/confidence_step_a.md`, `src/gander/prompts/confidence_step_b.md`, `src/gander/confidence.py`, `tests/test_confidence_unit.py`. Hard contract: Step A receives ONLY sources (no `low`/`high`/`currency`/`period`); Step B receives the produced range plus Step A's tier-as-fact; Step B can never override Step A's tier; regenerate Step B once when Low tier rationale lacks `insufficient|disagree` (code-enforced, not prompt-enforced).
 **Branch:** `feat/block-b-late-stages` (no sub-worktree — `--no-worktree --prefix T12`)
 **Worktree:** `/home/mf/GitHub/probable-goose-machine/.worktrees/block-b`
 **Stack:** py, gradio, precommit
@@ -8,9 +8,9 @@
 
 ## Files touched
 
-- `src/jobfit/prompts/confidence_step_a.md` — new (~30 lines). Rubric reordered after heal to check Low first; spread comparator pinned to "deviation against the median of extracted snippet numbers" (Low <2 sources OR >50% spread; Medium exactly 2 sources OR 3+ with 25%–50% spread; High ≥3 distinct domains within 25% spread). Added prompt-injection defense line treating snippet text as untrusted data.
-- `src/jobfit/prompts/confidence_step_b.md` — new (~25 lines). Style guidance about `insufficient`/`disagree` fitting Low-tier prose kept; the post-heal version drops the meta-disclosure that previously named the regenerate mechanism (codex/ai-ml-engineer flagged this as gaming bait).
-- `src/jobfit/confidence.py` — new (~170 LOC after heal). Mirrors T11's shape: module-load prompts, `async with stage_boundary("confidence") as cm`, return `Confidence | StageFailure`. Module-level `_FAILURE_MSG = "Could not generate this section reliably"` (verbatim PRD §4.6 copy, no trailing period) routed through every escape branch (`step_a_llm_error`, `invalid_step_a_output`, `step_b_llm_error`); differentiation in structured `stage_failure.reason` event keys + `debug_detail`. Module-level `_LOW_FALLBACK_RATIONALE` substitutes when Step B's regenerate still lacks the marker, paired with a `confidence_low_fallback_used` telemetry event.
+- `src/gander/prompts/confidence_step_a.md` — new (~30 lines). Rubric reordered after heal to check Low first; spread comparator pinned to "deviation against the median of extracted snippet numbers" (Low <2 sources OR >50% spread; Medium exactly 2 sources OR 3+ with 25%–50% spread; High ≥3 distinct domains within 25% spread). Added prompt-injection defense line treating snippet text as untrusted data.
+- `src/gander/prompts/confidence_step_b.md` — new (~25 lines). Style guidance about `insufficient`/`disagree` fitting Low-tier prose kept; the post-heal version drops the meta-disclosure that previously named the regenerate mechanism (codex/ai-ml-engineer flagged this as gaming bait).
+- `src/gander/confidence.py` — new (~170 LOC after heal). Mirrors T11's shape: module-load prompts, `async with stage_boundary("confidence") as cm`, return `Confidence | StageFailure`. Module-level `_FAILURE_MSG = "Could not generate this section reliably"` (verbatim PRD §4.6 copy, no trailing period) routed through every escape branch (`step_a_llm_error`, `invalid_step_a_output`, `step_b_llm_error`); differentiation in structured `stage_failure.reason` event keys + `debug_detail`. Module-level `_LOW_FALLBACK_RATIONALE` substitutes when Step B's regenerate still lacks the marker, paired with a `confidence_low_fallback_used` telemetry event.
 - `tests/test_confidence_unit.py` — new (~295 LOC after heal). 6 fast tests: signature isolation, Step A no-leak, Step B cannot override + falls back when regen fails to surface the marker, Step B regenerate recovers when the second draft contains the marker, no-regenerate-when-marker-present-on-first-draft, StageFailure path when `complete_json` raises.
 - `tasks/T12_confidence.md` — Status flipped `todo` → `done`; Outcome line added.
 - `tasks/T12_dev-plan.md` — new (planning artifact, ~270 lines).
@@ -20,9 +20,9 @@
 
 | Command | Initial (Phase 2) | After heal (Phase 4) |
 |---|---|---|
-| `uv run ruff format --check src/jobfit/confidence.py tests/test_confidence_unit.py` | pass | pass |
-| `uv run ruff check src/jobfit/confidence.py tests/test_confidence_unit.py` | pass | pass |
-| `uv run mypy src/jobfit/confidence.py` | pass | pass |
+| `uv run ruff format --check src/gander/confidence.py tests/test_confidence_unit.py` | pass | pass |
+| `uv run ruff check src/gander/confidence.py tests/test_confidence_unit.py` | pass | pass |
+| `uv run mypy src/gander/confidence.py` | pass | pass |
 | `uv run pytest -q -m fast tests/test_confidence_unit.py` | pass (3) | pass (6) |
 | `uv run pre-commit run --all-files` | pass | pass |
 
@@ -64,7 +64,7 @@ Codex (gpt-5.5, OpenAI) independently surfaced two of the three load-bearing mus
 ## What this run does NOT prove
 
 - **Live MiniMax behavior on the new rubric.** The rubric reorder (Low-first) and median-comparator phrasing have not been exercised against the live MiniMax-M2.7-highspeed model. A live spike (T19 golden tests) will verify the model honors the precedence and chooses the same tier across consecutive calls at temp=0.
-- **Different model distribution.** Both `cheap` and `reasoning` profiles currently resolve to MiniMax-M2.7-highspeed (`_PROFILE_MODELS` in `jobfit.llm`). The independence promised by `tasks/PLAN.md §L4c` is currently structural (sources-only payload, separate prompt) rather than distributional. Backlog captures the revisit.
+- **Different model distribution.** Both `cheap` and `reasoning` profiles currently resolve to MiniMax-M2.7-highspeed (`_PROFILE_MODELS` in `gander.llm`). The independence promised by `tasks/PLAN.md §L4c` is currently structural (sources-only payload, separate prompt) rather than distributional. Backlog captures the revisit.
 - **Cross-stage telemetry naming consistency.** T12's keys (`sources_count`, `rationale_len`, `regenerated`) are stage-local. The audit T11 deferred still owes — T12/T13 need a follow-up before T15 wires events into the renderer.
 
 ## Cleanup

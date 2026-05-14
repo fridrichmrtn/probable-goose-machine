@@ -12,7 +12,7 @@ Strip personally-identifying information from the extracted CV before it reaches
 
 ## Deliverables
 
-- [ ] `src/jobfit/redact.py`:
+- [ ] `src/gander/redact.py`:
   - `def redact(text: str) -> RedactedCV`:
     - Email regex (RFC-light): `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` → `[EMAIL]`.
     - Phone regex: international (`\+\d{1,3}[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{3,4}`), CZ format (`\+420 ?\d{3} ?\d{3} ?\d{3}`), generic 9–12 digit groups separated by spaces or hyphens. → `[PHONE]`.
@@ -44,7 +44,7 @@ uv run pytest -m slow tests/test_redact.py -v
 
 ## Outcome
 
-Shipped `src/jobfit/redact.py` (regex-only pipeline: URL → email → phone → CZ
+Shipped `src/gander/redact.py` (regex-only pipeline: URL → email → phone → CZ
 postcode → year-in-date-context → header name → `Name:` label) and
 `tests/test_redact.py`. Spans in `Redaction.audit_log` are recorded against the
 output text and documented as informational. Helper `_replace_with_audit`
@@ -58,7 +58,7 @@ Verification (from `/home/mf/GitHub/probable-goose-machine/.worktrees/block-a`):
 
 - `uv run ruff format` — 2 files left unchanged.
 - `uv run ruff check` — all checks passed.
-- `uv run mypy src/jobfit` — Success: no issues found in 8 source files.
+- `uv run mypy src/gander` — Success: no issues found in 8 source files.
 - `uv run pytest -m fast tests/test_redact.py -v` — 12 passed, 3 deselected.
 - `uv run pytest -m slow tests/test_redact.py -v` — 3 passed (corpus guard +
   both fixtures: `01_junior_da_novotny.docx`, `08_staff_ml_engineer_dvorak.pdf`).

@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.obs import current_stage, subscribe
+from gander.errors import StageFailure, stage_boundary
+from gander.obs import current_stage, subscribe
 
 pytestmark = pytest.mark.fast
 

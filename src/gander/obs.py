@@ -33,7 +33,7 @@ def _configure_once() -> None:
 
 
 _configure_once()
-_logger = structlog.get_logger("jobfit")
+_logger = structlog.get_logger("gander")
 
 
 def emit(stage: str | None, event: str, **kv: Any) -> None:

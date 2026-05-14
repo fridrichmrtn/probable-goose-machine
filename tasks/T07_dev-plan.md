@@ -4,7 +4,7 @@ Source of truth: `tasks/T07_ingest.md`. PLAN reference: §"L1 — Ingestion".
 
 ## Files to create / modify
 
-- **Create** `src/jobfit/ingest.py` — public `extract_text` + private helpers.
+- **Create** `src/gander/ingest.py` — public `extract_text` + private helpers.
 - **Create** `tests/test_ingest.py` — fast + slow pytest cases.
 - **No new dependencies.** `pypdf`, `pdfplumber`, `python-docx` are runtime; `reportlab` is dev. Confirmed in `pyproject.toml`.
 - **No edits** to `errors.py`, `schemas.py`, `obs.py`, `pyproject.toml`.
@@ -102,9 +102,9 @@ Module header: `from __future__ import annotations`, `pytestmark = pytest.mark.f
 All four must pass before declaring T07 done:
 
 ```bash
-uv run ruff format --check src/jobfit/ingest.py tests/test_ingest.py
-uv run ruff check src/jobfit/ingest.py tests/test_ingest.py
-uv run mypy --strict src/jobfit
+uv run ruff format --check src/gander/ingest.py tests/test_ingest.py
+uv run ruff check src/gander/ingest.py tests/test_ingest.py
+uv run mypy --strict src/gander
 uv run pytest -m fast tests/test_ingest.py -v
 uv run pytest -m slow tests/test_ingest.py -v
 ```

@@ -6,7 +6,7 @@ Plan: `tasks/T15_dev-plan.md` (a copy of the approved plan from plan mode lives 
 
 ## Scope shipped
 
-- **New `src/jobfit/pipeline.py`** (~225 lines incl. docstring): `async def run(file_bytes, filename) -> AsyncIterator[Report]`.
+- **New `src/gander/pipeline.py`** (~225 lines incl. docstring): `async def run(file_bytes, filename) -> AsyncIterator[Report]`.
   - Initial yield: every block `None`, every status `pending`, `raw_cv_text=""`, totals 0.
   - L1 ingest (`extract_text`, sync) → L2 redact (`redact`, sync) → L3 extract (`extract_profile`, async). Each step rewrites `state.profile = StageFailure(stage="profile", …)` on failure, fans the failure across downstream blocks via `_cascade_all_downstream`, emits `pipeline_done`, yields, returns.
   - L4a + L4b concurrent: `asyncio.create_task` + `asyncio.as_completed`. Routes by `isinstance(result, Score | SalaryEstimate | StageFailure)`; for `StageFailure` it disambiguates via `result.stage`. Yields after each task completes so the UI sees the faster of score/salary first.
@@ -41,8 +41,8 @@ Plan: `tasks/T15_dev-plan.md` (a copy of the approved plan from plan mode lives 
 
 Three modules outside the nominal T15 scope were patched. All confirmed in plan-mode AskUserQuestion + ExitPlanMode approval.
 
-1. **`src/jobfit/schemas.py`** — `Report` blocks become `T | StageFailure | None = None` (initial-yield streaming semantics) and gain `total_cost_usd: float = 0.0` + `total_latency_ms: int = 0` aggregate fields. `_require_exact_status_keys` validator unchanged. Existing constructors that pass all 5 blocks explicitly still type-check.
-2. **`src/jobfit/report.py`** — each `_score_section / _salary_section / _confidence_section / _growth_section` opens with `if block is None: return ""`. `render_body` adds `if report.profile is None: return ""` for the pre-profile streaming state. `_footer(report)` interpolates the new totals as `_Total cost: $X.XXXX · Total latency: N,NNN ms_` in place of the static T15 placeholder. Sections are joined with a filter (`s for s in sections if s`) so empty sections disappear cleanly.
+1. **`src/gander/schemas.py`** — `Report` blocks become `T | StageFailure | None = None` (initial-yield streaming semantics) and gain `total_cost_usd: float = 0.0` + `total_latency_ms: int = 0` aggregate fields. `_require_exact_status_keys` validator unchanged. Existing constructors that pass all 5 blocks explicitly still type-check.
+2. **`src/gander/report.py`** — each `_score_section / _salary_section / _confidence_section / _growth_section` opens with `if block is None: return ""`. `render_body` adds `if report.profile is None: return ""` for the pre-profile streaming state. `_footer(report)` interpolates the new totals as `_Total cost: $X.XXXX · Total latency: N,NNN ms_` in place of the static T15 placeholder. Sections are joined with a filter (`s for s in sections if s`) so empty sections disappear cleanly.
 3. **`tests/test_render.py`** — three additional tests: footer interpolation, profile=None ⇒ empty body, mid-stream snapshot with some blocks `None` and others completed renders the completed sections only.
 4. **`tests/test_schemas.py`** — two additional tests: `test_report_accepts_none_blocks_for_pipeline_streaming` and `test_report_carries_cost_and_latency_totals`.
 
@@ -69,10 +69,10 @@ uv run pytest -m live -k pipeline_smoke -v                # 1 passed (degraded m
 
 - **No real-LLM end-to-end timing recorded.** Live smoke ran in degraded mode because the worktree env has no `MINIMAX_API_KEY`. The fast suite already exercises every orchestration branch deterministically, and T17/T18 will run the all-green path against the calibration fixture set. If a wall-clock number is needed sooner, set the env var and re-run `pytest -m live -k pipeline_smoke`.
 - **`asyncio.as_completed` ordering** is timing-dependent. Test #11 uses 1ms-vs-50ms sleeps to give a 50× margin, but on a heavily-loaded CI runner this could conceivably flake. If we see flakes, widen to 5ms-vs-200ms or rewrite the assertion as "score finishes after salary" without per-yield introspection.
-- **Cost accumulator schema assumption.** `_make_accumulator` reads `usd_cost` and `duration_ms` from obs records. If `jobfit.llm` ever renames either field, totals will silently stay 0. Defensive `.get()` + `isinstance` already absorbs the rename; T18 should add a contract test that pins the obs `llm_call` event shape.
+- **Cost accumulator schema assumption.** `_make_accumulator` reads `usd_cost` and `duration_ms` from obs records. If `gander.llm` ever renames either field, totals will silently stay 0. Defensive `.get()` + `isinstance` already absorbs the rename; T18 should add a contract test that pins the obs `llm_call` event shape.
 - **No T16 integration yet.** The async iterator is designed for Gradio's `gr.Markdown.update` pattern, but the actual wiring lands in T16. If T16 needs a different yield cadence (e.g. throttling), revisit `run()`.
 
 ## Files changed
 
-- New: `src/jobfit/pipeline.py`, `tests/test_pipeline_fast.py`, `tests/test_pipeline_smoke.py`, `tasks/T15_dev-report.md`
-- Modified: `src/jobfit/schemas.py`, `src/jobfit/report.py`, `tests/test_render.py`, `tests/test_schemas.py`, `tasks/T14_render.md` (footer placeholder closed), `tasks/T15_pipeline.md` (status → done + outcome)
+- New: `src/gander/pipeline.py`, `tests/test_pipeline_fast.py`, `tests/test_pipeline_smoke.py`, `tasks/T15_dev-report.md`
+- Modified: `src/gander/schemas.py`, `src/gander/report.py`, `tests/test_render.py`, `tests/test_schemas.py`, `tasks/T14_render.md` (footer placeholder closed), `tasks/T15_pipeline.md` (status → done + outcome)

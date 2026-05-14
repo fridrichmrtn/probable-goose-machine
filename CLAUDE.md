@@ -12,7 +12,7 @@ This file is committed and team-shared. Personal overrides go in `CLAUDE.local.m
   - Opus: only when stakes, ambiguity, and novelty all converge, such as architecture from a vague brief, subtle legacy debugging, or high-impact trade-off decisions.
   - These tier guidelines apply to subagents you spawn. The orchestrator's model is selected by the user at session start.
 - Application runtime LLM: default to MiniMax via the OpenAI-compatible API, per `tasks/PLAN.md` (`MiniMax-M1` for reasoning-heavy stages, `abab6.5s-chat` for confidence/cheap/CI paths). Claude Sonnet 4.6 is a fallback only if the T05 MiniMax capability spike fails.
-- Keep provider-specific app code behind `jobfit.llm`. Anthropic prompt caching applies only when the application fallback provider is actually Anthropic.
+- Keep provider-specific app code behind `gander.llm`. Anthropic prompt caching applies only when the application fallback provider is actually Anthropic.
 - Prefer concise execution for trivial edits; do not turn simple work into ceremony.
 - Context controls live in `.claude/settings.json` (shared) with personal overrides in `.claude/settings.local.json`. Keep 1M context disabled and compact around 80% unless a task explicitly needs long-context work.
 

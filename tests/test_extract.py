@@ -7,14 +7,14 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from jobfit.errors import StageFailure
-from jobfit.extract import extract_profile, load_prompt
-from jobfit.ingest import extract_text
-from jobfit.llm import LLMClient
-from jobfit.obs import subscribe
-from jobfit.redact import redact
-from jobfit.schemas import Anchor, Profile, ProfileItem, RedactedCV
-from jobfit.verify import verify_quote
+from gander.errors import StageFailure
+from gander.extract import extract_profile, load_prompt
+from gander.ingest import extract_text
+from gander.llm import LLMClient
+from gander.obs import subscribe
+from gander.redact import redact
+from gander.schemas import Anchor, Profile, ProfileItem, RedactedCV
+from gander.verify import verify_quote
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "cvs"
 

@@ -11,10 +11,10 @@ from ddgs import DDGS
 from pydantic import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
-from jobfit.errors import StageFailure, stage_boundary
-from jobfit.llm import LLMClient
-from jobfit.obs import emit
-from jobfit.schemas import Profile, SalaryEstimate, Source
+from gander.errors import StageFailure, stage_boundary
+from gander.llm import LLMClient
+from gander.obs import emit
+from gander.schemas import Profile, SalaryEstimate, Source
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "salary.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")

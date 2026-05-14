@@ -15,11 +15,11 @@ The user-facing Gradio app: file upload, generate button, stage tracker pills, s
 - [ ] `app.py` (replace bootstrap stub):
   ```python
   import gradio as gr
-  from jobfit.pipeline import run as pipeline_run
-  from jobfit.report import render_tracker, render_body
+  from gander.pipeline import run as pipeline_run
+  from gander.report import render_tracker, render_body
 
-  with gr.Blocks(title="Job Fit & Salary Estimator", theme=...) as demo:
-      gr.Markdown("# Job Fit & Salary Estimator\n*Upload a CV — PDF or DOCX, max 10 MB. Processed in-memory; not stored.*")
+  with gr.Blocks(title="Gander", theme=...) as demo:
+      gr.Markdown("# Gander\n*Upload a CV — PDF or DOCX, max 10 MB. Processed in-memory; not stored.*")
       file_in = gr.File(file_types=[".pdf", ".docx"], label="CV")
       run_btn = gr.Button("Generate report", variant="primary")
       tracker_html = gr.HTML(value=render_tracker(_initial_report()))
@@ -38,7 +38,7 @@ The user-facing Gradio app: file upload, generate button, stage tracker pills, s
   if __name__ == "__main__":
       demo.queue().launch()
   ```
-- [ ] `_initial_report()` helper — returns a `Report` with all statuses = `pending` and empty/None blocks (lives in `src/jobfit/ui.py` or `pipeline.py`).
+- [ ] `_initial_report()` helper — returns a `Report` with all statuses = `pending` and empty/None blocks (lives in `src/gander/ui.py` or `pipeline.py`).
 - [ ] CSS lives inside `render_tracker`'s `<style>` block (already from T14):
   - 5 horizontal pills, evenly spaced.
   - States: `pending` (grey), `running` (blue, subtle pulse), `done` (green with ✓), `failed` (red with ⚠).

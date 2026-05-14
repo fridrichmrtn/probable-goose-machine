@@ -7,10 +7,10 @@ from typing import Any
 
 import pytest
 
-from jobfit.confidence import _STEP_B_PROMPT, _render_step_b, judge
-from jobfit.errors import StageFailure
-from jobfit.obs import subscribe
-from jobfit.schemas import Confidence, Source
+from gander.confidence import _STEP_B_PROMPT, _render_step_b, judge
+from gander.errors import StageFailure
+from gander.obs import subscribe
+from gander.schemas import Confidence, Source
 
 _LIVE_SKIPIF = pytest.mark.skipif(
     not os.environ.get("MINIMAX_API_KEY"),

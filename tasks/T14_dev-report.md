@@ -5,14 +5,14 @@ Status: done
 
 ## Scope shipped
 
-- `src/jobfit/report.py` (new module, ~240 lines incl. CSS): two pure functions, `render_tracker(report) -> str` and `render_body(report) -> str`. No I/O, no globals, no logging.
+- `src/gander/report.py` (new module, ~240 lines incl. CSS): two pure functions, `render_tracker(report) -> str` and `render_body(report) -> str`. No I/O, no globals, no logging.
 - `tests/test_render.py` (new, 27 `@pytest.mark.fast` tests): covers tracker pills, body sections, failure branches, escape boundaries, Czech diacritic survival.
-- Single `<style>` block at the top of `render_tracker` output. CSS classes namespaced (`.tracker`, `.pill`, `.jobfit-callout`, `.jobfit-components`). `@media (prefers-reduced-motion: reduce)` disables transitions.
+- Single `<style>` block at the top of `render_tracker` output. CSS classes namespaced (`.tracker`, `.pill`, `.gander-callout`, `.gander-components`). `@media (prefers-reduced-motion: reduce)` disables transitions.
 - HTML escape via `html.escape(text, quote=True)` applied to every user-controllable string: `Component.justification`, `Anchor.quote`, `Source.snippet`, `Confidence.rationale`, `SalaryEstimate.reasoning`, `GrowthAction.what`, `GrowthAction.mechanism`, `StageFailure.user_message`, tracker `title` tooltip.
 
 ## Spec drift resolved (schema wins)
 
-Two drifts between `tasks/T14_render.md` and `src/jobfit/schemas.py`:
+Two drifts between `tasks/T14_render.md` and `src/gander/schemas.py`:
 
 1. **Status keys.** T14 spec listed tracker pills `Parse · Redact · Score · Salary · Plan` and a top-level failure check on `report.statuses["ingest"]` / `["redact"]`. Schema's `StageName = Literal["profile", "score", "salary", "confidence", "growth"]` and `Report._require_exact_status_keys` rejects unknown keys. Resolution: map the 5 pills to the actual schema stages with display labels:
 

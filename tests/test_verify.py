@@ -5,8 +5,8 @@ import unicodedata
 import pytest
 from pydantic import BaseModel
 
-from jobfit.schemas import Anchor
-from jobfit.verify import drop_unverified, verify_quote
+from gander.schemas import Anchor
+from gander.verify import drop_unverified, verify_quote
 
 pytestmark = pytest.mark.fast
 
