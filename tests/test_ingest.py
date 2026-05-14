@@ -16,30 +16,62 @@ from gander.ingest import (
     SCANNED_MSG,
     UNKNOWN_MSG,
     _annotate_sections,
+    _repair_inline_section_breaks,
     extract_text,
 )
+from gander.llm import LLMClient
 from gander.obs import subscribe
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "text")
+
+
+def _docx_bytes(paragraphs: list[str]) -> bytes:
+    import docx as _docx
+
+    document = _docx.Document()
+    for paragraph in paragraphs:
+        document.add_paragraph(paragraph)
+    buf = BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+def _pdf_bytes(pages: list[list[str]]) -> bytes:
+    reportlab_canvas = pytest.importorskip("reportlab.pdfgen.canvas")
+    buf = BytesIO()
+    c = reportlab_canvas.Canvas(buf)
+    for lines in pages:
+        y = 760
+        for line in lines:
+            c.drawString(72, y, line)
+            y -= 24
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
 @pytest.mark.fast
-def test_unknown_extension_returns_format_failure() -> None:
-    result = extract_text(b"hello", "notes.txt")
+async def test_unknown_extension_returns_format_failure() -> None:
+    result = await extract_text(b"hello", "notes.txt")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == UNKNOWN_MSG
 
 
 @pytest.mark.fast
-def test_doc_extension_returns_conversion_hint() -> None:
-    result = extract_text(b"\xd0\xcf\x11\xe0fake-ole-bytes", "cv.doc")
+async def test_doc_extension_returns_conversion_hint() -> None:
+    result = await extract_text(b"\xd0\xcf\x11\xe0fake-ole-bytes", "cv.doc")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == DOC_MSG
 
 
 @pytest.mark.fast
-def test_corrupt_pdf_returns_corrupt_failure() -> None:
-    result = extract_text(b"%PDF-not-a-real-pdf", "cv.pdf")
+async def test_corrupt_pdf_returns_corrupt_failure() -> None:
+    result = await extract_text(b"%PDF-not-a-real-pdf", "cv.pdf")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == CORRUPT_MSG
@@ -47,9 +79,9 @@ def test_corrupt_pdf_returns_corrupt_failure() -> None:
 
 
 @pytest.mark.fast
-def test_corrupt_pdf_debug_detail_does_not_leak_content() -> None:
+async def test_corrupt_pdf_debug_detail_does_not_leak_content() -> None:
     payload = b"%PDF-not-a-real-pdf"
-    result = extract_text(payload, "cv.pdf")
+    result = await extract_text(payload, "cv.pdf")
     assert isinstance(result, StageFailure)
     assert result.debug_detail is not None
     assert f"{len(payload)} bytes" in result.debug_detail
@@ -57,42 +89,42 @@ def test_corrupt_pdf_debug_detail_does_not_leak_content() -> None:
 
 
 @pytest.mark.fast
-def test_corrupt_docx_returns_corrupt_failure() -> None:
-    result = extract_text(b"PK\x03\x04junk-not-a-real-docx", "cv.docx")
+async def test_corrupt_docx_returns_corrupt_failure() -> None:
+    result = await extract_text(b"PK\x03\x04junk-not-a-real-docx", "cv.docx")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == CORRUPT_MSG
 
 
 @pytest.mark.fast
-def test_empty_docx_returns_empty_failure() -> None:
+async def test_empty_docx_returns_empty_failure() -> None:
     import docx as _docx
 
     document = _docx.Document()
     buf = BytesIO()
     document.save(buf)
-    result = extract_text(buf.getvalue(), "empty.docx")
+    result = await extract_text(buf.getvalue(), "empty.docx")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == EMPTY_MSG
 
 
 @pytest.mark.fast
-def test_tiny_docx_returns_empty_failure() -> None:
+async def test_tiny_docx_returns_empty_failure() -> None:
     import docx as _docx
 
     document = _docx.Document()
     document.add_paragraph("Hi")
     buf = BytesIO()
     document.save(buf)
-    result = extract_text(buf.getvalue(), "tiny.docx")
+    result = await extract_text(buf.getvalue(), "tiny.docx")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == EMPTY_MSG
 
 
 @pytest.mark.fast
-def test_pdfplumber_failure_falls_back_to_scanned_not_corrupt(
+async def test_pdfplumber_failure_falls_back_to_scanned_not_corrupt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When pypdf parses a valid PDF but extracts <100 chars, and pdfplumber
@@ -111,10 +143,248 @@ def test_pdfplumber_failure_falls_back_to_scanned_not_corrupt(
 
     monkeypatch.setattr(ingest.pdfplumber, "open", _boom)
 
-    result = extract_text(pdf_bytes, "tiny.pdf")
+    result = await extract_text(pdf_bytes, "tiny.pdf")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == SCANNED_MSG
+
+
+@pytest.mark.fast
+def test_render_pdf_pages_returns_pngs() -> None:
+    pdf_bytes = _pdf_bytes(
+        [
+            ["Summary", "Data Scientist with Python and SQL."],
+            ["Experience", "Built forecasting systems for retail teams."],
+        ]
+    )
+
+    pages = ingest._render_pdf_pages(pdf_bytes, dpi=120)
+
+    assert len(pages) == 2
+    assert all(page.startswith(b"\x89PNG\r\n\x1a\n") for page in pages)
+
+
+@pytest.mark.fast
+async def test_pdf_vlm_ingest_renders_pages_and_joins_transcripts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    pdf_bytes = _pdf_bytes(
+        [
+            ["Summary", "Data Scientist with 5 years building churn models."],
+            ["Experience", "Led customer churn model for a synthetic retail pilot."],
+        ]
+    )
+    seen_images: list[bytes] = []
+
+    async def _fake_vlm(
+        self: LLMClient,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+        timeout_s: float = 120.0,
+    ) -> str:
+        assert "Transcribe this CV page verbatim" in prompt
+        assert mime_type == "image/png"
+        assert timeout_s == 120.0
+        seen_images.append(image_bytes)
+        if len(seen_images) == 1:
+            return (
+                "Summary Data Scientist with 5 years building churn models for retail teams. "
+                "Skills Python SQL LightGBM model monitoring dashboards."
+            )
+        return (
+            "Experience Led customer churn model for a synthetic retail pilot reducing "
+            "cancellations by 11 percent. Education CVUT FIT Prague MSc Informatics."
+        )
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _fake_vlm)
+
+    result = await extract_text(pdf_bytes, "cv.pdf")
+
+    assert isinstance(result, str)
+    assert len(seen_images) == 2
+    assert all(image.startswith(b"\x89PNG\r\n\x1a\n") for image in seen_images)
+    assert "[PAGE_BREAK]" in result
+    assert "Data Scientist with 5 years building churn models" in result
+    assert "Led customer churn model" in result
+    assert "## Summary" in result
+
+
+@pytest.mark.fast
+async def test_pdf_vlm_failure_falls_back_to_deterministic_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    deterministic_phrase = "Deterministic fallback phrase for a text PDF with enough content"
+    pdf_bytes = _pdf_bytes(
+        [
+            [
+                "Summary",
+                deterministic_phrase,
+                "Experience includes Python SQL data quality monitoring and forecasting.",
+                "Education CVUT FIT Prague MSc Informatics completed in 2021.",
+            ]
+        ]
+    )
+
+    async def _raise_vlm(self: LLMClient, **_kwargs: object) -> str:
+        raise RuntimeError("synthetic VLM outage")
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _raise_vlm)
+
+    result = await extract_text(pdf_bytes, "cv.pdf")
+
+    assert isinstance(result, str)
+    assert deterministic_phrase in result
+
+
+@pytest.mark.fast
+async def test_docx_text_llm_normalizes_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    source = [
+        "Summary Data Scientist with Python SQL LightGBM monitoring and dashboards.",
+        "Pracovní zkušenosti Vedla model odchodu zákazníků pro Česko v října 2024.",
+        "Vzdělání ČVUT FIT Datová věda září 2019 června 2021.",
+    ]
+
+    async def _fake_text(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        model: str = "cheap",
+        temperature: float = 0.0,
+    ) -> str:
+        assert "normalize deterministic DOCX text" in system
+        assert "SOURCE DOCX TEXT" in user
+        assert model == "cheap"
+        assert temperature == 0.0
+        return "\n".join(source)
+
+    monkeypatch.setattr(LLMClient, "complete_text", _fake_text)
+
+    result = await extract_text(_docx_bytes(source), "cv.docx")
+
+    assert isinstance(result, str)
+    assert "Pracovní zkušenosti" in result
+    assert "října" in result
+    assert "## Vzdělání" in result
+
+
+@pytest.mark.fast
+async def test_docx_text_llm_low_overlap_falls_back_to_deterministic_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    source = [
+        "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards.",
+        "Experience Owned fraud model lifecycle for synthetic finance platform.",
+        "Education CVUT FIT Prague MSc Informatics 2021.",
+    ]
+
+    async def _paraphrase(self: LLMClient, **_kwargs: object) -> str:
+        return "A strong candidate with many useful abilities and a good background."
+
+    monkeypatch.setattr(LLMClient, "complete_text", _paraphrase)
+
+    result = await extract_text(_docx_bytes(source), "cv.docx")
+
+    assert isinstance(result, str)
+    assert "Owned fraud model lifecycle for synthetic finance platform" in result
+    assert "A strong candidate" not in result
+
+
+@pytest.mark.fast
+async def test_docx_text_llm_provider_error_falls_back_to_deterministic_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    source = [
+        "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards.",
+        "Experience Owned fraud model lifecycle for synthetic finance platform.",
+        "Education CVUT FIT Prague MSc Informatics 2021.",
+    ]
+
+    class ProviderError(Exception):
+        pass
+
+    async def _provider_error(self: LLMClient, **_kwargs: object) -> str:
+        raise ProviderError("synthetic provider outage")
+
+    monkeypatch.setattr(LLMClient, "complete_text", _provider_error)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_text(_docx_bytes(source), "cv.docx")
+
+    assert isinstance(result, str)
+    assert "Owned fraud model lifecycle for synthetic finance platform" in result
+    fallback = [e for e in events if e["event"] == "ingest_llm_fallback"]
+    assert fallback
+    assert fallback[0]["file_type"] == "docx"
+    assert fallback[0]["reason"] == "api_error"
+    assert fallback[0]["exc_type"] == "ProviderError"
+
+
+@pytest.mark.fast
+async def test_docx_fixture_vision_mode_preserves_role_and_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    fixture = _FIXTURE_DIR / "01_junior_da_novotny.docx"
+
+    async def _echo_source(self: LLMClient, *, user: str, **_kwargs: object) -> str:
+        return user.split("SOURCE DOCX TEXT:\n", 1)[1]
+
+    monkeypatch.setattr(LLMClient, "complete_text", _echo_source)
+
+    result = await extract_text(fixture.read_bytes(), fixture.name)
+
+    assert isinstance(result, str)
+    assert "Junior Data Analyst" in result
+    assert "## Summary" in result
+    assert "## Experience" in result
+
+
+@pytest.mark.fast
+def test_docx_overlap_guard_rejects_paraphrase() -> None:
+    source = (
+        "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards. "
+        "Experience Owned fraud model lifecycle for synthetic finance platform. "
+        "Education CVUT FIT Prague MSc Informatics 2021."
+    )
+    paraphrase = "A strong candidate with useful abilities and an academic background."
+
+    with pytest.raises(Exception) as exc:
+        ingest._validate_docx_llm_candidate(source, paraphrase)
+
+    assert "under_min_chars" in str(exc.value) or "low_source_overlap" in str(exc.value)
+
+
+@pytest.mark.fast
+def test_repair_inline_section_breaks_for_collapsed_vlm_text() -> None:
+    collapsed = (
+        "Jana Testovací Pracovní zkušenosti Vedla model pro Česko v října 2024 "
+        "Vzdělání ČVUT FIT Datová věda"
+    )
+
+    repaired = _repair_inline_section_breaks(collapsed)
+    annotated = _annotate_sections(repaired)
+
+    assert "Jana Testovací\nPracovní zkušenosti\nVedla model" in repaired
+    assert "\nVzdělání\nČVUT FIT" in repaired
+    assert "## Pracovní zkušenosti" in annotated
+    assert "## Vzdělání" in annotated
 
 
 @pytest.mark.fast
@@ -259,7 +529,7 @@ def test_inline_languages_list_not_promoted() -> None:
 
 
 @pytest.mark.fast
-def test_observability_emits_start_and_done_for_docx_fixture() -> None:
+async def test_observability_emits_start_and_done_for_docx_fixture() -> None:
     fixture = _FIXTURE_DIR / "01_junior_da_novotny.docx"
     data = fixture.read_bytes()
     # Fail loudly on unresolved LFS pointers (fresh checkout w/o `git lfs pull`
@@ -272,7 +542,7 @@ def test_observability_emits_start_and_done_for_docx_fixture() -> None:
         )
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        result = extract_text(data, fixture.name)
+        result = await extract_text(data, fixture.name)
     assert isinstance(result, str)
 
     starts = [e for e in events if e["event"] == "start" and e["stage"] == "ingest"]
@@ -289,10 +559,10 @@ def test_observability_emits_start_and_done_for_docx_fixture() -> None:
 
 
 @pytest.mark.fast
-def test_observability_emits_rejected_for_unknown_suffix() -> None:
+async def test_observability_emits_rejected_for_unknown_suffix() -> None:
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        result = extract_text(b"hello", "notes.txt")
+        result = await extract_text(b"hello", "notes.txt")
     assert isinstance(result, StageFailure)
 
     rejected = [
@@ -325,14 +595,14 @@ def test_cv_fixtures_corpus_not_empty() -> None:
     sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glob("*.docx"))),
     ids=lambda p: p.name,
 )
-def test_real_fixtures_extract_minimum_chars(fixture_path: Path) -> None:
-    result = extract_text(fixture_path.read_bytes(), fixture_path.name)
+async def test_real_fixtures_extract_minimum_chars(fixture_path: Path) -> None:
+    result = await extract_text(fixture_path.read_bytes(), fixture_path.name)
     assert isinstance(result, str), f"expected str, got {result!r}"
     assert len(result) >= 200
 
 
 @pytest.mark.slow
-def test_scanned_pdf_returns_scanned_failure() -> None:
+async def test_scanned_pdf_returns_scanned_failure() -> None:
     reportlab_canvas = pytest.importorskip("reportlab.pdfgen.canvas")
     buf = BytesIO()
     c = reportlab_canvas.Canvas(buf)
@@ -358,7 +628,7 @@ def test_scanned_pdf_returns_scanned_failure() -> None:
             "fix the synthesis or commit a real fixture"
         )
 
-    result = extract_text(pdf_bytes, "scanned.pdf")
+    result = await extract_text(pdf_bytes, "scanned.pdf")
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
     assert result.user_message == SCANNED_MSG

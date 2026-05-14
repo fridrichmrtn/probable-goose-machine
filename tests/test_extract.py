@@ -384,7 +384,10 @@ def test_live_corpus_is_present() -> None:
     _LIVE_FIXTURES,
     ids=lambda p: p.name,
 )
-async def test_extract_profile_on_fixtures(fixture_path: Path) -> None:
+async def test_extract_profile_on_fixtures(
+    fixture_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "text")
     data = fixture_path.read_bytes()
     # Loud guard against an unresolved LFS pointer reaching extract_text.
     if data.startswith(b"version https://git-lfs.github.com/"):
@@ -392,7 +395,7 @@ async def test_extract_profile_on_fixtures(fixture_path: Path) -> None:
             f"{fixture_path.name} is an unresolved LFS pointer. "
             "Run `git lfs pull` (CI uses `actions/checkout@v4` with `lfs: true`)."
         )
-    ingested = extract_text(data, fixture_path.name)
+    ingested = await extract_text(data, fixture_path.name)
     if isinstance(ingested, StageFailure):
         pytest.fail(f"ingest failed on {fixture_path.name}: {ingested.user_message}")
 

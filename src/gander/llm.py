@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
+import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
@@ -43,6 +45,10 @@ _PROFILE_MODELS: dict[str, dict[str, str]] = {
 }
 
 _ANTHROPIC_MODEL = "claude-sonnet-4-6"
+_API_VLM_MODEL = "api-vlm"
+_API_VLM_ENDPOINT = "https://api.minimax.io/v1/coding_plan/vlm"
+_API_VLM_USD_PER_REQUEST = 0.06
+_API_VLM_TOKEN_PLAN_M2_REQUESTS = 3
 
 
 class LLMClient:
@@ -181,6 +187,62 @@ class LLMClient:
                 usd_cost=usd_cost,
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
+            )
+
+    async def complete_vision_text(
+        self,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+        timeout_s: float = 120.0,
+    ) -> str:
+        """Transcribe one rendered page through MiniMax Token Plan API-vlm."""
+        api_key = os.environ.get("MINIMAX_API_KEY")
+        if not api_key:
+            raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
+
+        endpoint = os.environ.get("GANDER_VLM_ENDPOINT", _API_VLM_ENDPOINT)
+        image_url = f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("ascii")
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "MM-API-Source": "Gander-Ingest",
+        }
+        payload = {"prompt": prompt, "image_url": image_url}
+        t0 = time.perf_counter()
+        sent = False
+        finish_reason = ""
+        try:
+            async with httpx.AsyncClient(timeout=timeout_s) as client:
+                sent = True
+                response = await client.post(endpoint, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            base_resp = data.get("base_resp")
+            if isinstance(base_resp, dict):
+                status_code = base_resp.get("status_code")
+                if status_code not in (None, 0, 200):
+                    status_msg = str(base_resp.get("status_msg", "unknown MiniMax error"))
+                    raise RuntimeError(f"MiniMax API-vlm error {status_code}: {status_msg}")
+            content = data.get("content", "")
+            text = content.strip() if isinstance(content, str) else str(content).strip()
+            if not text:
+                raise RuntimeError("MiniMax API-vlm returned empty content")
+            finish_reason = "success"
+            return text
+        finally:
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            obs.emit(
+                obs.current_stage.get(),
+                "llm_call",
+                model=_API_VLM_MODEL,
+                prompt_tokens=0,
+                completion_tokens=0,
+                usd_cost=_API_VLM_USD_PER_REQUEST if sent else 0.0,
+                duration_ms=duration_ms,
+                finish_reason=finish_reason,
+                token_plan_m2_requests=_API_VLM_TOKEN_PLAN_M2_REQUESTS if sent else 0,
             )
 
     async def _chat_json(

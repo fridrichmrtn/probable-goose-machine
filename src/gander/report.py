@@ -115,6 +115,17 @@ _CSS = """<style>
   .gander-callout { background: #450a0a; color: #fecaca; border-left-color: #ef4444; }
   .gander-output th, .gander-output td { border-color: #3f3f46; }
 }
+body.dark .pill {
+  border-color: #3f3f46; border-left-color: #52525b;
+  color: #a1a1aa; background: transparent;
+}
+body.dark .pill.pending { border-left-color: #52525b; color: #a1a1aa; }
+body.dark .pill.running { border-left-color: #f59e0b; color: #e4e4e7; }
+body.dark .pill.done    { border-left-color: #22c55e; color: #e4e4e7; }
+body.dark .pill.failed  { border-left-color: #ef4444; color: #e4e4e7; }
+body.dark .pill.skipped { border-left-color: #52525b; color: #71717a; }
+body.dark .gander-callout { background: #450a0a; color: #fecaca; border-left-color: #ef4444; }
+body.dark .gander-output th, body.dark .gander-output td { border-color: #3f3f46; }
 </style>"""
 
 

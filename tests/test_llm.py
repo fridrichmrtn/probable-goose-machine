@@ -46,6 +46,62 @@ class _RetryingLLMClient(LLMClient):
 
 
 @pytest.mark.fast
+async def test_complete_vision_text_posts_api_vlm_payload_and_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"content": "Summary\nSynthetic transcript", "base_resp": {"status_code": 0}}
+
+    class _FakeAsyncClient:
+        def __init__(self, *, timeout: float) -> None:
+            captured["timeout"] = timeout
+
+        async def __aenter__(self) -> _FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(
+            self, endpoint: str, *, headers: dict[str, str], json: dict[str, str]
+        ) -> _FakeResponse:
+            captured["endpoint"] = endpoint
+            captured["headers"] = headers
+            captured["json"] = json
+            return _FakeResponse()
+
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setattr("gander.llm.httpx.AsyncClient", _FakeAsyncClient)
+    client = object.__new__(LLMClient)
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append):
+        text = await client.complete_vision_text(
+            image_bytes=b"\x89PNG\r\n\x1a\nfake", prompt="Transcribe this page."
+        )
+
+    assert text == "Summary\nSynthetic transcript"
+    assert captured["endpoint"] == "https://api.minimax.io/v1/coding_plan/vlm"
+    assert captured["timeout"] == 120.0
+    payload = captured["json"]
+    assert payload["prompt"] == "Transcribe this page."
+    assert payload["image_url"].startswith("data:image/png;base64,")
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+
+    llm_events = [e for e in events if e["event"] == "llm_call"]
+    assert len(llm_events) == 1
+    assert llm_events[0]["model"] == "api-vlm"
+    assert llm_events[0]["usd_cost"] == 0.06
+    assert llm_events[0]["token_plan_m2_requests"] == 3
+
+
+@pytest.mark.fast
 async def test_complete_json_retry_telemetry_accumulates_tokens() -> None:
     events: list[dict[str, Any]] = []
     client = _RetryingLLMClient()

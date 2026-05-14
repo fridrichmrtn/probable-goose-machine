@@ -1,0 +1,88 @@
+{
+  "_doc": "Hand-curated fixtures for the vision-LLM ingest spike (T32). Three sections per document: (a) `verify_anchors` — 10 phrases of ≥6 words each, used with gander.verify.verify_quote for Gate 1 (anchor-survival ≥9/10); (b) `column_tokens` — short sidebar+body tokens for Gate 2 (column-order detector); (c) `cz_only_tokens` — CZ-language phrases that must appear literally (not translated) for Gate 3 (translation-drift detector).",
+  "_gates": {
+    "gate1_anchor_survival": "verify_anchors via verify_quote — ≥9/10 per document",
+    "gate2_column_order": "all sidebar tokens appear before all body tokens (multi-column doc only)",
+    "gate3_translation_drift": "every cz_only_token appears literally in transcript — no EN translation"
+  },
+  "fixtures": {
+    "profile_pdf": {
+      "_path": "/home/mf/Downloads/Profile.pdf",
+      "_layout": "multi-column LinkedIn export, dark sidebar + body, CZ+EN bilingual, 3 pages",
+      "_source_language": "cz+en",
+      "verify_anchors": [
+        {"category": "sidebar", "text": "User churn model in e-commerce retail", "lang": "en", "note": "sidebar publication title — must survive sidebar transcription"},
+        {"category": "sidebar", "text": "Understanding customer churn prediction research with structural", "lang": "en", "note": "publication-title prefix, sidebar"},
+        {"category": "date_cz", "text": "října 2015 - Present (10 let 7 měsíců)", "lang": "cz", "note": "CZ month genitive + duration phrase verbatim"},
+        {"category": "date_cz", "text": "září 2023 - ledna 2026 (2 roky 5 měsíců)", "lang": "cz", "note": "two CZ month genitives + duration"},
+        {"category": "date_cz", "text": "ledna 2017 - ledna 2021 (4 roky 1 měsíc)", "lang": "cz", "note": "CZ months + duration with singular `měsíc`"},
+        {"category": "body", "text": "Led marketing and commercial excellence data streams, supported large-", "lang": "en", "note": "body bullet, mixed punctuation"},
+        {"category": "body", "text": "Founded and led data science & business intelligence teams", "lang": "en", "note": "ampersand `&` must not become `and`"},
+        {"category": "body", "text": "Identified employee churn drivers (Topic models)", "lang": "en", "note": "project bullet with parens"},
+        {"category": "body", "text": "MSc, System Engineering and Informatics · (října", "lang": "en", "note": "education line with middle-dot `·` and CZ month — punctuation trap"},
+        {"category": "body", "text": "PhD, Economics and Management, Applied Machine Learning · (října", "lang": "en", "note": "PhD line with middle-dot + CZ month"}
+      ],
+      "column_tokens": {
+        "sidebar_first": ["Kontakt", "Nejčastější dovednosti", "Languages", "Certifications", "Honors-Awards", "Publications"],
+        "body_after": ["Pracovní zkušenosti", "Vzdělání"]
+      },
+      "cz_only_tokens": [
+        {"text": "Pracovní zkušenosti", "en_translation_trap": "Work Experience"},
+        {"text": "Vzdělání", "en_translation_trap": "Education"},
+        {"text": "Nejčastější dovednosti", "en_translation_trap": "Top Skills"},
+        {"text": "Hlavní město Praha, Česko", "en_translation_trap": "Capital City Prague, Czechia"},
+        {"text": "října 2015", "en_translation_trap": "October 2015"},
+        {"text": "září 2023", "en_translation_trap": "September 2023"},
+        {"text": "ledna 2026", "en_translation_trap": "January 2026"},
+        {"text": "4 měsíce", "en_translation_trap": "4 months"},
+        {"text": "10 let 7 měsíců", "en_translation_trap": "10 years 7 months"}
+      ]
+    },
+    "07_senior_ds_holub": {
+      "_path": "tests/fixtures/cvs/07_senior_ds_holub.pdf",
+      "_layout": "single-column EN CV",
+      "_source_language": "en",
+      "verify_anchors": [
+        {"category": "body", "text": "Senior Data Scientist with 10 years of experience in Czech banking and insurance", "lang": "en"},
+        {"category": "body", "text": "Leads a 4-person Data Science team owning the SME credit-risk scorecard programme", "lang": "en", "note": "hyphenated compound preservation"},
+        {"category": "body", "text": "Migrated the legacy logistic scorecard to a LightGBM 3.3 stack with SHAP explanations", "lang": "en"},
+        {"category": "body", "text": "retaining model interpretability for the CNB regulator while lifting AUC from 0.72 to 0.79", "lang": "en", "note": "numeric specificity"},
+        {"category": "body", "text": "Built the survival-analysis model for early-warning signals on the SME portfolio", "lang": "en"},
+        {"category": "body", "text": "flagging at-risk accounts 38 days earlier on average than the previous rules-based", "lang": "en"},
+        {"category": "body", "text": "Owns the model-documentation template the risk-management team submits to the regulator", "lang": "en"},
+        {"category": "body", "text": "Built the motor-insurance pricing model (GLM + GBM ensemble, scikit-learn 0.24) for the", "lang": "en", "note": "parens + `+` operator preservation"},
+        {"category": "body", "text": "Czech retail book; improved combined ratio by 2.1 pp over the prior pricing engine", "lang": "en"},
+        {"category": "body", "text": "Built the fraud-detection rule-mining tooling on top of PostgreSQL; flagged a recurring", "lang": "en"}
+      ],
+      "column_tokens": null,
+      "cz_only_tokens": [
+        {"text": "Komerční banka", "en_translation_trap": "Commercial Bank"},
+        {"text": "Generali Česká", "en_translation_trap": "Generali Czech"},
+        {"text": "VŠE Prague", "en_translation_trap": "Prague University of Economics"}
+      ]
+    },
+    "03_ds_horak": {
+      "_path": "tests/fixtures/cvs/03_ds_horak.pdf",
+      "_layout": "single-column CZ-flavored CV (EN body, CZ schools/diacritics)",
+      "_source_language": "en+cz",
+      "verify_anchors": [
+        {"category": "body", "text": "Data Scientist with 5 years of mid-level experience across Czech e-commerce and search", "lang": "en"},
+        {"category": "body", "text": "Owns end-to-end model lifecycle from problem framing to monitoring", "lang": "en"},
+        {"category": "body", "text": "Led the customer churn model retraining for Mall.cz, reducing 30-day churn by 11%", "lang": "en", "note": "Mall.cz + hyphenated compound"},
+        {"category": "body", "text": "loyalty-program cohort via a re-targeted email-frequency policy", "lang": "en", "note": "stacked hyphens"},
+        {"category": "body", "text": "Built the basket-level demand-forecasting model for the grocery vertical", "lang": "en"},
+        {"category": "body", "text": "cutting forecast MAPE on top-200 SKUs from 24% to 17%", "lang": "en", "note": "percentage signs preservation"},
+        {"category": "body", "text": "Owned the click-prediction model for the Zboží.cz product feed", "lang": "en", "note": "CZ diacritic in domain name"},
+        {"category": "body", "text": "Lifted top-3 CTR by 6.8% in a 30-day A/B against the previous logistic baseline", "lang": "en"},
+        {"category": "body", "text": "Built the spam-classifier evaluation harness for the Email.cz inbox-zero feature", "lang": "en"},
+        {"category": "body", "text": "labelling drift in the held-out set that the senior team had been chasing for two sprints", "lang": "en"}
+      ],
+      "column_tokens": null,
+      "cz_only_tokens": [
+        {"text": "Lukáš Horák", "en_translation_trap": "Lukas Horak"},
+        {"text": "ČVUT FIT", "en_translation_trap": "Czech Technical University FIT"},
+        {"text": "Zboží.cz", "en_translation_trap": "Goods.cz"}
+      ]
+    }
+  }
+}

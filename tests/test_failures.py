@@ -39,6 +39,12 @@ from gander.schemas import (
     Score,
 )
 
+
+@pytest.fixture(autouse=True)
+def _deterministic_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "text")
+
+
 # ---------- profile / score / growth canned values ---------------------------
 
 
@@ -102,7 +108,7 @@ def _patch_non_salary_stages(monkeypatch: pytest.MonkeyPatch) -> None:
     pipeline stays offline.
     """
 
-    def _ingest_ok(_bytes: bytes, _name: str) -> str:
+    async def _ingest_ok(_bytes: bytes, _name: str) -> str:
         return "raw cv text"
 
     def _redact_ok(text: str) -> RedactedCV:

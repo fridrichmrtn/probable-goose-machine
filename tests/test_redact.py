@@ -370,8 +370,11 @@ def test_fixture_corpus_present() -> None:
     sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glob("*.docx"))),
     ids=lambda p: p.name,
 )
-def test_every_fixture_audit_log_has_email_and_name(fixture_path: Path) -> None:
-    extracted = extract_text(fixture_path.read_bytes(), fixture_path.name)
+async def test_every_fixture_audit_log_has_email_and_name(
+    fixture_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "text")
+    extracted = await extract_text(fixture_path.read_bytes(), fixture_path.name)
     if isinstance(extracted, StageFailure):
         pytest.fail(f"ingest failed on fixture {fixture_path.name}: {extracted.user_message}")
 

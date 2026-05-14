@@ -71,6 +71,10 @@ jobs:
         env:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           GANDER_MODEL_PROFILE: ci
+          # VLM ingest is covered by fast mocked tests in this PR; T35 owns
+          # spend-capped live VLM gates. Keep the acceptance suite on the
+          # deterministic text tier so existing cost/anchor budgets remain stable.
+          GANDER_INGEST_MODE: text
         # --reruns 1 absorbs MiniMax sampling variance at the anchor-survival gate
         # (verified-quote ratio sits near the 80% floor; one retry drops the
         # cross-fixture flake rate from ~50% to ~10%). Applies to live only —
