@@ -48,7 +48,7 @@ def test_load_prompt_reads_extract_md() -> None:
 
 @pytest.mark.fast
 async def test_paraphrased_anchor_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     redacted = _redacted_with_anchors()
 
     synthetic = Profile(
@@ -117,7 +117,7 @@ async def test_paraphrased_anchor_is_dropped(monkeypatch: pytest.MonkeyPatch) ->
 async def test_extract_profile_allows_second_validation_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     redacted = _redacted_with_anchors()
     seen_max_retries: int | None = None
     seen_model: str | None = None
@@ -161,7 +161,7 @@ async def test_extract_profile_allows_second_validation_retry(
 async def test_extract_salvages_skills_and_soft_signals_from_long_cv_lines(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     skills_quote = (
         "Built forecasting automation in Python SQL and Kubernetes for weekly revenue "
         "planning across the commercial analytics team"
@@ -245,7 +245,7 @@ async def test_extract_salvage_ignores_substring_false_positives(
     # `llm` must match on word boundaries, not raw substrings. Without this,
     # "draws"/"ragged"/"fulfillment" trigger AWS/RAG/LLM salvage, and
     # "represented" triggers a stakeholder-communication salvage.
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     decoy_soft = (
         "represented quarterly results to senior partners across two timezones daily routine"
     )
@@ -301,7 +301,7 @@ async def test_extract_salvage_ignores_substring_false_positives(
 async def test_stage_failure_returned_when_llm_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     async def _boom(
         self: LLMClient,
@@ -350,7 +350,7 @@ async def test_validation_error_from_llm_becomes_stage_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """PRD §4.6 model-output parse failure: bad-shape JSON → StageFailure, not crash."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     try:
         Profile.model_validate({})
@@ -400,7 +400,7 @@ async def test_tenure_override_event_emitted(monkeypatch: pytest.MonkeyPatch) ->
     Required per PRD §4.8 — the override is the load-bearing behaviour, the
     event is the load-bearing observable. Together they close the silent-
     override class identified in lessons.md (2026-05-14)."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     llm_profile = Profile(
         skills=[],
@@ -460,7 +460,7 @@ async def test_tenure_override_silent_when_delta_below_threshold(
     """No event when |delta| < 1 — only decision-changing deltas are surfaced.
     The override still applies (deterministic always wins when present), but
     we don't want noise in the obs stream from rounding-error-class deltas."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     llm_profile = Profile(
         skills=[],
@@ -513,7 +513,7 @@ async def test_tenure_override_skipped_when_no_deterministic(
     """When L2 found no parseable date range (`years_experience_deterministic
     is None`), the LLM's value survives untouched — there's nothing to
     override and we don't synthesise a 0."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     llm_profile = Profile(
         skills=[],
@@ -564,7 +564,7 @@ async def test_extract_normalizes_valid_but_wrong_side_entry_role(
 ) -> None:
     """A market-token-valid side-entry title must not beat current/top
     work-experience title evidence."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     senior_quote = (
         "Senior Manager AI and Data Science led the enterprise model portfolio "
@@ -690,7 +690,7 @@ async def test_low_evidence_gate_fires_on_empty_profile(
     document-level gate returns StageFailure(LOW_EVIDENCE_MSG) and emits a
     `low_evidence` event with the composite score and threshold so the
     cascade in pipeline.py marks score/salary/confidence/growth failed."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     empty_profile = Profile(
         skills=[],
@@ -741,7 +741,7 @@ async def test_low_evidence_gate_fires_when_anchors_all_drop(
     """LLM returns items but none anchor-verify → post-verification composite
     is 0 → gate fires. This is the common path for a non-CV upload where the
     LLM hallucinates plausible-looking entries that fail substring check."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     hallucinated = Profile(
         skills=[
@@ -792,7 +792,7 @@ async def test_low_evidence_gate_passes_with_one_verified_experience(
 ) -> None:
     """One anchor-verified experience entry (weight=3) meets the threshold
     exactly and the function returns a Profile, not a StageFailure."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     profile = Profile(
         skills=[],
@@ -839,11 +839,11 @@ _LIVE_FIXTURES = sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glo
 
 @pytest.mark.live
 @pytest.mark.skipif(
-    os.environ.get("MINIMAX_API_KEY") is None,
-    reason="live tests require MINIMAX_API_KEY",
+    os.environ.get("OPENROUTER_API_KEY") is None,
+    reason="live tests require OPENROUTER_API_KEY",
 )
 def test_live_corpus_is_present() -> None:
-    """Copilot PR #2: when MINIMAX_API_KEY is set, surface a missing/empty
+    """Copilot PR #2: when OPENROUTER_API_KEY is set, surface a missing/empty
     fixture corpus or an unresolved LFS pointer as a loud failure instead of
     a silently-empty parametrized test."""
     fixtures = sorted(list(_FIXTURE_DIR.glob("*.pdf")) + list(_FIXTURE_DIR.glob("*.docx")))
@@ -860,8 +860,8 @@ def test_live_corpus_is_present() -> None:
 
 @pytest.mark.live
 @pytest.mark.skipif(
-    os.environ.get("MINIMAX_API_KEY") is None,
-    reason="live tests require MINIMAX_API_KEY",
+    os.environ.get("OPENROUTER_API_KEY") is None,
+    reason="live tests require OPENROUTER_API_KEY",
 )
 @pytest.mark.parametrize(
     "fixture_path",

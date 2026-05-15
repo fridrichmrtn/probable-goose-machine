@@ -49,7 +49,7 @@ testpaths = ["tests"]
 markers = [
   "fast: pure-function unit tests with no external IO (<1s each)",
   "slow: pipeline-level tests or anything >1s",
-  "live: requires API keys (MiniMax, etc.) and network",
+  "live: requires API keys (OpenRouter, etc.) and network",
 ]
 
 [dependency-groups]

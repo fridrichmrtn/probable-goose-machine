@@ -116,7 +116,7 @@ async def test_score_no_partial_when_all_verify(
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     redacted = RedactedCV(text=_T25_CV, audit_log=[])
     events: list[dict[str, Any]] = []
@@ -170,7 +170,7 @@ async def test_score_partial_missing_skills(
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     redacted = RedactedCV(text=_T25_CV, audit_log=[])
     result = await score_profile(redacted, _t25_profile())
@@ -220,7 +220,7 @@ async def test_score_partial_missing_two(
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     redacted = RedactedCV(text=_T25_CV, audit_log=[])
     result = await score_profile(redacted, _t25_profile())
@@ -262,7 +262,7 @@ async def test_score_experience_missing_still_fails(
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     redacted = RedactedCV(text=_T25_CV, audit_log=[])
     events: list[dict[str, Any]] = []
@@ -326,7 +326,7 @@ async def test_score_retries_when_experience_anchor_fails(
         return payloads.pop(0)
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -397,7 +397,7 @@ async def test_score_retries_when_skills_or_soft_signals_drop(
         return payloads.pop(0)
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -483,7 +483,7 @@ async def test_score_retry_preserves_previously_verified_components(
         return payloads.pop(0)
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -615,7 +615,7 @@ async def test_score_partial_emits_obs_event(
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     redacted = RedactedCV(text=_T25_CV, audit_log=[])
     events: list[dict[str, Any]] = []
@@ -646,10 +646,10 @@ async def test_score_returns_stage_failure_when_llm_raises(
     )
 
     async def raising_complete_json(self: LLMClient, **kwargs: Any) -> Any:
-        raise RuntimeError("minimax 429 throttled")
+        raise RuntimeError("openrouter 429 throttled")
 
     monkeypatch.setattr(LLMClient, "complete_json", raising_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -688,7 +688,7 @@ async def test_score_returns_stage_failure_on_invalid_llm_output(
         return {"components": []}  # plain dict, not a `_ComponentList`
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -706,7 +706,7 @@ async def test_score_returns_stage_failure_on_invalid_llm_output(
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "T10 Outcome defers calibration to T17 acceptance — MiniMax-M2.7 currently "
+        "T10 Outcome defers calibration to T17 acceptance — OpenRouter currently "
         "paraphrases anchors, so verify_quote drops all 4 components and the stage "
         "fails closed. Tracked in tasks/T10_score.md §Outcome and T17_acceptance.md. "
         "Once T17 lands the prompt-or-verify calibration, this will XPASS and the "
@@ -735,7 +735,7 @@ async def test_junior_fixture_scores_below_40() -> None:
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "T10 Outcome defers calibration to T17 acceptance — MiniMax-M2.7 currently "
+        "T10 Outcome defers calibration to T17 acceptance — OpenRouter currently "
         "paraphrases anchors, so verify_quote drops all 4 components and the stage "
         "fails closed. Tracked in tasks/T10_score.md §Outcome and T17_acceptance.md. "
         "Once T17 lands the prompt-or-verify calibration, this will XPASS and the "
@@ -831,7 +831,7 @@ async def test_score_section_blind_fail_cap(
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -922,7 +922,7 @@ async def test_score_section_miss_under_cap_does_not_fail(
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):

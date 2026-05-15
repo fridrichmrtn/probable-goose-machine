@@ -59,7 +59,7 @@ def test_judge_signature_isolation() -> None:
 async def test_step_a_user_payload_does_not_leak_range(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     captured: dict[str, Any] = {}
     text_kwargs: dict[str, Any] = {}
@@ -129,7 +129,7 @@ async def test_step_a_user_payload_does_not_leak_range(
 async def test_step_b_cannot_override_step_a_and_regenerates_on_low(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="Low", rationale_short="only one source")
@@ -194,7 +194,7 @@ async def test_step_b_cannot_override_step_a_and_regenerates_on_low(
 async def test_step_b_regenerate_recovers_on_low(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="Low", rationale_short="single domain only")
@@ -248,7 +248,7 @@ async def test_step_b_regenerate_recovers_on_low(
 async def test_judge_does_not_regenerate_when_low_marker_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="Low", rationale_short="single domain only")
@@ -296,7 +296,7 @@ async def test_judge_does_not_regenerate_when_low_marker_present(
 async def test_cv_floor_caps_high_to_low_when_two_components_dropped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="High", rationale_short="three domains agree")
@@ -334,7 +334,7 @@ async def test_cv_floor_caps_high_to_low_when_two_components_dropped(
 async def test_cv_floor_low_uses_cv_quality_fallback_not_market_data_copy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="High", rationale_short="three domains agree")
@@ -383,7 +383,7 @@ async def test_cv_floor_low_uses_cv_quality_fallback_not_market_data_copy(
 async def test_cv_floor_caps_high_to_medium_when_canonical_role_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="High", rationale_short="three domains agree")
@@ -421,7 +421,7 @@ async def test_cv_floor_caps_high_to_medium_when_canonical_role_missing(
 async def test_cv_floor_caps_high_to_medium_when_location_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="High", rationale_short="three domains agree")
@@ -459,7 +459,7 @@ async def test_cv_floor_caps_high_to_medium_when_location_missing(
 async def test_cv_floor_does_not_upgrade_low_to_medium(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return _TierOnly(tier="Low", rationale_short="single domain only")
@@ -490,7 +490,7 @@ async def test_cv_floor_does_not_upgrade_low_to_medium(
 async def test_judge_returns_stage_failure_when_llm_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         raise RuntimeError("simulated LLM failure")
