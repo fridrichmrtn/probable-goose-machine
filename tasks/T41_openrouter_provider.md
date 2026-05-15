@@ -24,7 +24,7 @@ Full plan in [plan-wiring-open-router-wiggly-hopper.md](../../.claude/plans/plan
 - **[.env.example](../.env.example)** — drop `ANTHROPIC_API_KEY` line; add `OPENROUTER_API_KEY` + two model-override lines.
 - **[scripts/spike_minimax.py](../scripts/spike_minimax.py)** — generalize `_preflight` to a 2-way `{minimax, openrouter}` lookup.
 - **[tests/test_llm.py](../tests/test_llm.py)** — OpenRouter construction/model override tests; JSON and text chat branch tests that omit MiniMax quirks and tolerate missing usage metadata/cost; MiniMax branch regression guard; gated OpenRouter live JSON roundtrip when `OPENROUTER_API_KEY` is present.
-- **[.github/workflows/ci.yml](../.github/workflows/ci.yml)** — add required `openrouter-live` job for same-repo PRs/main pushes; it runs the OpenRouter live roundtrip plus EN-triplet acceptance under `GANDER_LLM_PROVIDER=openrouter`.
+- **[.github/workflows/ci.yml](../.github/workflows/ci.yml)** — add required `openrouter-live` job; it runs the OpenRouter live roundtrip plus EN-triplet acceptance under `GANDER_LLM_PROVIDER=openrouter` when `OPENROUTER_API_KEY` is available, and reports a quick no-op success on fork PRs where GitHub withholds secrets.
 
 ## Default model registry
 

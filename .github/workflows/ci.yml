@@ -90,36 +90,51 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: static
-    # Fork PRs cannot access secrets — skip the job entirely instead of failing on a missing key.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Always report this check. Fork PRs cannot access secrets, so they no-op
+    # successfully inside the job instead of leaving a required check missing.
     # Serialize with the MiniMax live job because the acceptance suite still touches DDG.
     concurrency:
       group: ci-live
       cancel-in-progress: false
     steps:
+      - name: Check OpenRouter secret
+        id: openrouter-secret
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          if [ "$FORK_PR" = "true" ]; then
+            echo "::notice::OPENROUTER_API_KEY is unavailable on fork PRs; skipping openrouter-live."
+            exit 0
+          fi
+
+          echo "::error::OPENROUTER_API_KEY repository secret is required for openrouter-live"
+          exit 1
+
       - uses: actions/checkout@v4
+        if: steps.openrouter-secret.outputs.available == 'true'
         with:
           lfs: true
 
       - name: Set up uv
+        if: steps.openrouter-secret.outputs.available == 'true'
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Install dependencies
+        if: steps.openrouter-secret.outputs.available == 'true'
         run: uv sync --frozen
 
-      - name: Require OpenRouter secret
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "::error::OPENROUTER_API_KEY repository secret is required for openrouter-live"
-            exit 1
-          fi
-
       - name: Pytest (OpenRouter live)
+        if: steps.openrouter-secret.outputs.available == 'true'
         env:
           GANDER_LLM_PROVIDER: openrouter
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
