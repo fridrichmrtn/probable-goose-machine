@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from gander import obs
 
-LogicalModel = Literal["reasoning", "cheap", "extract"]
+LogicalModel = Literal["reasoning", "cheap", "extract", "vision"]
 
 # MiniMax-M2.x models prepend a <think>...</think> reasoning block to chat output
 # regardless of response_format, and often wrap JSON-mode payloads in ```json fences.
@@ -69,23 +69,23 @@ def _usage_cost_usd(usage: Any) -> float | None:
         return None
 
 
-# USD per 1M tokens, (prompt, completion).
-# TODO(T05): re-verify model identifiers and re-cost from MiniMax pricing console;
-# zeroed because public docs no longer expose per-model pricing without auth.
-MODEL_PRICES: dict[str, tuple[float, float]] = {
-    "MiniMax-M2.7-highspeed": (0.0, 0.0),
-}
+_API_VLM_MODEL = "api-vlm"
+_API_VLM_ENDPOINT = "https://api.minimax.io/v1/coding_plan/vlm"
+_API_VLM_USD_PER_REQUEST = 0.06
+_API_VLM_TOKEN_PLAN_M2_REQUESTS = 3
 
 _PROFILE_MODELS: dict[str, dict[str, str]] = {
     "local": {
         "reasoning": "MiniMax-M2.7-highspeed",
         "cheap": "MiniMax-M2.7-highspeed",
         "extract": "MiniMax-M2.7-highspeed",
+        "vision": _API_VLM_MODEL,
     },
     "ci": {
         "reasoning": "MiniMax-M2.7-highspeed",
         "cheap": "MiniMax-M2.7-highspeed",
         "extract": "MiniMax-M2.7-highspeed",
+        "vision": _API_VLM_MODEL,
     },
 }
 
@@ -93,12 +93,23 @@ _OPENROUTER_MODELS: dict[LogicalModel, str] = {
     # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
     "reasoning": "google/gemini-2.5-flash",
     "cheap": "google/gemini-2.5-flash",
-    "extract": "anthropic/claude-haiku-4.5",
+    "extract": "google/gemini-2.5-flash",
+    "vision": "google/gemini-2.5-flash",
 }
-_API_VLM_MODEL = "api-vlm"
-_API_VLM_ENDPOINT = "https://api.minimax.io/v1/coding_plan/vlm"
-_API_VLM_USD_PER_REQUEST = 0.06
-_API_VLM_TOKEN_PLAN_M2_REQUESTS = 3
+_OPENROUTER_FALLBACK_MODELS: dict[LogicalModel, tuple[str, ...]] = {
+    "reasoning": ("google/gemini-2.5-flash-lite",),
+    "cheap": ("google/gemini-2.5-flash-lite",),
+    "extract": ("google/gemini-2.5-flash-lite",),
+    "vision": ("google/gemini-2.5-flash-lite",),
+}
+
+# USD per 1M tokens, (prompt, completion).
+# TODO(T05): re-verify model identifiers and re-cost from MiniMax pricing console;
+# zeroed because public docs no longer expose per-model pricing without auth.
+MODEL_PRICES: dict[str, tuple[float, float]] = {
+    "MiniMax-M2.7-highspeed": (0.0, 0.0),
+    _API_VLM_MODEL: (0.0, 0.0),
+}
 
 
 class LLMClient:
@@ -150,6 +161,18 @@ class LLMClient:
             )
         return _PROFILE_MODELS[profile][logical]
 
+    def _resolve_models(self, logical: LogicalModel) -> tuple[str, ...]:
+        primary = self._resolve_model(logical)
+        if self._provider != "openrouter":
+            return (primary,)
+        env_key = f"OPENROUTER_MODEL_{logical.upper()}_FALLBACK"
+        fallback_raw = os.environ.get(env_key)
+        if fallback_raw is None:
+            fallbacks = _OPENROUTER_FALLBACK_MODELS[logical]
+        else:
+            fallbacks = tuple(model.strip() for model in fallback_raw.split(",") if model.strip())
+        return (primary, *(model for model in fallbacks if model != primary))
+
     def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         price = MODEL_PRICES.get(model)
         if price is None:
@@ -177,52 +200,80 @@ class LLMClient:
         temperature: float = 0.0,
         max_retries: int = 1,
     ) -> BaseModel:
-        resolved = self._resolve_model(model)
+        resolved_models = self._resolve_models(model)
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
         provider_cost_usd: float | None = None
         finish_reason = ""
+        attempted_models: list[str] = []
         try:
-            current_user = user
-            last_err: ValidationError | json.JSONDecodeError | None = None
-            for attempt in range(max_retries + 1):
-                if attempt > 0 and last_err is not None:
-                    current_user = (
-                        user
-                        + f"\n\nYour previous output failed validation: {last_err}"
-                        + "\n\nReturn corrected JSON only."
-                    )
-                (
-                    text,
-                    attempt_prompt,
-                    attempt_completion,
-                    finish_reason,
-                    attempt_cost_usd,
-                ) = await self._chat_json(resolved, system, current_user, temperature)
-                prompt_tokens += attempt_prompt
-                completion_tokens += attempt_completion
-                if attempt_cost_usd is not None:
-                    provider_cost_usd = (provider_cost_usd or 0.0) + attempt_cost_usd
+            last_err: Exception | None = None
+            for model_i, resolved in enumerate(resolved_models):
+                current_user = user
+                validation_err: ValidationError | json.JSONDecodeError | None = None
                 try:
-                    parsed = json.loads(text)
-                    return schema.model_validate(parsed)
-                except (ValidationError, json.JSONDecodeError) as err:
+                    for attempt in range(max_retries + 1):
+                        if attempt > 0 and validation_err is not None:
+                            current_user = (
+                                user
+                                + f"\n\nYour previous output failed validation: {validation_err}"
+                                + "\n\nReturn corrected JSON only."
+                            )
+                        attempted_models.append(resolved)
+                        (
+                            text,
+                            attempt_prompt,
+                            attempt_completion,
+                            finish_reason,
+                            attempt_cost_usd,
+                        ) = await self._chat_json(resolved, system, current_user, temperature)
+                        prompt_tokens += attempt_prompt
+                        completion_tokens += attempt_completion
+                        if attempt_cost_usd is not None:
+                            provider_cost_usd = (provider_cost_usd or 0.0) + attempt_cost_usd
+                        try:
+                            parsed = json.loads(text)
+                            return schema.model_validate(parsed)
+                        except (ValidationError, json.JSONDecodeError) as err:
+                            validation_err = err
+                            last_err = err
+                            if attempt >= max_retries:
+                                break
+                    if validation_err is not None:
+                        last_err = validation_err
+                except Exception as err:
                     last_err = err
-                    if attempt >= max_retries:
-                        raise
-            raise RuntimeError("unreachable: complete_json loop exited without return")
+
+                if model_i < len(resolved_models) - 1:
+                    obs.emit(
+                        obs.current_stage.get(),
+                        "llm_model_fallback",
+                        provider=self._provider,
+                        logical_model=model,
+                        from_model=resolved,
+                        to_model=resolved_models[model_i + 1],
+                        reason=type(last_err).__name__ if last_err is not None else "unknown",
+                    )
+                    continue
+                if last_err is not None:
+                    raise last_err
+            raise RuntimeError("unreachable: complete_json exhausted models without return")
         finally:
             duration_ms = int((time.perf_counter() - t0) * 1000)
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
                 provider=self._provider,
-                model=resolved,
+                model=attempted_models[-1] if attempted_models else resolved_models[0],
+                models_attempted=attempted_models,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 usd_cost=self._cost_usd(
-                    resolved, prompt_tokens, completion_tokens, provider_cost_usd
+                    attempted_models[-1] if attempted_models else resolved_models[0],
+                    prompt_tokens,
+                    completion_tokens,
+                    provider_cost_usd,
                 ),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
@@ -236,32 +287,62 @@ class LLMClient:
         model: LogicalModel = "cheap",
         temperature: float = 0.0,
     ) -> str:
-        resolved = self._resolve_model(model)
+        resolved_models = self._resolve_models(model)
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
         provider_cost_usd: float | None = None
         finish_reason = ""
+        attempted_models: list[str] = []
         try:
-            (
-                text,
-                prompt_tokens,
-                completion_tokens,
-                finish_reason,
-                provider_cost_usd,
-            ) = await self._chat_text(resolved, system, user, temperature)
-            return text
+            last_err: Exception | None = None
+            for model_i, resolved in enumerate(resolved_models):
+                try:
+                    attempted_models.append(resolved)
+                    (
+                        text,
+                        attempt_prompt,
+                        attempt_completion,
+                        finish_reason,
+                        attempt_cost_usd,
+                    ) = await self._chat_text(resolved, system, user, temperature)
+                    prompt_tokens += attempt_prompt
+                    completion_tokens += attempt_completion
+                    if attempt_cost_usd is not None:
+                        provider_cost_usd = (provider_cost_usd or 0.0) + attempt_cost_usd
+                    return text
+                except Exception as err:
+                    last_err = err
+                    if model_i < len(resolved_models) - 1:
+                        obs.emit(
+                            obs.current_stage.get(),
+                            "llm_model_fallback",
+                            provider=self._provider,
+                            logical_model=model,
+                            from_model=resolved,
+                            to_model=resolved_models[model_i + 1],
+                            reason=type(err).__name__,
+                        )
+                        continue
+                    raise
+            if last_err is not None:
+                raise last_err
+            raise RuntimeError("unreachable: complete_text exhausted models without return")
         finally:
             duration_ms = int((time.perf_counter() - t0) * 1000)
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
                 provider=self._provider,
-                model=resolved,
+                model=attempted_models[-1] if attempted_models else resolved_models[0],
+                models_attempted=attempted_models,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 usd_cost=self._cost_usd(
-                    resolved, prompt_tokens, completion_tokens, provider_cost_usd
+                    attempted_models[-1] if attempted_models else resolved_models[0],
+                    prompt_tokens,
+                    completion_tokens,
+                    provider_cost_usd,
                 ),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
@@ -275,11 +356,30 @@ class LLMClient:
         mime_type: str = "image/png",
         timeout_s: float = 120.0,
     ) -> str:
-        """Transcribe one rendered page through MiniMax Token Plan API-vlm.
+        """Transcribe one rendered page through the configured vision provider."""
+        if getattr(self, "_provider", "minimax") == "openrouter":
+            return await self._complete_openrouter_vision_text(
+                image_bytes=image_bytes,
+                prompt=prompt,
+                mime_type=mime_type,
+                timeout_s=timeout_s,
+            )
 
-        Chat/text provider selection does not apply here: no OpenRouter vision
-        route is wired for the Token Plan ingest tier yet.
-        """
+        return await self._complete_minimax_vision_text(
+            image_bytes=image_bytes,
+            prompt=prompt,
+            mime_type=mime_type,
+            timeout_s=timeout_s,
+        )
+
+    async def _complete_minimax_vision_text(
+        self,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str,
+        timeout_s: float,
+    ) -> str:
         api_key = os.environ.get("MINIMAX_API_KEY")
         if not api_key:
             raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
@@ -326,6 +426,77 @@ class LLMClient:
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
                 token_plan_m2_requests=_API_VLM_TOKEN_PLAN_M2_REQUESTS if sent else 0,
+            )
+
+    async def _complete_openrouter_vision_text(
+        self,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str,
+        timeout_s: float,
+    ) -> str:
+        resolved_models = self._resolve_models("vision")
+        t0 = time.perf_counter()
+        prompt_tokens = 0
+        completion_tokens = 0
+        provider_cost_usd: float | None = None
+        finish_reason = ""
+        attempted_models: list[str] = []
+        try:
+            for model_i, resolved in enumerate(resolved_models):
+                try:
+                    attempted_models.append(resolved)
+                    (
+                        text,
+                        attempt_prompt,
+                        attempt_completion,
+                        finish_reason,
+                        attempt_cost_usd,
+                    ) = await self._chat_vision_text(
+                        resolved,
+                        image_bytes,
+                        prompt,
+                        mime_type,
+                        timeout_s,
+                    )
+                    prompt_tokens += attempt_prompt
+                    completion_tokens += attempt_completion
+                    if attempt_cost_usd is not None:
+                        provider_cost_usd = (provider_cost_usd or 0.0) + attempt_cost_usd
+                    return text
+                except Exception as err:
+                    if model_i < len(resolved_models) - 1:
+                        obs.emit(
+                            obs.current_stage.get(),
+                            "llm_model_fallback",
+                            provider=self._provider,
+                            logical_model="vision",
+                            from_model=resolved,
+                            to_model=resolved_models[model_i + 1],
+                            reason=type(err).__name__,
+                        )
+                        continue
+                    raise
+            raise RuntimeError("unreachable: complete_vision_text exhausted models without return")
+        finally:
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            obs.emit(
+                obs.current_stage.get(),
+                "llm_call",
+                provider=self._provider,
+                model=attempted_models[-1] if attempted_models else resolved_models[0],
+                models_attempted=attempted_models,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                usd_cost=self._cost_usd(
+                    attempted_models[-1] if attempted_models else resolved_models[0],
+                    prompt_tokens,
+                    completion_tokens,
+                    provider_cost_usd,
+                ),
+                duration_ms=duration_ms,
+                finish_reason=finish_reason,
             )
 
     async def _chat_json(
@@ -416,6 +587,47 @@ class LLMClient:
             ],
             temperature=temperature,
             extra_body=_openrouter_extra_body(),
+        )
+        choice_o = response_o.choices[0]
+        text_o = choice_o.message.content or ""
+        if os.environ.get("OPENROUTER_STRIP_THINK") == "1":
+            text_o = _strip_think(text_o)
+        usage_o = response_o.usage
+        prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
+        return (
+            text_o,
+            prompt_tokens_o,
+            completion_tokens_o,
+            choice_o.finish_reason or "",
+            _usage_cost_usd(usage_o),
+        )
+
+    async def _chat_vision_text(
+        self,
+        model: str,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str,
+        timeout_s: float,
+    ) -> tuple[str, int, int, str, float | None]:
+        if self._provider != "openrouter":
+            raise RuntimeError("_chat_vision_text is only implemented for OpenRouter")
+        client_o: Any = self._client
+        image_url = f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("ascii")
+        response_o = await client_o.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
+            temperature=0.0,
+            extra_body=_openrouter_extra_body(),
+            timeout=timeout_s,
         )
         choice_o = response_o.choices[0]
         text_o = choice_o.message.content or ""

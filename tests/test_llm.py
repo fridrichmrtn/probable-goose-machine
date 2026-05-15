@@ -142,6 +142,11 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     monkeypatch.delenv("OPENROUTER_MODEL_REASONING", raising=False)
     monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
     monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_REASONING_FALLBACK", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
 
     client = LLMClient()
 
@@ -150,14 +155,43 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     assert captured["default_headers"]["X-Title"] == "Gander"
     assert client._resolve_model("reasoning") == "google/gemini-2.5-flash"
     assert client._resolve_model("cheap") == "google/gemini-2.5-flash"
-    assert client._resolve_model("extract") == "anthropic/claude-haiku-4.5"
+    assert client._resolve_model("extract") == "google/gemini-2.5-flash"
+    assert client._resolve_model("vision") == "google/gemini-2.5-flash"
+    assert client._resolve_models("reasoning") == (
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    )
+    assert client._resolve_models("cheap") == (
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    )
+    assert client._resolve_models("extract") == (
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    )
+    assert client._resolve_models("vision") == (
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    )
 
     monkeypatch.setenv("OPENROUTER_MODEL_REASONING", "anthropic/claude-sonnet-4.5")
     monkeypatch.setenv("OPENROUTER_MODEL_CHEAP", "google/gemini-2.5-flash-lite")
     monkeypatch.setenv("OPENROUTER_MODEL_EXTRACT", "anthropic/claude-opus-4.5")
+    monkeypatch.setenv("OPENROUTER_MODEL_VISION", "qwen/qwen2.5-vl-72b-instruct")
+    monkeypatch.setenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", "google/gemini-2.5-flash-lite")
+    monkeypatch.setenv("OPENROUTER_MODEL_VISION_FALLBACK", "google/gemini-2.5-flash")
     assert client._resolve_model("reasoning") == "anthropic/claude-sonnet-4.5"
     assert client._resolve_model("cheap") == "google/gemini-2.5-flash-lite"
     assert client._resolve_model("extract") == "anthropic/claude-opus-4.5"
+    assert client._resolve_model("vision") == "qwen/qwen2.5-vl-72b-instruct"
+    assert client._resolve_models("extract") == (
+        "anthropic/claude-opus-4.5",
+        "google/gemini-2.5-flash-lite",
+    )
+    assert client._resolve_models("vision") == (
+        "qwen/qwen2.5-vl-72b-instruct",
+        "google/gemini-2.5-flash",
+    )
 
 
 @pytest.mark.fast
@@ -177,13 +211,18 @@ def test_openrouter_missing_key_and_removed_anthropic_provider(
 class _FakeChatCompletions:
     def __init__(self) -> None:
         self.kwargs: dict[str, Any] | None = None
+        self.all_kwargs: list[dict[str, Any]] = []
         self.content = '{"message": "pong"}'
         self.usage: Any = type(
             "Usage", (), {"prompt_tokens": 3, "completion_tokens": 4, "cost": 0.00042}
         )()
+        self.fail_models: set[str] = set()
 
     async def create(self, **kwargs: Any) -> Any:
         self.kwargs = kwargs
+        self.all_kwargs.append(kwargs)
+        if kwargs["model"] in self.fail_models:
+            raise RuntimeError(f"synthetic outage for {kwargs['model']}")
         return type(
             "Response",
             (),
@@ -298,6 +337,41 @@ async def test_openrouter_complete_json_uses_provider_usage_cost() -> None:
 
 
 @pytest.mark.fast
+async def test_openrouter_extract_falls_back_from_flash_to_lite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", raising=False)
+    events: list[dict[str, Any]] = []
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.fail_models = {"google/gemini-2.5-flash"}
+
+    with subscribe(events.append):
+        echo = await client.complete_json(
+            system='You echo. Return JSON {"message": "..."}.',
+            user="Echo back the word pong.",
+            schema=Echo,
+            model="extract",
+        )
+
+    assert echo == Echo(message="pong")
+    assert [call["model"] for call in fake_completions.all_kwargs] == [
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    ]
+    fallback = next(e for e in events if e["event"] == "llm_model_fallback")
+    assert fallback["logical_model"] == "extract"
+    assert fallback["from_model"] == "google/gemini-2.5-flash"
+    assert fallback["to_model"] == "google/gemini-2.5-flash-lite"
+    llm_event = next(e for e in events if e["event"] == "llm_call")
+    assert llm_event["model"] == "google/gemini-2.5-flash-lite"
+    assert llm_event["models_attempted"] == [
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    ]
+
+
+@pytest.mark.fast
 async def test_openrouter_chat_text_omits_minimax_quirks_and_handles_missing_usage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -323,6 +397,41 @@ async def test_openrouter_chat_text_omits_minimax_quirks_and_handles_missing_usa
 
 
 @pytest.mark.fast
+async def test_openrouter_complete_text_falls_back_from_flash_to_lite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    events: list[dict[str, Any]] = []
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Normalized transcript."
+    fake_completions.fail_models = {"google/gemini-2.5-flash"}
+
+    with subscribe(events.append):
+        text = await client.complete_text(
+            system="Normalize source text.",
+            user="Raw transcript",
+            model="cheap",
+        )
+
+    assert text == "Normalized transcript."
+    assert [call["model"] for call in fake_completions.all_kwargs] == [
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    ]
+    fallback = next(e for e in events if e["event"] == "llm_model_fallback")
+    assert fallback["logical_model"] == "cheap"
+    assert fallback["from_model"] == "google/gemini-2.5-flash"
+    assert fallback["to_model"] == "google/gemini-2.5-flash-lite"
+    llm_event = next(e for e in events if e["event"] == "llm_call")
+    assert llm_event["model"] == "google/gemini-2.5-flash-lite"
+    assert llm_event["models_attempted"] == [
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    ]
+
+
+@pytest.mark.fast
 async def test_openrouter_reasoning_opt_in_drops_disable_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -333,6 +442,72 @@ async def test_openrouter_reasoning_opt_in_drops_disable_flag(
 
     assert fake_completions.kwargs is not None
     assert fake_completions.kwargs["extra_body"] == {}
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_vision_text_uses_image_url_and_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Visible CV transcript"
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append):
+        text = await client.complete_vision_text(
+            image_bytes=b"\x89PNG\r\n\x1a\nfake",
+            prompt="Transcribe this page.",
+            timeout_s=9.0,
+        )
+
+    assert text == "Visible CV transcript"
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["model"] == "google/gemini-2.5-flash"
+    assert fake_completions.kwargs["timeout"] == 9.0
+    content = fake_completions.kwargs["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "Transcribe this page."}
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert fake_completions.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
+    llm_event = next(e for e in events if e["event"] == "llm_call")
+    assert llm_event["provider"] == "openrouter"
+    assert llm_event["model"] == "google/gemini-2.5-flash"
+    assert llm_event["usd_cost"] == 0.00042
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_vision_text_falls_back_to_lite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
+    events: list[dict[str, Any]] = []
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Fallback vision transcript"
+    fake_completions.fail_models = {"google/gemini-2.5-flash"}
+
+    with subscribe(events.append):
+        text = await client.complete_vision_text(
+            image_bytes=b"\x89PNG\r\n\x1a\nfake",
+            prompt="Transcribe this page.",
+        )
+
+    assert text == "Fallback vision transcript"
+    assert [call["model"] for call in fake_completions.all_kwargs] == [
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    ]
+    fallback = next(e for e in events if e["event"] == "llm_model_fallback")
+    assert fallback["logical_model"] == "vision"
+    assert fallback["from_model"] == "google/gemini-2.5-flash"
+    assert fallback["to_model"] == "google/gemini-2.5-flash-lite"
+    llm_event = next(e for e in events if e["event"] == "llm_call")
+    assert llm_event["model"] == "google/gemini-2.5-flash-lite"
+    assert llm_event["models_attempted"] == [
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite",
+    ]
 
 
 @pytest.mark.fast
