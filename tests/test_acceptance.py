@@ -141,25 +141,6 @@ def test_score_spread_at_least_30(triplet: _TripletRun) -> None:
     junior = _require_score(triplet.reports[JUNIOR], "junior")
     senior = _require_score(triplet.reports[SENIOR], "senior")
     delta = senior.total - junior.total
-    if senior.dropped:
-        # T25 second-order: senior fixture 08 stochastically lands on the
-        # partial-Score path when an anchor fails verify_quote (most often
-        # `education`, tracked in tasks/T36_senior_edu_anchor.md). With the
-        # dropped component contributing 0 (T25 "drop=0, don't re-normalize",
-        # PRD §4.5), the spread compresses below the full-Score gate. Preserve
-        # PRD §5.4 differentiation with a relaxed delta floor AND an absolute
-        # senior floor so a real "senior collapsed to mid band" regression
-        # still trips. When T36 lands and senior returns to full 4-of-4, the
-        # full-Score branch below resumes enforcing >=30.
-        assert senior.total >= 65, (
-            f"partial-Score senior must clear absolute floor: "
-            f"senior.total={senior.total}, dropped={senior.dropped}"
-        )
-        assert delta >= 20, (
-            f"partial-Score spread {senior.total} - {junior.total} = {delta}, "
-            f"dropped={senior.dropped}, expected delta >= 20"
-        )
-        return
     assert delta >= 30, f"score spread {senior.total} - {junior.total} = {delta}, expected >= 30"
 
 
