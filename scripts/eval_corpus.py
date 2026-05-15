@@ -10,17 +10,20 @@ Exit codes:
         (profile or score returned StageFailure — the report
         cannot be judged meaningfully without them).
     2 = setup error: fixture dir missing, no fixtures matched,
-        provider API key missing, or an unresolved Git LFS pointer was found.
+        provider API key missing, provider upload not explicitly allowed,
+        or an unresolved Git LFS pointer was found.
 
 Usage:
-    uv run python scripts/eval_corpus.py
-    uv run python scripts/eval_corpus.py --profile ci
-    uv run python scripts/eval_corpus.py --output-dir reports/ci-run
-    GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run python scripts/eval_corpus.py
+    uv run python scripts/eval_corpus.py --allow-provider-upload
+    uv run python scripts/eval_corpus.py --profile ci --allow-provider-upload
+    uv run python scripts/eval_corpus.py --output-dir reports/ci-run --allow-provider-upload
+    GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... \
+        uv run python scripts/eval_corpus.py --allow-provider-upload
 
-The `--profile` flag sets `GANDER_MODEL_PROFILE` for the run (see
-`gander.llm` for what it picks). Local profile uses the reasoning-heavy
-MiniMax model; CI uses the cheap one.
+The `--profile` flag labels the generated SUMMARY.md and sets
+`GANDER_MODEL_PROFILE` for compatibility with older runbooks. Current model
+selection is OpenRouter-only and controlled by `OPENROUTER_MODEL_*` env vars
+or the defaults in `gander.llm`.
 
 Execution is serial — DDG queries are rate-sensitive and many parallel
 pipelines from one IP would draw throttles.
@@ -44,7 +47,6 @@ SUPPORTED_SUFFIXES = (".pdf", ".docx")
 PROFILE_CHOICES = ("local", "ci")
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/"
 PROVIDER_KEYS = {
-    "minimax": "MINIMAX_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }
 LOGICAL_PROVIDER_ENV_KEYS = (
@@ -72,7 +74,7 @@ def _display_path(path: Path) -> str:
 
 def _provider_key_error() -> str | None:
     provider_sources = {
-        "GANDER_LLM_PROVIDER": os.environ.get("GANDER_LLM_PROVIDER", "minimax"),
+        "GANDER_LLM_PROVIDER": os.environ.get("GANDER_LLM_PROVIDER", "openrouter"),
     }
     for env_key in LOGICAL_PROVIDER_ENV_KEYS:
         raw = os.environ.get(env_key)
@@ -99,6 +101,16 @@ def _provider_key_error() -> str | None:
             "Set the env var(s) and retry; .env is not auto-loaded by this script."
         )
     return None
+
+
+def _provider_upload_consent_error(allow_provider_upload: bool) -> str | None:
+    if allow_provider_upload:
+        return None
+    return (
+        "Live corpus evaluation sends committed fixture CV content to the "
+        "configured LLM provider. Pass --allow-provider-upload only after "
+        "confirming this is acceptable for the current run."
+    )
 
 
 def _cell(value: object) -> str:
@@ -248,7 +260,18 @@ def _write_summary(
     return summary_path
 
 
-async def _run_corpus(fixture_dir: Path, output_dir: Path, profile: str) -> int:
+async def _run_corpus(
+    fixture_dir: Path,
+    output_dir: Path,
+    profile: str,
+    *,
+    allow_provider_upload: bool,
+) -> int:
+    consent_error = _provider_upload_consent_error(allow_provider_upload)
+    if consent_error is not None:
+        print(consent_error, file=sys.stderr)
+        return 2
+
     provider_error = _provider_key_error()
     if provider_error is not None:
         print(provider_error, file=sys.stderr)
@@ -344,6 +367,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_OUTPUT_DIR,
         help="Where to write per-CV reports + SUMMARY.md (default: reports/).",
     )
+    parser.add_argument(
+        "--allow-provider-upload",
+        action="store_true",
+        help=(
+            "Confirm that sending committed fixture CV content to the configured "
+            "LLM provider is acceptable for this run."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -351,7 +382,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     os.environ["GANDER_MODEL_PROFILE"] = args.profile
     return asyncio.run(
-        _run_corpus(args.fixture_dir.resolve(), args.output_dir.resolve(), args.profile)
+        _run_corpus(
+            args.fixture_dir.resolve(),
+            args.output_dir.resolve(),
+            args.profile,
+            allow_provider_upload=args.allow_provider_upload,
+        )
     )
 
 

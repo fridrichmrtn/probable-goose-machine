@@ -17,11 +17,9 @@ from gander.schemas import Confidence, Profile, Report, SalaryEstimate, Score
 
 
 def _missing_provider_key() -> bool:
-    provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
+    provider = os.environ.get("GANDER_LLM_PROVIDER", "openrouter")
     if provider == "openrouter":
         return not bool(os.environ.get("OPENROUTER_API_KEY"))
-    if provider == "minimax":
-        return not bool(os.environ.get("MINIMAX_API_KEY"))
     return False
 
 
@@ -35,10 +33,7 @@ pytestmark = [
     ),
     pytest.mark.skipif(
         _missing_provider_key(),
-        reason=(
-            "arbitrary CV smoke requires OPENROUTER_API_KEY when "
-            "GANDER_LLM_PROVIDER=openrouter, otherwise MINIMAX_API_KEY"
-        ),
+        reason="arbitrary CV smoke requires OPENROUTER_API_KEY",
     ),
 ]
 

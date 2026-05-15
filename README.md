@@ -196,8 +196,12 @@ GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run pytest -m live -v
 Corpus regeneration:
 
 ```bash
-GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run python scripts/eval_corpus.py --output-dir reports/repro
+GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run python scripts/eval_corpus.py --output-dir reports/repro --allow-provider-upload
 ```
+
+Corpus regeneration sends the committed fixture CV contents to the configured
+LLM provider. Run it only when that provider upload is acceptable for the
+fixtures in scope.
 
 Opt-in arbitrary-CV smoke:
 
@@ -205,12 +209,12 @@ Opt-in arbitrary-CV smoke:
 GANDER_SMOKE_CV=/absolute/path/to/cv.pdf GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run pytest tests/test_arbitrary_cv_smoke.py -m live -q
 ```
 
-Current checked-in live corpus numbers are still pending a fresh run; see
-`reports/SUMMARY.md`. The OpenRouter spike data that motivated the current
-defaults measured Gemini Flash at 1.4s p50 for the four-call extract/score
-probe, with $0.0043 provider-reported cost for those four calls. MiniMax
-M2.7-highspeed was slower on the same probe, around 16.6s p50, but had strong
-anchor survival.
+Current checked-in live corpus numbers are still pending an explicitly
+approved fresh provider-upload run; see `reports/SUMMARY.md`. The OpenRouter
+spike data that motivated the current defaults measured Gemini Flash at 1.4s
+p50 for the four-call extract/score probe, with $0.0043 provider-reported cost
+for those four calls. MiniMax M2.7-highspeed was slower on the same probe,
+around 16.6s p50, but had strong anchor survival.
 
 ## Bias And Limits
 
@@ -220,7 +224,7 @@ and school names can still leak socioeconomic or prestige signals. The school
 prestige smoke test compares the same research CV with and without the MFF UK /
 Charles University header and records the score delta; the live number is
 captured by `tests/test_bias_smoke.py` / `scripts/run_bias_smoke.py` when keys
-are available.
+are available and provider upload of the paired fixtures has been approved.
 
 Known limitations:
 

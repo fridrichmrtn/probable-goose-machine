@@ -1,6 +1,6 @@
 # T23 — L9 README finalize (Decisions section is load-bearing)
 
-Status: implemented — live numbers pending
+Status: implemented — live numbers pending explicit provider-upload approval
 Owner: codex
 Depends on: T17, T20, T21, T22
 Unblocks: SUBMIT
@@ -20,7 +20,7 @@ Replace the bootstrap stub at `README.md` with:
 - [ ] **Above the fold**:
   - Public Space URL as the first thing visible.
   - One-line note: "First request may take ~20s if the Space is asleep — the warm-keeper cron usually prevents this."
-  - Local-run one-liner: `uv sync && MINIMAX_API_KEY=... uv run python app.py`.
+  - Local-run one-liner: `uv sync && OPENROUTER_API_KEY=... uv run python app.py`.
 - [ ] **How the pipeline works**:
   - Reuse the DAG ASCII from `tasks/PLAN.md`.
   - 1-paragraph stage descriptions.
@@ -59,7 +59,7 @@ Replace the bootstrap stub at `README.md` with:
   git clone https://github.com/fridrichmrtn/probable-goose-machine gander
   cd gander
   uv sync
-  MINIMAX_API_KEY=... uv run python app.py
+  OPENROUTER_API_KEY=... uv run python app.py
   ```
   Expected signal after uploading `tests/fixtures/cvs/03_ds_horak.pdf`:
   final report renders with non-empty `score.total > 0` and populated final
@@ -83,20 +83,23 @@ README stub replaced with reviewer-facing content:
 - Pipeline, grounding, confidence isolation, observability, provider setup,
   privacy, decisions, limitations, and reviewer cheat sheet are documented.
 - Stale direct-Anthropic provider wording was removed; current provider values
-  are `minimax` and `openrouter`.
+  are OpenRouter-only at runtime.
 
 Still pending before checking T23 done in `tasks/todo.md`:
-- Fresh live corpus/cost numbers in `reports/SUMMARY.md`.
+- Fresh live corpus/cost numbers in `reports/SUMMARY.md`; this now requires an
+  explicit `--allow-provider-upload` run because fixture CV contents are sent
+  to OpenRouter.
 - Fresh bias-smoke delta from `scripts/run_bias_smoke.py` or the live CI
-  JUnit property.
+  JUnit property, with the same provider-upload approval boundary.
 
 Follow-up during the sweep:
 - `reports/SUMMARY.md` placeholder now lists all 14 committed fixture pairs,
   including the T29 CZ fixtures #11–#13, so the linked eval surface no longer
   hides the multilingual corpus extension while live numbers are pending.
 - `scripts/eval_corpus.py` now preflights the configured provider keys,
-  including per-logical-model provider overrides, and exits 2 before creating
-  report files when credentials are missing.
+  including per-logical-model provider overrides, requires explicit
+  provider-upload consent, and exits 2 before creating report files when
+  credentials or consent are missing.
 - README now includes a clean-clone local runbook, expected healthy-run signal,
   corpus-regeneration command, opt-in arbitrary-CV smoke command, and the HF
   Space secret-rebind / sync recovery path.
