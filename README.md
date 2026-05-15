@@ -25,6 +25,22 @@ cron usually prevents that. Local run:
 uv sync && MINIMAX_API_KEY=... uv run python app.py
 ```
 
+Fresh-clone check:
+
+```bash
+git clone https://github.com/fridrichmrtn/probable-goose-machine gander
+cd gander
+uv sync
+MINIMAX_API_KEY=... uv run python app.py
+```
+
+Open the printed local Gradio URL, upload `tests/fixtures/cvs/03_ds_horak.pdf`
+or another PDF/DOCX CV, and wait for the final report. A healthy run has a
+non-empty score (`score.total > 0`) and either populated Salary, Confidence,
+and Plan sections or clear inline `StageFailure` copy when a live dependency
+does not have enough evidence. The committed PDF/DOCX fixtures use Git LFS; if
+a fixture opens as pointer text after cloning, run `git lfs pull`.
+
 ## What It Does
 
 Gander accepts a PDF or DOCX CV and returns a seniority report with four blocks:
@@ -136,6 +152,39 @@ page is one VLM request, currently treated as `$0.06` or 3 M2.7 token-plan
 requests in telemetry. Private real-CV live testing is opt-in only; the checked
 live smoke for this path uses a synthetic image.
 
+## Deployment Recovery
+
+The public Space page is
+`https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine`; the warm
+runtime URL is `https://fridrichmrtn-probable-goose-machine.hf.space`.
+GitHub `main` is the source of truth. Pushing to `main` triggers
+`.github/workflows/sync-to-hub.yml`, which pushes the same commit to the Space
+using the GitHub `HF_TOKEN` secret.
+
+Required Hugging Face Space configuration:
+
+- Secret for the active provider: `MINIMAX_API_KEY` for the default MiniMax
+  path, or `OPENROUTER_API_KEY` plus `GANDER_LLM_PROVIDER=openrouter`.
+- Variables: `GANDER_MODEL_PROFILE=local` and `PYTHONPATH=/app/src`.
+
+Required GitHub configuration:
+
+- Secret: `HF_TOKEN` with write access to the Space.
+- Variable: `HF_SPACE_URL=https://fridrichmrtn-probable-goose-machine.hf.space`
+  for the warm-keeper workflow.
+- Secret: `OPENROUTER_API_KEY` for the required `openrouter-live` CI job.
+
+Rebind an existing Space through the Space settings page
+(`Settings -> Variables and secrets`), then run the sync workflow. To recreate
+the Space with the CLI:
+
+```bash
+hf repos create fridrichmrtn/probable-goose-machine --type space --space-sdk gradio --public --secrets MINIMAX_API_KEY=... --env GANDER_MODEL_PROFILE=local --env PYTHONPATH=/app/src --exist-ok
+gh secret set HF_TOKEN
+gh variable set HF_SPACE_URL --body https://fridrichmrtn-probable-goose-machine.hf.space
+gh workflow run sync-to-hub.yml
+```
+
 ## Evaluation
 
 Fast unit coverage is the normal local gate:
@@ -150,6 +199,18 @@ Live tests are marked `live` and require provider keys plus network:
 
 ```bash
 GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run pytest -m live -v
+```
+
+Corpus regeneration:
+
+```bash
+GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run python scripts/eval_corpus.py --output-dir reports/repro
+```
+
+Opt-in arbitrary-CV smoke:
+
+```bash
+GANDER_SMOKE_CV=/absolute/path/to/cv.pdf GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run pytest tests/test_arbitrary_cv_smoke.py -m live -q
 ```
 
 Current checked-in live corpus numbers are still pending a fresh run; see

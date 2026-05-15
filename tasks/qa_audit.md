@@ -22,6 +22,8 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[should-fix]` generic boundary raw exception leaks | PR #35 sweep (`t46-salary-multi-market`) | `stage_boundary` now uses curated stage messages for `StageFailure.user_message` and emits obs `error` events with `exc_type` only, not raw `exc_message` |
 | `[should-fix]` rendered failure copy | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_render.py::test_render_body_renders_failure_copy_for_each_stage` pins reviewer-facing failure copy for profile, score, salary, confidence, and growth |
 | `[should-fix]` T27 corpus role-map coverage | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_normalize.py::test_bundled_corpus_headlines_normalize_deterministically` pins the committed fixture headline strings, including CZ manager/research titles and the tagline senior case |
+| `[should-fix]` T23 README falsifiability + fresh-clone smoke | PR #35 sweep (`t46-salary-multi-market`) | `README.md` now has a clean-clone runbook, the expected healthy-run signal, corpus regeneration, and opt-in arbitrary-CV smoke commands; `tasks/T23_readme.md` mirrors the verification |
+| `[should-fix]` T22 secret rebind | PR #35 sweep (`t46-salary-multi-market`) | `README.md` and `tasks/T22_deploy.md` now list the HF Space secrets/env, GitHub secrets/vars, and `hf`/`gh` recovery commands |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -32,7 +34,7 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 | # | Criterion | Owning task → test | Status |
 |---|---|---|---|
 | 1 | Zero-setup hosted run | T22 (done) | covered |
-| 2 | Local one-or-two-command run | T23 (todo) | partial — README owns the doc, no runnable fresh-clone check named |
+| 2 | Local one-or-two-command run | T23 (todo) | covered by README fresh-clone runbook; live corpus/bias numbers still pending before T23 closes |
 | 3 | Works on arbitrary CVs | `tests/test_arbitrary_cv_smoke.py` | covered opt-in via `GANDER_SMOKE_CV` |
 | 4a | Score spread ≥ 30 | T17 `test_score_spread_at_least_30` (PR #10) | covered (pending merge) |
 | 4b | Salary ranges don't overlap | T17 `test_salary_ranges_dont_overlap` (PR #10) | covered (pending merge) |
@@ -44,7 +46,7 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 
 - `[resolved] PRD §5(3)` arbitrary-CV path has opt-in coverage via `GANDER_SMOKE_CV`; the test skips when unset so private reviewer CVs stay out of the repo.
 - `[should-fix] PRD §5(6)` reachability gap. Add `test_salary_source_urls_reachable` under `@pytest.mark.live` that does `httpx.head(url, follow_redirects=True, timeout=3)` per source and asserts `< 400` for at least 1 of the top-2 sources per CV. Without this, T17 passes on hallucinated-but-well-shaped URLs.
-- `[should-fix] T23` verification block names "README updated", which is checklist-style and unfalsifiable. Concrete fix is captured below in §5.
+- `[resolved] T23` README verification is now falsifiable: fresh clone, dependency sync, app launch, expected report signal, corpus regeneration, and arbitrary-CV smoke commands are named explicitly.
 
 ---
 
@@ -97,15 +99,20 @@ PRD §4.8 names four counters: **claims verified**, **claims dropped**, **search
 
 ## 4. Reproducibility blockers
 
-- `[should-fix] T23` no clean-environment reproducibility check is wired. PRD §5(2) demands a one-or-two-command local run. Concrete fix: T23 verification must include literal commands a reviewer can copy-paste, e.g.
+- `[resolved] T23` clean-environment reproducibility is now documented with literal commands a reviewer can copy-paste:
 
   ```bash
   cd "$(mktemp -d)" && git clone <repo> gander && cd gander \
     && uv sync && MINIMAX_API_KEY=… uv run python app.py
   ```
 
-  with expected non-empty `score.total > 0` once a CV is uploaded through the Gradio UI. (`pyproject.toml` defines no `[project.scripts]` entry; the documented invocation is `uv run python app.py` — there is no `uv run gander` console-script.) Without this, T23 is unfalsifiable.
-- `[should-fix] T22 secret rebind` HF Space deploy is done, but the redeploy path (`MINIMAX_API_KEY` binding in Space settings, push to the Space remote) is not documented in any task. If the Space is torn down, the path back is tribal knowledge. T23 README should enumerate the secrets and push target explicitly.
+  The README also states the expected non-empty `score.total > 0` after a CV
+  upload, notes the LFS fixture caveat, and names `scripts/eval_corpus.py` plus
+  the opt-in `GANDER_SMOKE_CV` live smoke.
+- `[resolved] T22 secret rebind` HF Space deploy recovery is documented in
+  README and T22: active-provider secret, `GANDER_MODEL_PROFILE`,
+  `PYTHONPATH`, `HF_TOKEN`, `HF_SPACE_URL`, and the sync workflow target are
+  all named.
 
 ---
 
@@ -137,15 +144,14 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 | Severity | Count |
 |---|---|
 | `[must-fix]` | 0 |
-| `[should-fix]` | 5 |
+| `[should-fix]` | 2 |
 | `[nit]` | 4 |
 
-Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, T23 fresh-clone smoke, T22 secret rebind, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
+Open `[should-fix]` bullets: PRD §5(6) reachability and T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
 **Top actionable follow-ups**:
 
 1. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
-2. `[should-fix]` Document the HF Space secret rebind / redeploy path.
-3. `[should-fix]` Tighten T23's README verification from checklist wording to reproducible commands.
+2. `[should-fix]` Run the CZ triplet live and close T30 Phase 2 once the provider-key gate is satisfied.
 
 **Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak, rendered-copy, and corpus role-map should-fixes are also closed. 0 `[must-fix]` findings remain open in this audit.

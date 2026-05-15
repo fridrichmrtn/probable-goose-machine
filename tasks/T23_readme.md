@@ -53,7 +53,22 @@ Replace the bootstrap stub at `README.md` with:
 ## Verification
 
 - [ ] Read top-to-bottom; trim anything that doesn't serve judgment or reliability (per CLAUDE.md "demand elegance").
-- [ ] Anyone unfamiliar with the project should understand what it does and how to run it within 60 seconds.
+- [x] Anyone unfamiliar with the project should understand what it does and how to run it within 60 seconds.
+- [x] Fresh-clone local run is falsifiable from the README:
+  ```bash
+  git clone https://github.com/fridrichmrtn/probable-goose-machine gander
+  cd gander
+  uv sync
+  MINIMAX_API_KEY=... uv run python app.py
+  ```
+  Expected signal after uploading `tests/fixtures/cvs/03_ds_horak.pdf`:
+  final report renders with non-empty `score.total > 0` and populated final
+  sections or reviewer-facing inline `StageFailure` copy.
+- [x] Opt-in live/corpus commands are named in the README:
+  `scripts/eval_corpus.py` for fixture regeneration and
+  `GANDER_SMOKE_CV=... pytest tests/test_arbitrary_cv_smoke.py -m live` for a
+  private arbitrary CV.
+- [x] HF Space redeploy / secret-rebind path is documented in README and T22.
 - [ ] Numbers (cost, latency, bias delta) are real — not placeholders.
 
 ## Reference
@@ -82,3 +97,6 @@ Follow-up during the sweep:
 - `scripts/eval_corpus.py` now preflights the configured provider keys,
   including per-logical-model provider overrides, and exits 2 before creating
   report files when credentials are missing.
+- README now includes a clean-clone local runbook, expected healthy-run signal,
+  corpus-regeneration command, opt-in arbitrary-CV smoke command, and the HF
+  Space secret-rebind / sync recovery path.
