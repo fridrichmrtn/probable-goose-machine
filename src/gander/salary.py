@@ -37,12 +37,149 @@ _DEFAULT_SALARY_SEARCH_BACKENDS = "brave,duckduckgo,yahoo,mojeek"
 _SALARY_SEARCH_MAX_RESULTS = 20
 _SALARY_LLM_SOURCE_LIMIT = 8
 _JUNIOR_CZK_MONTH_HIGH_CAP = 90_000
+# CZ baseline only: the curated boards we trust for CZ profiles. Outside CZ we
+# stop applying this list and let live-search ranking stand — the live-search
+# design philosophy is "trust the search engine; don't maintain per-country
+# tables." See tasks/T46_salary_multi_market.md.
 _SALARY_DOMAIN_PRIORITY: tuple[str, ...] = (
     "platy.cz",
     "profesia.cz",
     "glassdoor",
     "levels.fyi",
 )
+
+# Flat country -> ISO-4217 currency map. ~40 markets. Unknown / missing -> USD,
+# which is the live-search-friendliest default (most non-CZ snippet text the
+# DDG backends surface for English queries already quote USD). Adding a row is
+# a one-line PR. Local-payroll period (month vs. year) is a separate concern;
+# see `_currency_to_period`.
+_COUNTRY_CURRENCY: dict[str, str] = {
+    "CZ": "CZK",
+    "SK": "EUR",
+    "PL": "PLN",
+    "HU": "HUF",
+    "RO": "RON",
+    "BG": "BGN",
+    "DE": "EUR",
+    "AT": "EUR",
+    "FR": "EUR",
+    "BE": "EUR",
+    "NL": "EUR",
+    "LU": "EUR",
+    "ES": "EUR",
+    "PT": "EUR",
+    "IT": "EUR",
+    "IE": "EUR",
+    "FI": "EUR",
+    "EE": "EUR",
+    "LV": "EUR",
+    "LT": "EUR",
+    "GR": "EUR",
+    "MT": "EUR",
+    "CY": "EUR",
+    "SI": "EUR",
+    "HR": "EUR",
+    "CH": "CHF",
+    "GB": "GBP",
+    "DK": "DKK",
+    "NO": "NOK",
+    "SE": "SEK",
+    "IS": "ISK",
+    "US": "USD",
+    "CA": "CAD",
+    "MX": "MXN",
+    "BR": "BRL",
+    "AR": "ARS",
+    "AU": "AUD",
+    "NZ": "NZD",
+    "JP": "JPY",
+    "KR": "KRW",
+    "CN": "CNY",
+    "HK": "HKD",
+    "SG": "SGD",
+    "IN": "INR",
+    "ID": "IDR",
+    "MY": "MYR",
+    "PH": "PHP",
+    "TH": "THB",
+    "VN": "VND",
+    "TR": "TRY",
+    "IL": "ILS",
+    "AE": "AED",
+    "SA": "SAR",
+    "ZA": "ZAR",
+    "EG": "EGP",
+    "UA": "UAH",
+}
+
+# Markets where local employment ads quote monthly compensation. Everywhere
+# else defaults to annual. The salary prompt uses this only as a hint — the LLM
+# may override based on what the snippets actually say.
+_MONTHLY_CURRENCIES: frozenset[str] = frozenset({"CZK", "PLN", "HUF", "RON", "BGN"})
+
+# Country display names for query construction. Live search interprets natural
+# language better than ISO codes (`DE` matches Germany and a hundred other
+# things; "Germany" is unambiguous).
+_COUNTRY_NAMES: dict[str, str] = {
+    "CZ": "Czech Republic",
+    "SK": "Slovakia",
+    "PL": "Poland",
+    "HU": "Hungary",
+    "RO": "Romania",
+    "BG": "Bulgaria",
+    "DE": "Germany",
+    "AT": "Austria",
+    "FR": "France",
+    "BE": "Belgium",
+    "NL": "Netherlands",
+    "LU": "Luxembourg",
+    "ES": "Spain",
+    "PT": "Portugal",
+    "IT": "Italy",
+    "IE": "Ireland",
+    "FI": "Finland",
+    "EE": "Estonia",
+    "LV": "Latvia",
+    "LT": "Lithuania",
+    "GR": "Greece",
+    "MT": "Malta",
+    "CY": "Cyprus",
+    "SI": "Slovenia",
+    "HR": "Croatia",
+    "CH": "Switzerland",
+    "GB": "United Kingdom",
+    "DK": "Denmark",
+    "NO": "Norway",
+    "SE": "Sweden",
+    "IS": "Iceland",
+    "US": "United States",
+    "CA": "Canada",
+    "MX": "Mexico",
+    "BR": "Brazil",
+    "AR": "Argentina",
+    "AU": "Australia",
+    "NZ": "New Zealand",
+    "JP": "Japan",
+    "KR": "South Korea",
+    "CN": "China",
+    "HK": "Hong Kong",
+    "SG": "Singapore",
+    "IN": "India",
+    "ID": "Indonesia",
+    "MY": "Malaysia",
+    "PH": "Philippines",
+    "TH": "Thailand",
+    "VN": "Vietnam",
+    "TR": "Türkiye",
+    "IL": "Israel",
+    "AE": "United Arab Emirates",
+    "SA": "Saudi Arabia",
+    "ZA": "South Africa",
+    "EG": "Egypt",
+    "UA": "Ukraine",
+}
+
+_ISO_4217_SHAPE = re.compile(r"^[A-Z]{3}$")
 
 
 def _salary_search_backends() -> str:
@@ -55,6 +192,50 @@ def _is_cz_location(location: str | None) -> bool:
     if not location:
         return True
     return bool(_CZ_TOKEN_PATTERN.search(location))
+
+
+def country_to_currency(country: str | None) -> str:
+    """ISO-3166 alpha-2 -> ISO-4217 currency. Unknown / null -> USD."""
+    if not country:
+        return "USD"
+    return _COUNTRY_CURRENCY.get(country.upper(), "USD")
+
+
+def currency_to_period(currency: str) -> str:
+    """ISO-4217 currency -> default period hint ('month' or 'year')."""
+    return "month" if currency in _MONTHLY_CURRENCIES else "year"
+
+
+def _country_display_name(country: str | None) -> str | None:
+    if not country:
+        return None
+    return _COUNTRY_NAMES.get(country.upper())
+
+
+_COUNTRY_ALIASES: dict[str, str] = {
+    # Common but non-ISO codes the LLM may emit. Anything not aliased and not
+    # in `_COUNTRY_CURRENCY` falls back to the location-based path so we don't
+    # silently bias an unsupported country into a USD default.
+    "UK": "GB",
+}
+
+
+def _resolve_country(profile: Profile) -> str:
+    """Return ISO-3166 alpha-2 for the profile.
+
+    Prefers `detected_country` from extraction (with alias resolution and a
+    membership check against the supported currency table); falls back to the
+    legacy `_is_cz_location` regex on `detected_location` for backward
+    compatibility on CZ-leaning ambiguous CVs and older fixtures. Unknown ->
+    `'XX'` (which salary downstream treats as non-CZ, USD-defaulting).
+    """
+    explicit = (profile.detected_country or "").strip().upper()
+    explicit = _COUNTRY_ALIASES.get(explicit, explicit)
+    if explicit and explicit in _COUNTRY_CURRENCY:
+        return explicit
+    if _is_cz_location(profile.detected_location):
+        return "CZ"
+    return "XX"
 
 
 def _apply_sanity_caps(profile: Profile, estimate: SalaryEstimate) -> SalaryEstimate:
@@ -87,24 +268,31 @@ def _apply_sanity_caps(profile: Profile, estimate: SalaryEstimate) -> SalaryEsti
 
 
 def build_queries(profile: Profile) -> list[str]:
-    """Build 2-3 locality-first search queries plus an optional EUR cross-check.
+    """Build 2-3 locality-first search queries with country/currency hints.
 
     Pure function. No I/O.
 
+    CZ profiles keep the curated `site:platy.cz` / `site:profesia.cz` baseline.
+    All other countries delegate to live search: queries include the country
+    name and the local ISO-4217 currency token, but no `site:` lock-in — the
+    design avoids per-country curated domain tables on purpose
+    (tasks/T46_salary_multi_market.md).
+
     Uses `profile.canonical_role` when set (T27, R4). When the canonical role
-    differs from the verbatim headline (i.e. T27 normalized away a non-market
-    or tagline-shape headline), the verbatim headline is dropped from the
-    queries so DDG doesn't drift to junk pages. Management profiles get an
-    extra management-specific query.
+    differs from the verbatim headline, the verbatim headline is dropped so
+    DDG doesn't drift to junk pages. Management profiles get an extra
+    management-specific query.
     """
     canonical = (profile.canonical_role or "").strip()
     detected = profile.detected_role.strip()
     role = canonical or detected or "data scientist"
     location = profile.detected_location
-    cz = _is_cz_location(location)
+    country = _resolve_country(profile)
+    country_name = _country_display_name(country)
+    currency = country_to_currency(country)
 
     queries: list[str]
-    if cz:
+    if country == "CZ":
         city = location.strip() if location else "Praha"
         queries = [
             f"{role} salary {city} site:platy.cz",
@@ -114,19 +302,30 @@ def build_queries(profile: Profile) -> list[str]:
         if not (profile.is_management and canonical and profile.detected_years_experience >= 10):
             queries.append(f"{role} salary czech republic site:glassdoor.com")
         mgmt_currency_token = "CZK 2025"
+        mgmt_city = city
     else:
-        city = location.strip() if location else "Europe"
-        queries = [
-            f"{role} salary {city} site:glassdoor.com OR site:levels.fyi",
-            f"{role} salary EUR 2025 {city}",
-        ]
-        mgmt_currency_token = "EUR 2025"
+        # Non-CZ: live-search-first. No site: lock-in. Country name disambiguates;
+        # the local currency token primes the search engine toward local boards.
+        location_hint = location.strip() if location else (country_name or "")
+        city_or_country = location_hint or (country_name or "")
+        queries = [f"{role} salary {city_or_country} {currency} 2025".strip()]
+        if country_name:
+            queries.append(f"{role} {country_name} compensation 2025")
+        else:
+            queries.append(f"{role} salary {currency} 2025")
+        mgmt_currency_token = f"{currency} 2025"
+        mgmt_city = city_or_country
 
     if profile.is_management and canonical:
-        queries.insert(0, f"{canonical} manager salary {city} {mgmt_currency_token}")
+        queries.insert(0, f"{canonical} manager salary {mgmt_city} {mgmt_currency_token}".strip())
 
     if profile.detected_years_experience >= 10:
-        queries.append(f"senior {role} salary EUR Europe")
+        if country == "CZ":
+            queries.append(f"senior {role} salary EUR Europe")
+        elif country_name:
+            queries.append(f"senior {role} salary {country_name} {currency}")
+        else:
+            queries.append(f"senior {role} salary {currency}")
 
     # Cap covers all attached signals: 2-3 locality + optional management + optional senior.
     return queries[:5]
@@ -175,7 +374,12 @@ def _salary_domain_rank(source: Source) -> int:
     return len(_SALARY_DOMAIN_PRIORITY)
 
 
-def _prioritize_sources(sources: list[Source]) -> list[Source]:
+def _prioritize_sources(sources: list[Source], *, apply_priority: bool) -> list[Source]:
+    """Rank sources for the LLM. CZ -> curated priority list; everywhere else
+    preserves search-engine order (the live-search-first design philosophy).
+    """
+    if not apply_priority:
+        return list(sources)
     return [
         source
         for _, source in sorted(
@@ -185,7 +389,26 @@ def _prioritize_sources(sources: list[Source]) -> list[Source]:
     ]
 
 
-async def search(queries: list[str]) -> list[Source]:
+def _tld_histogram(sources: list[Source]) -> dict[str, int]:
+    """Count sources by their TLD suffix (`.cz`, `.de`, `.com`, …).
+
+    Used in telemetry so we can observe — without curating — whether live
+    search consistently surfaces local boards for a given country.
+    """
+    counts: dict[str, int] = {}
+    for source in sources:
+        domain = source.domain.lower()
+        tld = "." + domain.rsplit(".", 1)[-1] if "." in domain else domain or "(empty)"
+        counts[tld] = counts.get(tld, 0) + 1
+    return counts
+
+
+async def search(
+    queries: list[str],
+    *,
+    country: str,
+    currency_hint: str,
+) -> list[Source]:
     """Run DDG queries off the event loop, dedupe by URL, return up to 8 sources.
 
     Raises ``RuntimeError`` if fewer than 2 valid sources come back; the caller's
@@ -226,7 +449,9 @@ async def search(queries: list[str]) -> list[Source]:
             continue
         candidates.append(source)
 
-    sources = _prioritize_sources(candidates)[:_SALARY_LLM_SOURCE_LIMIT]
+    sources = _prioritize_sources(candidates, apply_priority=(country == "CZ"))[
+        :_SALARY_LLM_SOURCE_LIMIT
+    ]
 
     emit(
         "salary",
@@ -239,6 +464,9 @@ async def search(queries: list[str]) -> list[Source]:
         failed_queries=len(failed_queries),
         search_backends=search_backends,
         query_max_results=_SALARY_SEARCH_MAX_RESULTS,
+        country=country,
+        currency_hint=currency_hint,
+        sources_per_tld=_tld_histogram(sources),
     )
     if failed_queries:
         emit("salary", "query_failures", failures=failed_queries)
@@ -255,9 +483,13 @@ async def search(queries: list[str]) -> list[Source]:
 async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
     async with stage_boundary("salary") as cm:
         queries = build_queries(profile)
+        country = _resolve_country(profile)
+        country_name = _country_display_name(country)
+        currency_hint = country_to_currency(country)
+        period_hint = currency_to_period(currency_hint)
 
         try:
-            sources = await search(queries)
+            sources = await search(queries, country=country, currency_hint=currency_hint)
         except Exception as exc:
             # Catches every search escape path (tenacity-exhausted transport errors,
             # the deliberate `<2 sources` RuntimeError, anything else) so the
@@ -287,6 +519,10 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                     "seniority": profile.seniority_band,
                     "is_management": profile.is_management,
                     "location": profile.detected_location,
+                    "country": country if country != "XX" else None,
+                    "country_name": country_name,
+                    "currency_hint": currency_hint,
+                    "period_hint": period_hint,
                     "years": profile.detected_years_experience,
                 },
                 "results": [s.model_dump(mode="json") for s in sources],
@@ -327,6 +563,10 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 debug_detail=f"complete_json returned {type(estimate).__name__}",
             )
 
+        normalized_currency = (estimate.currency or "").strip().upper()
+        if normalized_currency != estimate.currency:
+            estimate = estimate.model_copy(update={"currency": normalized_currency})
+
         estimate = _apply_sanity_caps(profile, estimate)
 
         # Verify every emitted source against the inputs by URL AND replace the
@@ -362,11 +602,15 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 user_message=_INSUFFICIENT_DATA_MSG,
                 debug_detail=f"model_urls={[str(s.url) for s in estimate.sources]}",
             )
-        if estimate.currency not in {"CZK", "EUR", "USD"}:
+        # ISO-4217 shape only. The pre-T46 `{CZK, EUR, USD}` whitelist
+        # actively rejected legitimate non-CZ-leaning outputs (JPY, GBP, CHF,
+        # PLN, …); the shape check still catches LLM garbage like `"EURO"` or
+        # `"$"`.
+        if not _ISO_4217_SHAPE.fullmatch(estimate.currency):
             emit(
                 "salary",
                 "stage_failure",
-                reason="unsupported_currency",
+                reason="invalid_currency_shape",
                 currency=estimate.currency,
             )
             return StageFailure(
@@ -374,20 +618,17 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 user_message=_INSUFFICIENT_DATA_MSG,
                 debug_detail=f"currency={estimate.currency!r}",
             )
-        if (estimate.currency == "CZK" and estimate.period != "month") or (
-            estimate.currency in {"EUR", "USD"} and estimate.period != "year"
-        ):
+        # Per-currency period hint: warn but accept. The snippets win — per-
+        # currency caps and stricter invariants wait for empirical telemetry.
+        expected_period = currency_to_period(estimate.currency)
+        if estimate.period != expected_period:
             emit(
                 "salary",
-                "stage_failure",
-                reason="currency_period_mismatch",
+                "period_mismatch",
                 currency=estimate.currency,
                 period=estimate.period,
-            )
-            return StageFailure(
-                stage="salary",
-                user_message=_INSUFFICIENT_DATA_MSG,
-                debug_detail=f"currency={estimate.currency!r} period={estimate.period!r}",
+                expected_period=expected_period,
+                country=country,
             )
         if estimate.low >= estimate.high:
             emit(
@@ -412,6 +653,8 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             currency=verified.currency,
             period=verified.period,
             n_sources=len(verified.sources),
+            country=country,
+            currency_hint=currency_hint,
         )
         return verified
 

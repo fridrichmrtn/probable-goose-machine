@@ -1,6 +1,6 @@
 Marek Beneš
-MLOps / Platform Engineer · Brno, Czech Republic
-marek.benes@example.cz · +420 608 441 207 · linkedin.com/in/marekbenesmlops
+MLOps / Platform Engineer · Tokyo, Japan
+marek.benes@example.jp · +81 3 4530 2188 · linkedin.com/in/marekbenesmlops
 CV — last updated March 2026
 Page 1
 © Marek Beneš 2026 · prepared for internal review · do not redistribute
@@ -13,7 +13,7 @@ model registries, and the RFC
 process around them.
 Experience
 MLOps Engineer — Kiwi.com,
-Brno
+Tokyo
 January 2022 – present (4 years)
 Owns the Argo Workflows 3.5
 training-orchestration layer for the
@@ -63,4 +63,4 @@ Terraform, GitLab CI, Redis 7, Prometheus, Grafana,
 Loki.
 RFC authorship, cross-team platform consultation,
 on-call.
-Languages: Czech (native), English (C1).
+Languages: Czech (native), English (C1), Japanese (N3).

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl, computed_field, model_validator
+from pydantic import BaseModel, Field, HttpUrl, computed_field, field_validator, model_validator
 
 from gander.errors import StageFailure
+
+_ISO_3166_ALPHA2 = re.compile(r"^[A-Z]{2}$")
 
 COMPONENT_WEIGHTS: dict[str, float] = {
     "skills": 0.35,
@@ -81,7 +84,26 @@ class Profile(BaseModel):
     soft_signals: list[ProfileItem]
     detected_role: str
     detected_location: str | None
+    # ISO-3166 alpha-2 (CZ, DE, JP, US, GB, …). When null, salary.py falls back
+    # to the `_is_cz_location` regex on `detected_location` and defaults to "CZ"
+    # — preserving legacy behavior for ambiguous or CZ-leaning CVs.
+    detected_country: str | None = None
     detected_years_experience: int = Field(ge=0, le=70)
+
+    @field_validator("detected_country", mode="before")
+    @classmethod
+    def _validate_country_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper() if isinstance(value, str) else value
+        if not normalized:
+            return None
+        if not _ISO_3166_ALPHA2.fullmatch(normalized):
+            raise ValueError(
+                f"detected_country must be ISO-3166 alpha-2 (e.g. 'CZ'); got {value!r}"
+            )
+        return normalized
+
     # Populated post-LLM by gander.normalize.normalize_role (R4/R5 in T27).
     # When set, salary.build_queries + estimate_salary use these in place of
     # the raw `detected_role`, so non-market headlines (Member of Staff,
@@ -114,7 +136,7 @@ class SalaryEstimate(BaseModel):
     # Non-empty: salary.py rejects any estimate whose sources don't intersect the
     # DDG inputs, so an empty `sources` is already a stage failure downstream.
     # Enforcing here lets `LLMClient.complete_json`'s ValidationError-retry loop
-    # recover the rare MiniMax sample that drops the field instead of bubbling
+    # recover the rare model sample that drops the field instead of bubbling
     # all the way to `StageFailure(debug_detail='model_urls=[]')`.
     sources: list[Source] = Field(min_length=1)
     reasoning: str
