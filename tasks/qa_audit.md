@@ -18,6 +18,7 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[should-fix]` T22 HF Space deploy | `Status: done` in `tasks/T22_*.md` | hosted run reachable |
 | `[nit]` T05 spike artifact | resolved at plan-review time; downstream T07–T13 unblocked | T05 status no longer gating |
 | `[must-fix]` §4.8 per-stage duration | PR #35 sweep (`t46-salary-multi-market`) | `score`, `salary`, `confidence`, and `growth` now emit terminal `done` events with `duration_ms`; explicit `stage_failure` events on those stages also carry `duration_ms` |
+| `[must-fix]` PRD §5(3) arbitrary-CV path | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_arbitrary_cv_smoke.py` reads `GANDER_SMOKE_CV`, runs the live pipeline, and asserts every final block is populated or a reviewer-facing `StageFailure` |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -29,7 +30,7 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 |---|---|---|---|
 | 1 | Zero-setup hosted run | T22 (done) | covered |
 | 2 | Local one-or-two-command run | T23 (todo) | partial — README owns the doc, no runnable fresh-clone check named |
-| 3 | Works on arbitrary CVs | (none) | **still missing** — T17 fixture pins the EN triplet |
+| 3 | Works on arbitrary CVs | `tests/test_arbitrary_cv_smoke.py` | covered opt-in via `GANDER_SMOKE_CV` |
 | 4a | Score spread ≥ 30 | T17 `test_score_spread_at_least_30` (PR #10) | covered (pending merge) |
 | 4b | Salary ranges don't overlap | T17 `test_salary_ranges_dont_overlap` (PR #10) | covered (pending merge) |
 | 4c | No verbatim / near-dup growth | T17 verbatim + Jaccard 4-gram (PR #10) | covered (pending merge) |
@@ -38,7 +39,7 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 
 **Findings**
 
-- `[must-fix] PRD §5(3)` arbitrary-CV path still has zero coverage. Suggested fix: a `@pytest.mark.live` `test_arbitrary_cv_smoke` that loads a path from `GANDER_SMOKE_CV` (skipped when unset); assert every block in the final `Report` is either populated or a `StageFailure` with a user-facing message — no exceptions, no `running` status. Owner: T17 follow-up or new T32.
+- `[resolved] PRD §5(3)` arbitrary-CV path has opt-in coverage via `GANDER_SMOKE_CV`; the test skips when unset so private reviewer CVs stay out of the repo.
 - `[should-fix] PRD §5(6)` reachability gap. Add `test_salary_source_urls_reachable` under `@pytest.mark.live` that does `httpx.head(url, follow_redirects=True, timeout=3)` per source and asserts `< 400` for at least 1 of the top-2 sources per CV. Without this, T17 passes on hallucinated-but-well-shaped URLs.
 - `[should-fix] T23` verification block names "README updated", which is checklist-style and unfalsifiable. Concrete fix is captured below in §5.
 
@@ -132,16 +133,16 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 
 | Severity | Count |
 |---|---|
-| `[must-fix]` | 1 |
+| `[must-fix]` | 0 |
 | `[should-fix]` | 8 |
 | `[nit]` | 4 |
 
 Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, PRD §4.6 rendered-copy, `errors.py:82,89` dual leak, T23 fresh-clone smoke, T22 secret rebind, T27 role-map test, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
-**Top three actionable items** (do before declaring stages done):
+**Top actionable follow-ups**:
 
-1. `[must-fix]` Cover PRD §5(3) — arbitrary-reviewer-supplied CV. Add `test_arbitrary_cv_smoke` reading a path from `GANDER_SMOKE_CV`.
-2. `[should-fix]` Sanitize both leak points off `str(exc)` in `errors.py:82,89` — the same string reaches obs logs **and** the rendered user-facing report; fixing only the obs emit still leaks CV content downstream.
-3. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
+1. `[should-fix]` Sanitize both leak points off `str(exc)` in `errors.py:82,89` — the same string reaches obs logs **and** the rendered user-facing report; fixing only the obs emit still leaks CV content downstream.
+2. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
+3. `[should-fix]` Pin rendered failure copy in `render_body` for each failure mode.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), plus the newly surfaced §4.8 per-stage-duration gap has been closed. 1 `[must-fix]` remains outstanding: PRD §5(3) arbitrary-CV coverage.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. 0 `[must-fix]` findings remain open in this audit.
