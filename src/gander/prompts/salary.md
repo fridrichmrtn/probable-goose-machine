@@ -28,7 +28,8 @@ Seniority anchoring (CRITICAL — read before estimating):
 - Estimate at the candidate's stated `seniority` band, not the median of the surfaced sources. The snippets are evidence about the market, not a recipe for the answer.
 - If the snippets are dominated by IC pay but the candidate is `is_management=true` and `years >= 8`, anchor on the upper-third of the IC band or on any management/lead row in the snippets — not the median.
 - For `seniority` in {"head","director"}, never anchor below the snippets' senior-IC top: head/director compensation sits at or above senior-IC top in CZ data leadership.
-- For `seniority` = "junior", anchor at the snippet median or below.
+- For `seniority` in {"staff","principal"} with `years >= 10`, treat the candidate as above ordinary senior IC. If the location resolves to CZK/month and sources are generic AI/ML/data IC rows rather than staff-specific rows, use a staff/principal extrapolation with `high >= 230000` CZK/month and name that sparse-source extrapolation in `reasoning`.
+- For `seniority` = "junior" with `years <= 2` in CZK/month, anchor at the snippet median or below and do not emit `high > 90000`; a six-figure monthly high band is not junior compensation in this CZ corpus.
 
 Currency and period defaulting (decide from `context.location`):
 - Czech Republic, CZ, Praha, Prague, Brno, Ostrava, or location is null/unknown -> `CZK` / `month` (gross monthly).

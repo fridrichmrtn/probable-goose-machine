@@ -40,48 +40,70 @@ jobs:
       - name: Pytest (fast)
         run: uv run pytest -m fast --strict-markers -v
 
-  live:
+  openrouter-live:
     runs-on: ubuntu-latest
     # T30 Phase 1: bumped 20 -> 30 to absorb the EN-triplet acceptance suite
     # (3 added pipeline runs @ ~60s each + DDG rate-limit reruns).
     timeout-minutes: 30
     needs: static
-    # Fork PRs cannot access secrets — skip the job entirely instead of failing on a missing key.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # Single global queue across all refs/PRs — serialize against shared MiniMax + DDG quota.
-    # `cancel-in-progress: false` keeps in-flight live runs alive when a new one queues.
+    # Always report this check. Fork PRs cannot access secrets, so they no-op
+    # successfully inside the job instead of leaving a required check missing.
+    # `ci-live` lock serializes concurrent PRs/pushes — the acceptance suite still touches DDG
+    # and concurrent search from one runner IP pool rate-limits.
     concurrency:
       group: ci-live
       cancel-in-progress: false
     steps:
+      - name: Check OpenRouter secret
+        id: openrouter-secret
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          if [ "$FORK_PR" = "true" ]; then
+            echo "::notice::OPENROUTER_API_KEY is unavailable on fork PRs; skipping openrouter-live."
+            exit 0
+          fi
+
+          echo "::error::OPENROUTER_API_KEY repository secret is required for openrouter-live"
+          exit 1
+
       - uses: actions/checkout@v4
+        if: steps.openrouter-secret.outputs.available == 'true'
         with:
           lfs: true
 
       - name: Set up uv
+        if: steps.openrouter-secret.outputs.available == 'true'
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Install dependencies
+        if: steps.openrouter-secret.outputs.available == 'true'
         run: uv sync --frozen
 
-      - name: Pytest (live)
+      - name: Pytest (OpenRouter live)
+        if: steps.openrouter-secret.outputs.available == 'true'
         env:
-          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
-          GANDER_MODEL_PROFILE: ci
-          # VLM ingest is covered by fast mocked tests in this PR; T35 owns
-          # spend-capped live VLM gates. Keep the acceptance suite on the
+          GANDER_LLM_PROVIDER: openrouter
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # VLM ingest is MiniMax-only (hardcoded endpoint in gander.llm); T35
+          # owns spend-capped live VLM gates. Keep the acceptance suite on the
           # deterministic text tier so existing cost/anchor budgets remain stable.
           GANDER_INGEST_MODE: text
-        # --reruns 1 absorbs MiniMax sampling variance at the anchor-survival gate
-        # (verified-quote ratio sits near the 80% floor; one retry drops the
-        # cross-fixture flake rate from ~50% to ~10%). Applies to live only —
-        # fast/slow suites must stay deterministic.
+        # --reruns 1 absorbs sampling + DDG variance at the anchor-survival gate;
+        # one retry drops the cross-fixture flake rate from ~50% to ~10%. Applies
+        # to live only — fast/slow suites must stay deterministic.
         #
         # -n 4 --dist=loadgroup parallelizes the I/O-bound async tests
-        # (MiniMax HTTPS dominates wall time). The DDG-touching salary test
-        # carries @pytest.mark.xdist_group("ddg") so loadgroup pins it to a
-        # single worker — concurrent DDG search from one runner IP rate-limits.
+        # (LLM HTTPS dominates wall time). The DDG-touching salary test carries
+        # @pytest.mark.xdist_group("ddg") so loadgroup pins it to a single worker.
         run: uv run pytest -m live --strict-markers --reruns 1 --reruns-delay 2 -n 4 --dist=loadgroup -v

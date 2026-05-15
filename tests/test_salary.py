@@ -23,6 +23,7 @@ def _cz_profile(
     role: str = "Senior Data Scientist",
     location: str | None = "Prague",
     years: int = 8,
+    seniority: str | None = None,
 ) -> Profile:
     item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
     return Profile(
@@ -33,6 +34,7 @@ def _cz_profile(
         detected_role=role,
         detected_location=location,
         detected_years_experience=years,
+        seniority_band=seniority,
     )
 
 
@@ -305,6 +307,59 @@ async def test_estimate_salary_survives_single_query_failure(
     assert search_evt["failed_queries"] == 1
     failures_evt = next(e for e in events if e["event"] == "query_failures")
     assert failures_evt["failures"][0]["exc_type"] == "RuntimeError"
+
+
+@pytest.mark.fast
+async def test_estimate_salary_caps_inflated_junior_czk_month_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ddg_results = [
+        {
+            "href": "https://www.platy.cz/platy/ekonomika-finance-ucetnictvi/analytik-dat",
+            "body": "Analytik dat salary survey data for Czech Republic.",
+        },
+        {
+            "href": "https://www.profesia.cz/prace/junior-data-analyst",
+            "body": "Junior Data Analyst Prague salary entry-level role.",
+        },
+    ]
+    text_mock = MagicMock(return_value=ddg_results)
+    _patch_ddgs(monkeypatch, text_mock)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    inflated = SalaryEstimate(
+        low=100000,
+        high=130000,
+        currency="CZK",
+        period="month",
+        sources=[
+            Source(
+                url="https://www.platy.cz/platy/ekonomika-finance-ucetnictvi/analytik-dat",  # type: ignore[arg-type]
+                snippet="Analytik dat salary survey data for Czech Republic.",
+                domain="www.platy.cz",
+            )
+        ],
+        reasoning="Weak snippets led to an inflated junior range.",
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return inflated
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await estimate_salary(
+            _cz_profile(role="Junior Data Analyst", years=1, seniority="junior")
+        )
+
+    assert isinstance(result, SalaryEstimate)
+    assert result.low == 80000
+    assert result.high == 90000
+    assert "sanity cap" in result.reasoning
+    cap_evt = next(e for e in events if e["event"] == "salary_sanity_cap")
+    assert cap_evt["original_high"] == 130000
+    assert cap_evt["capped_high"] == 90000
 
 
 @pytest.mark.fast

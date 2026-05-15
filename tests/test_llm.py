@@ -39,11 +39,11 @@ class _RetryingLLMClient(LLMClient):
 
     async def _chat_json(
         self, model: str, system: str, user: str, temperature: float
-    ) -> tuple[str, int, int, str]:
+    ) -> tuple[str, int, int, str, float | None]:
         self.calls += 1
         if self.calls == 1:
-            return "not json", 3, 5, "stop"
-        return '{"message": "pong"}', 7, 11, "stop"
+            return "not json", 3, 5, "stop", None
+        return '{"message": "pong"}', 7, 11, "stop", None
 
 
 @pytest.mark.fast
@@ -174,7 +174,9 @@ class _FakeChatCompletions:
     def __init__(self) -> None:
         self.kwargs: dict[str, Any] | None = None
         self.content = '{"message": "pong"}'
-        self.usage: Any = type("Usage", (), {"prompt_tokens": 3, "completion_tokens": 4})()
+        self.usage: Any = type(
+            "Usage", (), {"prompt_tokens": 3, "completion_tokens": 4, "cost": 0.00042}
+        )()
 
     async def create(self, **kwargs: Any) -> Any:
         self.kwargs = kwargs
@@ -214,7 +216,7 @@ async def test_openrouter_chat_json_omits_minimax_quirks(
     monkeypatch.delenv("OPENROUTER_STRIP_THINK", raising=False)
     client, fake_completions = _client_with_fake_chat("openrouter")
 
-    text, prompt_tokens, completion_tokens, finish_reason = await client._chat_json(
+    text, prompt_tokens, completion_tokens, finish_reason, cost_usd = await client._chat_json(
         "google/gemini-2.5-flash",
         "System",
         "User",
@@ -223,9 +225,10 @@ async def test_openrouter_chat_json_omits_minimax_quirks(
 
     assert text == '{"message": "pong"}'
     assert (prompt_tokens, completion_tokens, finish_reason) == (3, 4, "stop")
+    assert cost_usd == 0.00042
     assert fake_completions.kwargs is not None
     assert fake_completions.kwargs["response_format"] == {"type": "json_object"}
-    assert "extra_body" not in fake_completions.kwargs
+    assert fake_completions.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
     assert "max_tokens" not in fake_completions.kwargs
 
 
@@ -234,7 +237,7 @@ async def test_openrouter_chat_json_handles_missing_usage() -> None:
     client, fake_completions = _client_with_fake_chat("openrouter")
     fake_completions.usage = None
 
-    text, prompt_tokens, completion_tokens, finish_reason = await client._chat_json(
+    text, prompt_tokens, completion_tokens, finish_reason, cost_usd = await client._chat_json(
         "google/gemini-2.5-flash",
         "System",
         "User",
@@ -243,6 +246,51 @@ async def test_openrouter_chat_json_handles_missing_usage() -> None:
 
     assert text == '{"message": "pong"}'
     assert (prompt_tokens, completion_tokens, finish_reason) == (0, 0, "stop")
+    assert cost_usd is None
+
+
+@pytest.mark.fast
+async def test_openrouter_chat_json_strips_json_fence_without_think_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_STRIP_THINK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = '```json\n{"message": "pong"}\n```'
+
+    text, prompt_tokens, completion_tokens, finish_reason, cost_usd = await client._chat_json(
+        "anthropic/claude-haiku-4.5",
+        "System",
+        "User",
+        0.0,
+    )
+
+    assert text == '{"message": "pong"}'
+    assert (prompt_tokens, completion_tokens, finish_reason) == (3, 4, "stop")
+    assert cost_usd == 0.00042
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_json_uses_provider_usage_cost() -> None:
+    events: list[dict[str, Any]] = []
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.usage = type(
+        "Usage", (), {"prompt_tokens": 3, "completion_tokens": 4, "cost": 0.0123}
+    )()
+
+    with subscribe(events.append):
+        echo = await client.complete_json(
+            system='You echo. Return JSON {"message": "..."}.',
+            user="Echo back the word pong.",
+            schema=Echo,
+            model="cheap",
+        )
+
+    assert echo == Echo(message="pong")
+    llm_event = next(e for e in events if e["event"] == "llm_call")
+    assert llm_event["provider"] == "openrouter"
+    assert llm_event["prompt_tokens"] == 3
+    assert llm_event["completion_tokens"] == 4
+    assert llm_event["usd_cost"] == 0.0123
 
 
 @pytest.mark.fast
@@ -254,7 +302,7 @@ async def test_openrouter_chat_text_omits_minimax_quirks_and_handles_missing_usa
     fake_completions.content = "Plain rationale."
     fake_completions.usage = None
 
-    text, prompt_tokens, completion_tokens, finish_reason = await client._chat_text(
+    text, prompt_tokens, completion_tokens, finish_reason, cost_usd = await client._chat_text(
         "google/gemini-2.5-flash",
         "System",
         "User",
@@ -263,10 +311,24 @@ async def test_openrouter_chat_text_omits_minimax_quirks_and_handles_missing_usa
 
     assert text == "Plain rationale."
     assert (prompt_tokens, completion_tokens, finish_reason) == (0, 0, "stop")
+    assert cost_usd is None
     assert fake_completions.kwargs is not None
-    assert "extra_body" not in fake_completions.kwargs
+    assert fake_completions.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
     assert "max_tokens" not in fake_completions.kwargs
     assert "response_format" not in fake_completions.kwargs
+
+
+@pytest.mark.fast
+async def test_openrouter_reasoning_opt_in_drops_disable_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_REASONING", "1")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+
+    await client._chat_json("anthropic/claude-haiku-4.5", "System", "User", 0.0)
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["extra_body"] == {}
 
 
 @pytest.mark.fast
@@ -327,4 +389,4 @@ async def test_openrouter_complete_json_roundtrip_emits_telemetry(
     assert e["prompt_tokens"] >= 0
     assert e["completion_tokens"] >= 0
     assert e["duration_ms"] >= 0
-    assert e["usd_cost"] >= 0.0
+    assert e["usd_cost"] > 0.0

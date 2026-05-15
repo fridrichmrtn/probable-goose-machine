@@ -208,6 +208,7 @@ Files to create:
 - `tests/conftest.py` — fixtures, sample-CV loader, marker registration. `ddgs` pinned to a single tested version (HTTP backend has churned). `pytest-asyncio` mode = `auto` so the async pipeline tests don't need decorators.
 - `.github/workflows/warm-keeper.yml` — cron `*/5 * * * *` HEAD request to the HF Space URL. Free, keeps Space hot through the review window.
 - `.github/workflows/ci.yml` — on every PR + push to main: `uv sync` → `ruff format --check` → `ruff check` → `mypy src/` → `pytest -m "not slow"` with **live `MINIMAX_API_KEY` + live DDG**. `GANDER_MODEL_PROFILE=ci` env var swaps M1 for `MiniMax-M2.7-highspeed` in stages where reasoning is dispensable, keeping CI token spend bounded. Concurrency: 1 (avoid DDG rate-limits and token-plan thrash).
+  - **2026-05-15 update**: CI's live job now gates on OpenRouter (`GANDER_LLM_PROVIDER=openrouter`, `OPENROUTER_API_KEY`), matching the HF Space provider. The MiniMax `live` job was retired — prod and CI both run OpenRouter; MiniMax stays in `gander.llm` for local dev and the VLM-only ingest path (T35 owns the live VLM gate).
 - `.pre-commit-config.yaml` — hooks: `ruff` (format + check), `mypy` on `src/`, `pytest -m fast` (only tests marked `@pytest.mark.fast` — pure-function unit tests under 1s, no external calls).
 - `pyproject.toml` includes pytest markers: `fast` (no external IO), `slow` (>1s or external IO), `live` (requires API keys).
 
@@ -348,6 +349,7 @@ Files: `README.md` (with HF Space metadata in YAML frontmatter — there is no s
 - **HF Space setup**: create a Gradio Space, sync from GitHub repo (or push directly to HF), set `MINIMAX_API_KEY` as a Space secret. Frontmatter (`sdk: gradio`, `app_file: app.py`, `python_version: 3.11`). Public URL goes at top of README.
 - **Warm-keeper**: `.github/workflows/warm-keeper.yml` runs every 5 min, HEADs the Space URL. Free, keeps Space hot through the whole review window — including round-2 share-screen.
 - **CI**: `.github/workflows/ci.yml` on every PR/push: lint, format check, mypy, full pytest with **live MiniMax + live DDG** (per user directive). Repo secrets: `MINIMAX_API_KEY`. Concurrency: 1. Env: `GANDER_MODEL_PROFILE=ci` to swap M1→`MiniMax-M2.7-highspeed` where reasoning is dispensable, keeping CI cost <$0.50/run.
+  - **2026-05-15 update**: live CI flipped to OpenRouter (matches the HF Space provider). Repo secret is now `OPENROUTER_API_KEY`; the MiniMax `live` job is gone. See the §L0 CI bullet for the full update.
 - **Local-run**: `uv sync && MINIMAX_API_KEY=... uv run python app.py` (one command after `.env` is filled).
 - **Eval corpus**: `uv run python scripts/eval_corpus.py` writes `reports/SUMMARY.md` and one report per CV. README documents this as the recommended manual gauging step before submission.
 - **README sections** (the Decisions section is load-bearing — written in author voice, not box-checking the PRD back):
