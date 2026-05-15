@@ -38,6 +38,7 @@ Anchor quote rules (anti-paraphrase — these are LITERAL):
   - `anchor.quote` MUST be a verbatim substring copied character-for-character from the CV. Case-preserved. Punctuation-preserved. No ellipses. No edits. No paraphrasing.
   - Pick a quote of at least 6 consecutive words. Prefer a quote that appears in the CV exactly once. If you cannot guarantee uniqueness, copy 8 or more consecutive words instead.
   - `anchor.section` should name the CV header the quote sits under (e.g. "Work Experience", "Education", "Skills"). If you are unsure which header, set section to null — the verifier will fall back to whole-CV match.
+  - For `skills` and `soft_signals`, compact sections may be too short to anchor. Use longer literal lines from Experience, Projects, Profile, or Summary when those lines demonstrate named tools, leadership, mentorship, cross-team work, ownership, or stakeholder communication.
   - If you cannot find a 6+ word literal substring of the CV that supports a component, copy your best-effort quote anyway and let downstream verification drop it; do NOT fabricate text that isn't in the CV.
 
 Output format:

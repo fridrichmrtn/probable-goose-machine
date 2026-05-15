@@ -37,7 +37,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## Ship
 - [x] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
-- [ ] **T23** — README finalize (`tasks/T23_readme.md`)
+- [ ] **T23** — README finalize (`tasks/T23_readme.md`) — *README is still a bootstrap stub; provider/privacy copy is stale after T41 (`openrouter`, not direct `anthropic`)*
 
 ## Post-ship hardening (Profile.pdf bilingual-senior regression — see plan; revised after multi-agent review 2026-05-14)
 - [x] **T24** — Multilingual section vocabulary, R1 (`tasks/T24_section_vocab.md`) — *PR #16, 1897bd8*
@@ -48,13 +48,13 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *deps T24, T25, T26, T27, T28*
 - [x] **T30 phase 1** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *PR #10, dea3dcf*
 - [ ] **T30 phase 2** — CZ-triplet extension — *deps T29*
-- [ ] ~~**T31** — SPIKE: multimodal vision ingest~~ — *superseded by T32–T35 vision chain* (`tasks/T31_multimodal_spike.md`)
+- [ ] ~~**T31** — SPIKE: multimodal vision ingest~~ — *deferred/superseded by T32–T35 vision chain; no longer an active pickup* (`tasks/T31_multimodal_spike.md`)
 
 ## MiniMax Token Plan LLM ingest
 - [x] **T32** — Synthetic Token Plan VLM spike passed (`tasks/minimax_token_plan_vlm_report.md`) — *MiniMax `API-vlm`, 100% synthetic anchor survival, usable*
 - [x] **T33** — Async ingest refactor (`tasks/T33_async_extract_text.md`)
 - [x] **T34** — PDF VLM + DOCX text-LLM ingest implementation (`tasks/T34_vision_ingest_tier.md`)
-- [ ] **T35** — Regression, live gating, and docs (`tasks/T35_corpus_regression_and_gating.md`)
+- [ ] **T35** — Regression, live gating, and docs (`tasks/T35_corpus_regression_and_gating.md`) — *partial: mocked vision regressions + README/app privacy copy + OpenRouter vision CI exist; MiniMax API-vlm live gate/spend docs still pending*
 
 ## Post-merge follow-ups (T30 phase 1 self-heal residue)
 - [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *unblocks reverting the partial-Score branch in `test_score_spread_at_least_30`*
@@ -62,7 +62,9 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T38** — Low-evidence profile gate (`tasks/T38_low_evidence_gate.md`) — *PR #22; non-CV uploads now fail closed before downstream salary/score/growth*
 - [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`) — *verifier + role recovery fixes fast-verified; final private Profile.pdf rerun pending explicit approval*
 - [ ] **T40** — CV-quality signals into confidence judge (`tasks/T40_confidence_cv_signals.md`) — *live cap path observed; final post-T39 private Profile.pdf rerun pending explicit approval*
-- [x] **T42** — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, OpenRouter Flash defaults) (`tasks/T42_pipeline_wallclock_wins.md`) — *implemented + fast/live/UI-smoke verified*
+- [x] **T42** — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, OpenRouter Flash defaults) (`tasks/T42_pipeline_wallclock_wins.md`) — *implemented + fast/live/UI-smoke verified; OpenRouter vision path now covered by live CI*
+- [ ] **T43** — Report readability: visual breaks, Plan typography, Score component grid (`tasks/T43_report_readability.md`) — *task spec drafted; renderer/CSS implementation not started*
+- [x] **T44** — Skills/soft-signal evidence salvage (`tasks/T44_skills_soft_salvage.md`) — *keeps 6-word quote floor; rescues verifier-passing evidence from longer CV lines*
 
 ## Provider plumbing
 - [x] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *PR #25, required `openrouter-live` CI pass*

@@ -27,6 +27,7 @@ _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 _GENERATION_FAILURE_MSG = "Could not generate this section reliably"
 _SCORE_LLM_MAX_RETRIES = 2
 _SCORE_LOGICAL_MAX_RETRIES = 1
+_SALVAGE_RETRY_COMPONENTS = {"skills", "soft_signals"}
 
 
 class _ComponentList(BaseModel):
@@ -51,7 +52,7 @@ def _build_user_message(redacted: RedactedCV, profile: Profile) -> str:
 
 
 def _build_retry_user_message(user_message: str, missing: set[str], dropped: int) -> str:
-    return (
+    message = (
         user_message
         + "\n\nYour previous score output failed downstream verification: "
         + f"missing_categories={sorted(missing)} dropped={dropped}. "
@@ -60,6 +61,14 @@ def _build_retry_user_message(user_message: str, missing: set[str], dropped: int
         + "role progression, or shipped impact. If the section header is uncertain, "
         + "set anchor.section to null rather than guessing."
     )
+    if missing & _SALVAGE_RETRY_COMPONENTS:
+        message += (
+            " For skills and soft_signals, do not rely only on compact Skills/Soft "
+            "sections; use longer literal lines from Experience, Projects, Profile, "
+            "or Summary when they demonstrate named tools, leadership, mentorship, "
+            "ownership, cross-team work, or stakeholder communication."
+        )
+    return message
 
 
 def _verify_components(
@@ -93,6 +102,11 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
         user_message = _build_user_message(redacted, profile)
 
         required = set(COMPONENT_WEIGHTS.keys())
+        # Best-of merge across attempts: a retry can only *add* components, never
+        # lose ones a prior attempt already verified. Without this, attempt 1
+        # paraphrasing a previously-verified experience anchor would collapse a
+        # working partial score into a hard StageFailure.
+        best_verified: dict[str, Component] = {}
         for attempt in range(_SCORE_LOGICAL_MAX_RETRIES + 1):
             try:
                 raw = await client.complete_json(
@@ -129,6 +143,8 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                 )
 
             verified, dropped, section_miss_count = _verify_components(raw, redacted)
+            for name, comp in verified.items():
+                best_verified.setdefault(name, comp)
             emit(
                 "score",
                 "score_components",
@@ -150,7 +166,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     ),
                 )
 
-            missing = required - verified.keys()
+            missing = required - best_verified.keys()
             if "experience" in missing:
                 # T25: experience is the only mandatory component. Losing it means
                 # the score has nothing to anchor against — fail closed after one
@@ -178,6 +194,16 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     user_message="Could not verify enough scoring components from CV.",
                     debug_detail=f"missing_categories={sorted(missing)} dropped={dropped}",
                 )
+            if missing & _SALVAGE_RETRY_COMPONENTS and attempt < _SCORE_LOGICAL_MAX_RETRIES:
+                emit(
+                    "score",
+                    "score_retry",
+                    reason="missing_skills_or_soft_signals",
+                    missing=sorted(missing),
+                    dropped=dropped,
+                )
+                user_message = _build_retry_user_message(user_message, missing, dropped)
+                continue
             break
 
         # Partial-score path: experience verified, but ≥1 of {skills, education,
@@ -186,7 +212,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
         # see schemas.Score docstring). The renderer surfaces `dropped` in the
         # footer so the reviewer can see what was zero-weighted.
         score = Score(
-            components=[verified[name] for name in COMPONENT_WEIGHTS if name in verified],
+            components=[best_verified[name] for name in COMPONENT_WEIGHTS if name in best_verified],
             dropped=sorted(missing),  # type: ignore[arg-type]
         )
         if missing:
@@ -194,7 +220,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                 "score",
                 "score_partial",
                 dropped=sorted(missing),
-                surviving=sorted(verified.keys()),
+                surviving=sorted(best_verified.keys()),
             )
         emit("score", "score_total", total=score.total)
         return score
