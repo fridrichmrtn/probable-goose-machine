@@ -327,19 +327,18 @@ async def test_stage_failure_returned_when_llm_raises(
     with subscribe(events.append):
         result = await extract_profile(redacted)
 
-    # T18 owns the curated-message contract; T09 only pins that stage_boundary captures
-    # stage+message+debug_detail.
+    # Generic boundary copy must stay curated; raw exception text belongs only
+    # in debug_detail and must not reach user-facing report copy or obs logs.
     assert isinstance(result, StageFailure)
     assert result.stage == "extract"
-    assert result.user_message == "synthetic extract failure"
+    assert result.user_message == "Could not generate this section reliably"
     assert result.debug_detail is not None
     assert result.debug_detail.startswith("RuntimeError(")
 
     errors = [e for e in events if e["event"] == "error" and e["stage"] == "extract"]
     assert errors, f"expected error event for extract stage, got {events!r}"
     assert errors[0]["exc_type"] == "RuntimeError"
-    assert pii_email not in errors[0]["exc_message"]
-    assert pii_name not in errors[0]["exc_message"]
+    assert "exc_message" not in errors[0]
 
     verify_events = [e for e in events if e["event"] == "verify" and e["stage"] == "extract"]
     assert not verify_events, "verify event must not fire on the failure path"

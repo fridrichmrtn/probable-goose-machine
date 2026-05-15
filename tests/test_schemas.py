@@ -362,5 +362,5 @@ def test_stage_boundary_catches_exception_and_yields_failure() -> None:
 
     assert cm.failure is not None
     assert cm.failure.stage == "test_stage"
-    assert cm.failure.user_message == "boom"
+    assert cm.failure.user_message == "Could not complete this stage reliably"
     assert cm.failure.debug_detail and "RuntimeError" in cm.failure.debug_detail

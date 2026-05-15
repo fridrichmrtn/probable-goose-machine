@@ -19,6 +19,7 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[nit]` T05 spike artifact | resolved at plan-review time; downstream T07–T13 unblocked | T05 status no longer gating |
 | `[must-fix]` §4.8 per-stage duration | PR #35 sweep (`t46-salary-multi-market`) | `score`, `salary`, `confidence`, and `growth` now emit terminal `done` events with `duration_ms`; explicit `stage_failure` events on those stages also carry `duration_ms` |
 | `[must-fix]` PRD §5(3) arbitrary-CV path | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_arbitrary_cv_smoke.py` reads `GANDER_SMOKE_CV`, runs the live pipeline, and asserts every final block is populated or a reviewer-facing `StageFailure` |
+| `[should-fix]` generic boundary raw exception leaks | PR #35 sweep (`t46-salary-multi-market`) | `stage_boundary` now uses curated stage messages for `StageFailure.user_message` and emits obs `error` events with `exc_type` only, not raw `exc_message` |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -69,7 +70,7 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 
 PRD §4.8 names four counters: **claims verified**, **claims dropped**, **search results returned**, **confidence tier assigned**. Plus per-stage **duration**, plus error events with **stage + input fingerprint (file size + type, not CV content)**.
 
-`stage_boundary` (`src/gander/errors.py:18-92`) only enters/exits the obs `current_stage` contextvar and, on exception, emits a single `error` event carrying `exc_type` + `exc_message`. It does **not** emit a `duration_ms` on the success path and does **not** emit one on the error path either. Per-stage duration is therefore only present where the stage body explicitly times itself and emits a terminal `done`/`rejected` event with `duration_ms=_ms()`.
+`stage_boundary` (`src/gander/errors.py:18-92`) only enters/exits the obs `current_stage` contextvar and, on exception, emits a single `error` event carrying `exc_type`. It does **not** emit a `duration_ms` on the success path and does **not** emit one on the error path either. Per-stage duration is therefore present where the stage body explicitly times itself and emits a terminal `done`/`rejected` event with `duration_ms=_ms()`.
 
 | Stage | Counters required by §4.8 | Plumbed? |
 |---|---|---|
@@ -86,7 +87,7 @@ PRD §4.8 names four counters: **claims verified**, **claims dropped**, **search
 **Findings**
 
 - `[resolved] §4.8 per-stage duration` `score`, `salary`, `confidence`, and `growth` now time themselves and emit `obs.emit(<stage>, "done", duration_ms=…)` on success. The explicit `stage_failure` events in those stages also include `duration_ms`.
-- `[should-fix] errors.py:82,89` two CV-content leak points share the same `str(exc)` source. (1) Line 89 emits an obs `error` event with `exc_message=str(exc)`. (2) Line 82 assigns the same `str(exc)` to `StageFailure.user_message`, which the tracker and `report.render_body` render directly into user-facing markdown (`src/gander/report.py:163, 184, 191`). PRD §4.8 excludes CV content from logs **and** PRD §4.6 promises a curated user-facing message, not a raw exception string. If a parser raises with a snippet of the document (pypdf surfaces document strings in some `ValueError`s; `pydantic.ValidationError` includes the offending value), CV-derived text reaches both obs sinks **and** the rendered report. Suggested fix: in `_handle`, replace the `user_message=str(exc) or type(exc).__name__` fallback with a curated stage-specific default (or sanitized truncation), and replace `exc_message=str(exc)` in the obs emit with `exc_class=type(exc).__name__, exc_code=getattr(exc, "code", None)`, **or** truncate to 200 chars and strip any chars outside `[A-Za-z0-9 .,:;()/_-]`. Both call sites must be fixed together — fixing only the obs emit still leaks CV content to the rendered report.
+- `[resolved] errors.py:82,89` the generic boundary no longer uses `str(exc)` for reviewer-facing copy or obs error messages. Raw exception text remains only in `StageFailure.debug_detail`, which is not rendered in the report.
 - `[nit] tests/test_obs.py` no test asserts the four PRD-named counters are emitted on a single golden run end-to-end. Useful as a regression net if obs sink names ever drift. Cheap to add: a session-scoped `obs.subscribe` callback that collects events, then assert every name in `{"verify", "salary_search", "confidence_decision"}` appears at least once.
 - `[nit]` `ingest.py:46` uses `filename_suffix` + `size_bytes` rather than a single `fingerprint` field — semantically equivalent to PRD §4.8's "file size and type, not CV content". Leave as-is; flagged here only so future readers don't grep for the literal word.
 
@@ -134,15 +135,15 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 | Severity | Count |
 |---|---|
 | `[must-fix]` | 0 |
-| `[should-fix]` | 8 |
+| `[should-fix]` | 7 |
 | `[nit]` | 4 |
 
-Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, PRD §4.6 rendered-copy, `errors.py:82,89` dual leak, T23 fresh-clone smoke, T22 secret rebind, T27 role-map test, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
+Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, PRD §4.6 rendered-copy, T23 fresh-clone smoke, T22 secret rebind, T27 role-map test, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
 **Top actionable follow-ups**:
 
-1. `[should-fix]` Sanitize both leak points off `str(exc)` in `errors.py:82,89` — the same string reaches obs logs **and** the rendered user-facing report; fixing only the obs emit still leaks CV content downstream.
-2. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
-3. `[should-fix]` Pin rendered failure copy in `render_body` for each failure mode.
+1. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
+2. `[should-fix]` Pin rendered failure copy in `render_body` for each failure mode.
+3. `[should-fix]` Add a corpus role-normalization map test for the bundled fixture headlines.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. 0 `[must-fix]` findings remain open in this audit.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak should-fix is also closed. 0 `[must-fix]` findings remain open in this audit.

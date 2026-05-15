@@ -19,9 +19,10 @@ def test_sync_error_emits_event_with_stage_attribution() -> None:
     e = error_events[0]
     assert e["stage"] == "test_stage"
     assert e["exc_type"] == "RuntimeError"
-    assert e["exc_message"] == "boom"
+    assert "exc_message" not in e
     assert isinstance(cm.failure, StageFailure)
     assert cm.failure.stage == "test_stage"
+    assert cm.failure.user_message == "Could not complete this stage reliably"
 
 
 def test_current_stage_set_inside_block_and_reset_after_clean_exit() -> None:
@@ -47,7 +48,7 @@ async def test_async_error_emits_event() -> None:
     e = error_events[0]
     assert e["stage"] == "test_stage_async"
     assert e["exc_type"] == "RuntimeError"
-    assert e["exc_message"] == "async-boom"
+    assert "exc_message" not in e
     assert isinstance(cm.failure, StageFailure)
 
 
@@ -56,7 +57,7 @@ def test_stage_failure_shape_preserved() -> None:
         raise ValueError("nope")
     assert cm.failure is not None
     assert cm.failure.stage == "score"
-    assert cm.failure.user_message == "nope"
+    assert cm.failure.user_message == "Could not generate this section reliably"
     assert cm.failure.debug_detail is not None
     assert "ValueError" in cm.failure.debug_detail
 

@@ -291,9 +291,8 @@ def test_bare_cz_phone_branch_skips_zero_padded_runs() -> None:
 class _BoomPattern:
     """Drop-in for `re.Pattern` whose `finditer` raises with a fixed message.
 
-    Used to exercise the redact stage_boundary path. The message is fixed
-    (no PII echo) so MF6 verifies the boundary's exc_message wiring, not the
-    caller's hygiene about what it puts into raised exceptions.
+    Used to exercise the redact stage_boundary path. The fixed message keeps
+    the test focused on generic boundary handling rather than caller hygiene.
     """
 
     groupindex: dict[str, int] = {}
@@ -336,10 +335,8 @@ def test_failure_path_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None
 def test_failure_event_does_not_leak_cv_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """MF6: the error event's `exc_message` must not echo PII tokens from the
-    input CV (PRD §4.8 — fingerprint-only, no content). The injected exception
-    carries a fixed generic message, so any PII appearing in exc_message would
-    indicate the boundary is mixing input content into the error context.
+    """MF6: error telemetry must not include raw exception messages that can
+    echo PII from the input CV (PRD §4.8 — fingerprint-only, no content).
     """
     monkeypatch.setattr(redact_module, "_URL", _BoomPattern())
 
@@ -352,8 +349,7 @@ def test_failure_event_does_not_leak_cv_content(
 
     errors = [e for e in events if e["event"] == "error" and e["stage"] == "redact"]
     assert errors, f"expected error event, got {events!r}"
-    assert pii_email not in errors[0]["exc_message"]
-    assert pii_name not in errors[0]["exc_message"]
+    assert "exc_message" not in errors[0]
 
 
 @pytest.mark.slow
