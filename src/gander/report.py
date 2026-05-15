@@ -53,8 +53,7 @@ _GLYPH_BY_STATUS: dict[StageStatus, str] = {
     "skipped": "—",  # em dash
 }
 
-# Order matters: leftmost component renders <details open> so the reviewer
-# sees one verified quote on first paint.
+# Order matters: the component grid renders in this stable reading order.
 _COMPONENT_ORDER: tuple[str, ...] = ("skills", "experience", "education", "soft_signals")
 _COMPONENT_DISPLAY: dict[str, str] = {
     "skills": "Skills",
@@ -98,9 +97,78 @@ _CSS = """<style>
 .gander-callout::before { content: "⚠"; margin-right: 0.4rem; }
 @media (prefers-reduced-motion: reduce) { .pill { transition: none; } }
 .gander-output { padding-inline: 0.75rem; }
-.gander-output table { border-collapse: collapse; margin: 0.5rem 0; }
-.gander-output th, .gander-output td {
+.gander-output h2 {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e4e7ec;
+  font-size: 1.375rem;
+}
+.gander-output > h2:first-child,
+.gander-output h2:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+.gander-output h3 {
+  margin-top: 1.5rem;
+  font-size: 1rem;
+  color: #475467;
+}
+.gander-output table.gander-components { border-collapse: collapse; margin: 0.5rem 0; }
+.gander-output table.gander-components th,
+.gander-output table.gander-components td {
   border: 1px solid #e4e7ec; padding: 0.4rem 0.6rem; text-align: center;
+}
+.gander-components-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+.gander-component {
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+}
+.gander-component-head { font-size: 0.95rem; margin-bottom: 0.25rem; }
+.gander-component-just { margin: 0.25rem 0 0.4rem; }
+.gander-component-quote {
+  margin: 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid #e4e7ec;
+  color: #475467;
+  font-size: 0.875rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gander-plan { list-style: decimal; padding-left: 1.25rem; }
+.gander-plan li + li { margin-top: 1.25rem; }
+.gander-plan-title { margin: 0.15rem 0 0.35rem; font-weight: 500; }
+.gander-plan-mech { margin: 0; color: #475467; }
+.gander-chip {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid #e4e7ec;
+  color: #475467;
+  margin-bottom: 0.35rem;
+}
+.gander-salary-range {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0.75rem;
+}
+.gander-salary-unit {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #667085;
+}
+@media (max-width: 32rem) {
+  .gander-components-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-color-scheme: dark) {
   .pill {
@@ -113,7 +181,14 @@ _CSS = """<style>
   .pill.failed  { border-left-color: #ef4444; color: #e4e4e7; }
   .pill.skipped { border-left-color: #52525b; color: #71717a; }
   .gander-callout { background: #450a0a; color: #fecaca; border-left-color: #ef4444; }
-  .gander-output th, .gander-output td { border-color: #3f3f46; }
+  .gander-output h2 { border-top-color: #3f3f46; }
+  .gander-output h3 { color: #a1a1aa; }
+  .gander-output table.gander-components th,
+  .gander-output table.gander-components td { border-color: #3f3f46; }
+  .gander-component { border-color: #3f3f46; }
+  .gander-component-quote { color: #a1a1aa; border-left-color: #3f3f46; }
+  .gander-chip { border-color: #3f3f46; color: #d4d4d8; }
+  .gander-plan-mech, .gander-salary-unit { color: #a1a1aa; }
 }
 body.dark .pill {
   border-color: #3f3f46; border-left-color: #52525b;
@@ -125,7 +200,14 @@ body.dark .pill.done    { border-left-color: #22c55e; color: #e4e4e7; }
 body.dark .pill.failed  { border-left-color: #ef4444; color: #e4e4e7; }
 body.dark .pill.skipped { border-left-color: #52525b; color: #71717a; }
 body.dark .gander-callout { background: #450a0a; color: #fecaca; border-left-color: #ef4444; }
-body.dark .gander-output th, body.dark .gander-output td { border-color: #3f3f46; }
+body.dark .gander-output h2 { border-top-color: #3f3f46; }
+body.dark .gander-output h3 { color: #a1a1aa; }
+body.dark .gander-output table.gander-components th,
+body.dark .gander-output table.gander-components td { border-color: #3f3f46; }
+body.dark .gander-component { border-color: #3f3f46; }
+body.dark .gander-component-quote { color: #a1a1aa; border-left-color: #3f3f46; }
+body.dark .gander-chip { border-color: #3f3f46; color: #d4d4d8; }
+body.dark .gander-plan-mech, body.dark .gander-salary-unit { color: #a1a1aa; }
 </style>"""
 
 
@@ -155,6 +237,17 @@ _MD_ESCAPE = str.maketrans(
 def _esc(text: str) -> str:
     """HTML-escape only. Safe for interpolation inside HTML element bodies/attrs."""
     return escape(text, quote=True)
+
+
+def _html_inline(text: str) -> str:
+    """HTML-escape and collapse whitespace for content inside inline HTML blocks."""
+    escaped = _esc(" ".join(text.split()))
+    return (
+        escaped.replace("[", "&#91;")
+        .replace("]", "&#93;")
+        .replace("(", "&#40;")
+        .replace(")", "&#41;")
+    )
 
 
 def _md(text: str) -> str:
@@ -229,34 +322,28 @@ def _score_section(score: Score | StageFailure | None) -> str:
         return "## Score\n\n" + _failure_callout_md(score)
 
     # T25: schema allows partial Score (experience-mandatory; others optional).
-    # Render only surviving components — dropped categories are listed in the
-    # footer below so the reviewer sees they were zero-weighted, not omitted.
+    # Render only surviving components as always-visible tiles — dropped
+    # categories are listed in the footer below so the reviewer sees they were
+    # zero-weighted, not omitted.
     by_name: dict[str, Component] = {c.name: c for c in score.components}
     surviving = [n for n in _COMPONENT_ORDER if n in by_name]
-    headers = "".join(f"<th>{_COMPONENT_DISPLAY[n]}</th>" for n in surviving)
-    cells = "".join(f"<td>{by_name[n].score_0_100}</td>" for n in surviving)
-    table = (
-        '<table class="gander-components">'
-        f"<thead><tr>{headers}</tr></thead>"
-        f"<tbody><tr>{cells}</tr></tbody>"
-        "</table>"
-    )
 
-    details_blocks: list[str] = []
-    for idx, name in enumerate(surviving):
+    tiles: list[str] = []
+    for name in surviving:
         comp = by_name[name]
-        open_attr = " open" if idx == 0 else ""
-        quote = _esc(comp.anchor.quote)
+        quote = _html_inline(comp.anchor.quote)
         section = f" <em>({_esc(comp.anchor.section)})</em>" if comp.anchor.section else ""
-        details_blocks.append(
-            f"<details{open_attr}>"
-            f"<summary>{_COMPONENT_DISPLAY[name]}: {comp.score_0_100}/100</summary>"
-            f"<p>{_esc(comp.justification)}</p>"
-            f"<blockquote>“{quote}”{section}</blockquote>"
-            "</details>"
+        tiles.append(
+            '<div class="gander-component">'
+            f'<div class="gander-component-head"><strong>{_COMPONENT_DISPLAY[name]}</strong> '
+            f"&middot; {comp.score_0_100}/100</div>"
+            f'<p class="gander-component-just">{_html_inline(comp.justification)}</p>'
+            f'<blockquote class="gander-component-quote">"{quote}"{section}</blockquote>'
+            "</div>"
         )
+    grid = '<div class="gander-components-grid">' + "".join(tiles) + "</div>"
 
-    body = f"## Score: {score.total}/100\n\n{table}\n\n" + "\n".join(details_blocks)
+    body = f"## Score: {score.total}/100\n\n{grid}"
     if score.dropped:
         # Italic single-line footer naming the dropped categories so the
         # reviewer sees why the total is depressed (drop-as-zero, no re-norm).
@@ -289,8 +376,10 @@ def _salary_section(salary: SalaryEstimate | StageFailure | None) -> str:
 
     period = salary.period
     range_line = (
-        f"**{_format_money(salary.low)} – {_format_money(salary.high)} "
-        f"{_md(salary.currency)} / {period}**"
+        '<p class="gander-salary-range">'
+        f"<strong>{_format_money(salary.low)} - {_format_money(salary.high)}</strong> "
+        f'<span class="gander-salary-unit">{_esc(salary.currency)} / {period}</span>'
+        "</p>"
     )
     sources_md = "\n".join(_source_line(s) for s in salary.sources) or "_(no sources)_"
     return f"## Salary\n\n{range_line}\n\n{_md(salary.reasoning)}\n\n### Sources\n\n{sources_md}"
@@ -302,7 +391,11 @@ def _confidence_section(conf: Confidence | StageFailure | None) -> str:
     if isinstance(conf, StageFailure):
         return "## Confidence\n\n" + _failure_callout_md(conf)
     badge = _CONFIDENCE_BADGE[conf.tier]
-    return f"## Confidence\n\n**{badge}**: {_md(conf.rationale)}"
+    return (
+        "## Confidence\n\n"
+        f'<p><span class="gander-chip">{badge}</span></p>'
+        f"<p>{_html_inline(conf.rationale)}</p>"
+    )
 
 
 def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
@@ -313,14 +406,15 @@ def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
     if not growth:
         return "## Plan\n\n_(no actions)_"
     lines: list[str] = []
-    for idx, action in enumerate(growth, start=1):
-        # Literal asterisks per spec: **What** *(N months)*: Mechanism.
+    for action in growth:
         lines.append(
-            f"{idx}. **{_md(action.what)}** "
-            f"*({action.time_horizon_months} months)*: "
-            f"{_md(action.mechanism)}"
+            "<li>"
+            f'<span class="gander-chip">{action.time_horizon_months} months</span>'
+            f'<p class="gander-plan-title">{_html_inline(action.what)}</p>'
+            f'<p class="gander-plan-mech">{_html_inline(action.mechanism)}</p>'
+            "</li>"
         )
-    return "## Plan\n\n" + "\n".join(lines)
+    return '## Plan\n\n<ol class="gander-plan">' + "".join(lines) + "</ol>"
 
 
 def _footer(report: Report) -> str:

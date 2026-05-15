@@ -63,7 +63,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`) — *verifier + role recovery fixes fast-verified; final private Profile.pdf rerun pending explicit approval*
 - [ ] **T40** — CV-quality signals into confidence judge (`tasks/T40_confidence_cv_signals.md`) — *live cap path observed; final post-T39 private Profile.pdf rerun pending explicit approval*
 - [x] **T42** — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, OpenRouter Flash defaults) (`tasks/T42_pipeline_wallclock_wins.md`) — *implemented + fast/live/UI-smoke verified; OpenRouter vision path now covered by live CI*
-- [ ] **T43** — Report readability: visual breaks, Plan typography, Score component grid (`tasks/T43_report_readability.md`) — *task spec drafted; renderer/CSS implementation not started*
+- [ ] **T43** — Report readability: visual breaks, Plan typography, Score component grid (`tasks/T43_report_readability.md`) — *renderer/CSS + render tests implemented; browser smoke still pending*
 - [x] **T44** — Skills/soft-signal evidence salvage (`tasks/T44_skills_soft_salvage.md`) — *keeps 6-word quote floor; rescues verifier-passing evidence from longer CV lines*
 - [x] **T45** — Vision parallelization + per-stage max_tokens caps (`tasks/T45_vision_parallel_and_token_caps.md`) — *implemented on branch `dev/parallelize-vision-cap-max-tokens`; fast suite green*
 - [x] **T46** — Salary stage: country-agnostic, live-search-first (`tasks/T46_salary_multi_market.md`) — *implemented on branch `t46-salary-multi-market`; fast salary/country coverage green*

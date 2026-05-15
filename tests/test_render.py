@@ -219,13 +219,18 @@ def test_render_body_populated_contains_expected_content() -> None:
     # (covered by test_render_body_escapes_markdown_link_in_source_domain).
     assert "[platy.cz]" in out
     assert "https://platy.cz" not in out
-    # First component <details> is opened so the reviewer sees a quote immediately.
-    assert "<details open>" in out
-    # Plan / growth list renders with literal markdown emphasis.
-    assert "**learn rust**" in out
-    assert "*(6 months)*" in out
-    # Confidence badge.
-    assert "[!] High" in out
+    # Components render as always-visible tiles, not a table+accordion stack.
+    assert '<div class="gander-components-grid">' in out
+    assert out.count('class="gander-component"') == 4
+    assert '<blockquote class="gander-component-quote">' in out
+    assert "<details open>" not in out
+    # Plan / growth list renders as structured HTML with horizon chips.
+    assert '<ol class="gander-plan">' in out
+    assert '<p class="gander-plan-title">learn rust</p>' in out
+    assert '<span class="gander-chip">6 months</span>' in out
+    assert "**learn rust**" not in out
+    # Confidence badge is visually separated from the rationale.
+    assert '<span class="gander-chip">[!] High</span>' in out
 
 
 @pytest.mark.fast
@@ -238,13 +243,13 @@ def test_render_body_with_salary_failure_keeps_score_block() -> None:
     out = render_body(report)
     # Score block still present.
     assert "## Score: 69/100" in out
-    assert "<details open>" in out
+    assert 'class="gander-component"' in out
     # Salary section is a callout, not a price.
     assert "Insufficient market data for this profile" in out
     assert "CZK" not in out
     # Confidence + plan still render.
-    assert "[!] High" in out
-    assert "**learn rust**" in out
+    assert '<span class="gander-chip">[!] High</span>' in out
+    assert '<p class="gander-plan-title">learn rust</p>' in out
 
 
 @pytest.mark.fast
@@ -349,10 +354,10 @@ def test_render_body_partial_score_shows_dropped_footer() -> None:
 
     # Total: 80*0.30 + 60*0.20 + 40*0.15 = 24 + 12 + 6 = 42.
     assert "## Score: 42/100" in out
-    # Surviving component labels in the table header; dropped one absent.
+    # Surviving component labels render as tiles; dropped one absent.
     for label in ("Experience", "Education", "Soft"):
-        assert f"<th>{label}</th>" in out
-    assert "<th>Skills</th>" not in out
+        assert f"<strong>{label}</strong>" in out
+    assert "<strong>Skills</strong>" not in out
     # Italic dropped-components footer (matches T25 §Deliverables wording).
     assert "1 component(s) dropped (Skills)" in out
     assert "no anchor verified against CV text" in out
@@ -371,8 +376,8 @@ def test_render_body_score_failure_keeps_other_sections() -> None:
     # Salary, confidence, growth still render.
     assert "CZK" in out
     assert "80,000" in out
-    assert "[!] High" in out
-    assert "**learn rust**" in out
+    assert '<span class="gander-chip">[!] High</span>' in out
+    assert '<p class="gander-plan-title">learn rust</p>' in out
 
 
 @pytest.mark.fast
@@ -388,7 +393,7 @@ def test_render_body_confidence_failure_keeps_other_sections() -> None:
     # Score, salary, growth still render.
     assert "## Score: 69/100" in out
     assert "CZK" in out
-    assert "**learn rust**" in out
+    assert '<p class="gander-plan-title">learn rust</p>' in out
 
 
 @pytest.mark.fast
@@ -404,7 +409,7 @@ def test_render_body_growth_failure_keeps_other_sections() -> None:
     # Score, salary, confidence still render.
     assert "## Score: 69/100" in out
     assert "CZK" in out
-    assert "[!] High" in out
+    assert '<span class="gander-chip">[!] High</span>' in out
 
 
 # ---------- render_body — confidence badge tiers ----------
