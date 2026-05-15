@@ -1,10 +1,10 @@
 Jana Králová
-Machine Learning Engineer — Brno, Czech Republic
-jana.kralova@example.cz | +420 731 224 556 | linkedin.com/in/janakralovaml
+Machine Learning Engineer — Berlin, Germany
+jana.kralova@example.de | +49 30 4471 9020 | linkedin.com/in/janakralovaml
 Summary
 Machine Learning Engineer with 6 years of experience taking DS prototypes into production at Slido and Avast. Owns the training-to-serving handoff: model packaging, online inference, monitoring, and rollback.
 Experience
-Machine Learning Engineer — Slido (Cisco), Brno
+Machine Learning Engineer — Slido (Cisco), Berlin
 April 2022 – present (4 years)
 Owns the real-time poll-classification service powering the Slido Q&A moderation feature for 40k concurrent attendees. Stack: PyTorch 2.3, FastAPI, Kubernetes 1.29, deployed via Argo Rollouts with automatic canary on online accuracy.
 Migrated the training pipeline from notebooks to a Kubeflow Pipelines 2.1 setup, cutting retrain wall-clock from 9 hours to 70 minutes and giving the DS team self-serve rollback.
@@ -22,4 +22,4 @@ Bc. (B.Sc.) in Computer Science — ČVUT FEL, Prague
 2014 – 2017.
 Skills
 Python 3.11, PyTorch 2.3, FastAPI, Kubernetes 1.29, Argo Rollouts, Kubeflow Pipelines 2.1, ONNX, Docker, PostgreSQL, Prometheus, Grafana.
-Languages: Czech (native), English (C1), Slovak (fluent).
+Languages: Czech (native), English (C1), German (B2), Slovak (fluent).

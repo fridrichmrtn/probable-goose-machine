@@ -1,25 +1,25 @@
 Petra Svobodová
-Data Analyst · Prague, Czech Republic
-petra.svobodova@example.cz · +420 776 102 244 · linkedin.com/in/petrasvobodovacz
+Data Analyst · San Francisco, United States
+petra.svobodova@example.com · +1 415 555 0182 · linkedin.com/in/petrasvobodovaus
 Summary
 Data Analyst with 3 years of experience transitioning from marketing analytics into a
 product-data role. Owns SQL and dbt modelling, dashboards in Looker, and ad-hoc Python
 analyses. Looking to move toward a Data Scientist track over the next two years.
 Experience
-Data Analyst — Rohlik.cz, Prague
+Data Analyst — Instacart, San Francisco
 March 2024 – present (2 years)
 Owns the dbt 1.7 mart serving the operations team — 42 models on PostgreSQL 15, with
 column-level tests on every primary key. Reduced the daily ops-dashboard refresh from 18
 minutes to 4 minutes by rewriting two incremental models.
 Built the warehouse-picking productivity dashboard in Looker, now used by 6 warehouse
-managers across Prague-Uhříněves and Brno-Slatina; flagged a 9.2% drop in picks-per-hour
+managers across Oakland-North and San Jose-Berryessa; flagged a 9.2% drop in picks-per-hour
 after a shift-pattern change that was rolled back in week 3.
-Marketing Analyst — Productboard, Prague
+Marketing Analyst — Productboard, San Francisco
 September 2023 – February 2024 (6 months)
 Built the paid-acquisition attribution model in Python 3.11 (pandas 2.2, scikit-learn 1.4)
 combining Google Ads and LinkedIn Ads spend with HubSpot pipeline data. Replaced the
 spreadsheet-based CAC report with a weekly Looker dashboard.
-Junior Marketing Analyst — Productboard, Prague
+Junior Marketing Analyst — Productboard, San Francisco
 June 2023 – August 2023 (3 months internship-to-hire)
 Wrote the first SQL workbook for the SDR team and ran the first cohort-retention analysis on
 the self-serve trial funnel, identifying a 14% activation gap for EU SMB accounts.

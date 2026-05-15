@@ -10,6 +10,30 @@ CZ-based subsidiaries. Universities are CZ. Salaries (when implied by role)
 match the Czech market in CZK monthly gross — bands live in the calibration
 table below, never in CV bodies.
 
+### T46 multi-market relocations (2026-05-15)
+
+The salary stage was generalized to non-CZ markets (`tasks/T46_salary_multi_market.md`).
+To stretch the corpus along the market axis without growing the file count,
+three personas were relocated in place — role content, seniority, and skills
+unchanged; only address, phone country code, and current-role city moved:
+
+- **#2 Petra Svobodová** — relocated from Prague → **San Francisco, US** (+1
+  phone, `.com` email, Instacart current role, Productboard SF). Education
+  (VŠE Prague) kept as historical.
+- **#4 Jana Králová** — relocated from Brno → **Berlin, Germany** (+49 phone,
+  `.de` email, Slido (Cisco) Berlin current role). Historical Avast Prague
+  roles + ČVUT FEL education kept. German B2 added to languages.
+- **#5 Marek Beneš** — relocated from Brno → **Tokyo, Japan** (+81 phone,
+  `.jp` email, Kiwi.com Tokyo current role). Historical Pilulka Prague roles
+  + VUT Brno education kept. Japanese N3 added to languages.
+
+`.pdf`/`.docx` siblings were NOT regenerated — the `.txt` files are what L1
+ingestion reads in the unit-test path; live-pipeline tests that consume the
+binaries can be revisited per telemetry. The CZK calibration band stays
+authoritative for CZ personas; non-CZ personas don't carry an implied salary
+band in this table (`tasks/T46_salary_multi_market.md` Out-of-Scope: per-
+country sanity caps).
+
 ## Rendering tools
 
 - DOCX: `python-docx` straight to `.docx` via `_build_docx` (shared by 04, 06,
@@ -95,19 +119,23 @@ Re-run with `uv run python scripts/build_cv_fixtures.py` to regenerate.
   template extracts cleanly through `pypdf`.
 - Role / seniority target: 3 years, marketing-analytics → data-analyst
   transition, narrow stack, no leadership.
+- T46 relocation (2026-05-15): current-role city moved Prague → **San
+  Francisco, US** (+1 phone, `.com` email, Instacart current role,
+  Productboard SF). Education (VŠE Prague) kept as historical.
 - Anchors (verifiable substrings copied from the rendered `.txt`):
   1. "Data Analyst with 3 years of experience transitioning from marketing
      analytics".
-  2. "Data Analyst — Rohlik.cz, Prague".
+  2. "Data Analyst — Instacart, San Francisco".
   3. "42 models on PostgreSQL 15" — dbt model count + version.
   4. "Reduced the daily ops-dashboard refresh from 18" / "minutes to 4
      minutes" — quantified outcome.
   5. "9.2% drop in picks-per-hour" — quantified analytical outcome.
-  6. "Marketing Analyst — Productboard, Prague".
+  6. "Marketing Analyst — Productboard, San Francisco".
   7. "scikit-learn 1.4" / "Python 3.11" / "pandas 2.2" stack signals.
   8. "14% activation gap for EU SMB accounts" — quantified analytical
      outcome from prior role.
-  9. "Ing. (M.Sc.) in Quantitative Methods — VŠE Prague".
+  9. "Ing. (M.Sc.) in Quantitative Methods — VŠE Prague" — historical
+     (pre-T46-relocation education).
   10. "thesis on uplift modelling for direct-mail campaigns".
 
 ## #3 — Lukáš Horák — Data Scientist (PDF clean)
@@ -137,18 +165,24 @@ Re-run with `uv run python scripts/build_cv_fixtures.py` to regenerate.
   mid-senior CV body.
 - Role / seniority target: 6 years, ML Engineer focused on training→serving
   handoff at Slido and Avast.
+- T46 relocation (2026-05-15): current-role city moved Brno → **Berlin,
+  Germany** (+49 phone, `.de` email, Slido (Cisco) Berlin). Historical
+  Avast Prague roles + ČVUT FEL education kept. German B2 added.
 - Anchors:
   1. "Machine Learning Engineer with 6 years of experience".
-  2. "Machine Learning Engineer — Slido (Cisco), Brno".
+  2. "Machine Learning Engineer — Slido (Cisco), Berlin".
   3. "PyTorch 2.3, FastAPI, Kubernetes 1.29" — version-pinned stack.
   4. "Argo Rollouts with automatic canary on online accuracy".
   5. "Kubeflow Pipelines 2.1 setup, cutting retrain wall-clock from 9 hours
      to 70 minutes" — quantified outcome + version pin.
   6. "model-to-staging lead time from 6 days to 11 hours" — quantified.
-  7. "Junior ML Engineer — Avast, Prague" — role progression signal.
-  8. "Ing. (M.Sc.) in Computer Science — ČVUT FEL, Prague".
+  7. "Junior ML Engineer — Avast, Prague" — role progression signal
+     (historical CZ role).
+  8. "Ing. (M.Sc.) in Computer Science — ČVUT FEL, Prague" — historical
+     (pre-T46-relocation education).
   9. "ONNX, Docker, PostgreSQL, Prometheus, Grafana" — platform stack.
-  10. "Languages: Czech (native), English (C1), Slovak (fluent)".
+  10. "Languages: Czech (native), English (C1), German (B2), Slovak
+      (fluent)".
 
 ## #5 — Marek Beneš — MLOps / Platform Engineer (PDF messy + footer cruft)
 
@@ -160,11 +194,19 @@ Re-run with `uv run python scripts/build_cv_fixtures.py` to regenerate.
   corpus.
 - Role / seniority target: 7 years, MLOps/platform-engineer track, RFC
   authorship signal but no people-management title.
+- T46 relocation (2026-05-15): current-role city moved Brno → **Tokyo,
+  Japan** (+81 phone, `.jp` email, Kiwi.com Tokyo). Historical Pilulka
+  Prague roles + VUT Brno education kept. Japanese N3 added. Note: the
+  `.pdf` binary was NOT regenerated for T46; the `.txt` golden was edited
+  in place so the L1 ingest path (unit tests) sees the new location, but
+  any live-pipeline test that re-reads the `.pdf` will still surface the
+  pre-T46 CZ text until the binary is rebuilt.
 - Anchors (copied from rendered `.txt`, biased toward short phrases that
   survive interleaved column breaks):
   1. "MLOps / Platform Engineer with 7" / "years building the ML
      infrastructure".
-  2. "MLOps Engineer — Kiwi.com," — role line.
+  2. "MLOps Engineer — Kiwi.com," — role line (city wraps to next line;
+     post-T46 the wrapped token is "Tokyo", pre-T46 it was "Brno").
   3. "Argo Workflows 3.5" — version pin.
   4. "180+ scheduled training jobs per" / "week" — quantified scale.
   5. "cutting orchestration" / "infra cost by 38%" — quantified outcome.
@@ -173,7 +215,8 @@ Re-run with `uv run python scripts/build_cv_fixtures.py` to regenerate.
   7. "Feast 0.40" / "Redis 7" / "MLflow 2.10" — version-pinned stack.
   8. "Reduced the data-scientist setup time" / "from 2 days to under 30
      minutes" — quantified.
-  9. "Ing. (M.Sc.) in Information Systems — VUT" / "Brno".
+  9. "Ing. (M.Sc.) in Information Systems — VUT" / "Brno" — historical
+     (pre-T46-relocation education).
   10. Footer cruft anchor: "© Marek Beneš 2026 · prepared for internal
       review · do not redistribute" — used by T07 tests as a *negative*
       anchor (extraction layer must drop or quarantine it).

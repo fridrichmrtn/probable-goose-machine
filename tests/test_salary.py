@@ -13,7 +13,13 @@ import gander.salary as salary_mod
 from gander.errors import StageFailure
 from gander.llm import LLMClient
 from gander.obs import subscribe
-from gander.salary import _is_cz_location, build_queries, estimate_salary
+from gander.salary import (
+    _is_cz_location,
+    build_queries,
+    country_to_currency,
+    currency_to_period,
+    estimate_salary,
+)
 from gander.schemas import Anchor, Profile, ProfileItem, SalaryEstimate, Source
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -126,7 +132,6 @@ async def test_estimate_salary_returns_stage_failure_when_search_returns_nothing
 ) -> None:
     text_mock = MagicMock(return_value=[])
     _patch_ddgs(monkeypatch, text_mock)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
@@ -168,7 +173,6 @@ async def test_estimate_salary_rejects_llm_urls_not_in_search_results(
     ]
     text_mock = MagicMock(return_value=ddg_results)
     _patch_ddgs(monkeypatch, text_mock)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     # Build a valid SalaryEstimate whose sources are ALL outside the DDG set.
     hallucinated = SalaryEstimate(
@@ -220,7 +224,6 @@ async def test_estimate_salary_retries_each_query_independently(
     # the aggregate <2-sources check collapses the stage.
     text_mock = MagicMock(side_effect=RuntimeError("ddg rate limit"))
     _patch_ddgs(monkeypatch, text_mock)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     profile = _cz_profile(years=5)  # <10y so build_queries returns base CZ queries.
     queries = build_queries(profile)
@@ -261,7 +264,6 @@ async def test_estimate_salary_survives_single_query_failure(
         return good_results
 
     monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     # Mock the LLM step so the test stays hermetic.
     salary = SalaryEstimate(
@@ -332,7 +334,9 @@ async def test_search_runs_queries_concurrently(
     monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
 
     sources = await salary_mod.search(
-        ["data scientist prague", "data engineer prague", "ml engineer prague"]
+        ["data scientist prague", "data engineer prague", "ml engineer prague"],
+        country="CZ",
+        currency_hint="CZK",
     )
 
     assert len(sources) == 3
@@ -355,7 +359,6 @@ async def test_estimate_salary_caps_inflated_junior_czk_month_range(
     ]
     text_mock = MagicMock(return_value=ddg_results)
     _patch_ddgs(monkeypatch, text_mock)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     inflated = SalaryEstimate(
         low=100000,
@@ -420,7 +423,11 @@ async def test_search_prioritizes_known_salary_domains_before_trimming(
 
     monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
 
-    sources = await salary_mod.search(["senior data scientist salary Prague"])
+    sources = await salary_mod.search(
+        ["senior data scientist salary Prague"],
+        country="CZ",
+        currency_hint="CZK",
+    )
 
     assert len(sources) == 8
     assert [s.domain for s in sources[:2]] == ["www.platy.cz", "www.profesia.cz"]
@@ -473,10 +480,9 @@ async def test_estimate_salary_maps_llm_transport_error_to_prd_copy(
     ]
     text_mock = MagicMock(return_value=ddg_results)
     _patch_ddgs(monkeypatch, text_mock)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     async def raising_complete_json(self: LLMClient, **kwargs: Any) -> Any:
-        raise RuntimeError("minimax 429 throttled")
+        raise RuntimeError("provider 429 throttled")
 
     monkeypatch.setattr(LLMClient, "complete_json", raising_complete_json)
 
@@ -485,7 +491,7 @@ async def test_estimate_salary_maps_llm_transport_error_to_prd_copy(
         result = await estimate_salary(_cz_profile())
 
     # PRD §4.6 user copy must survive every transport-error path; stage_boundary
-    # must never get to fall back to its `str(exc)` default and leak `minimax 429
+    # must never get to fall back to its `str(exc)` default and leak `provider 429
     # throttled` to the UI.
     assert isinstance(result, StageFailure)
     assert result.stage == "salary"
@@ -512,7 +518,6 @@ async def test_estimate_salary_replaces_llm_snippets_with_input_snippets(
     ]
     text_mock = MagicMock(return_value=ddg_results)
     _patch_ddgs(monkeypatch, text_mock)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     estimate = SalaryEstimate(
         low=110000,
@@ -567,7 +572,6 @@ async def test_estimate_salary_allows_second_validation_retry(
     ]
     text_mock = MagicMock(return_value=ddg_results)
     _patch_ddgs(monkeypatch, text_mock)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
     seen_max_retries: int | None = None
 
     estimate = SalaryEstimate(
@@ -643,6 +647,7 @@ def test_build_queries_management_non_cz_uses_eur_token() -> None:
         soft_signals=[item],
         detected_role="Head of Engineering",
         detected_location="Berlin",
+        detected_country="DE",
         detected_years_experience=8,
         canonical_role="head of engineering",
         seniority_band="head",
@@ -730,13 +735,297 @@ def test_salary_prompt_3shot_present() -> None:
     assert "anchor" in lower, "seniority anchoring instruction must be present"
 
 
+def _country_profile(
+    *,
+    country: str,
+    location: str,
+    role: str = "Senior Data Scientist",
+    years: int = 7,
+    seniority: str | None = "senior",
+) -> Profile:
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    return Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role=role,
+        detected_location=location,
+        detected_country=country,
+        detected_years_experience=years,
+        seniority_band=seniority,
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "country, location, currency, country_name",
+    [
+        ("DE", "Berlin", "EUR", "Germany"),
+        ("JP", "Tokyo", "JPY", "Japan"),
+        ("US", "San Francisco", "USD", "United States"),
+        ("GB", "London", "GBP", "United Kingdom"),
+    ],
+)
+def test_build_queries_non_cz_is_country_aware(
+    country: str, location: str, currency: str, country_name: str
+) -> None:
+    """Non-CZ profiles emit country + local-currency tokens, no `site:` lock."""
+    profile = _country_profile(country=country, location=location)
+    queries = build_queries(profile)
+    joined = " || ".join(queries)
+
+    assert any(currency in q for q in queries), (
+        f"{country} queries must carry the local currency token {currency!r}: {queries!r}"
+    )
+    assert any(country_name in q for q in queries), (
+        f"{country} queries must carry the country name {country_name!r}: {queries!r}"
+    )
+    # No CZ-only domain locks anywhere outside CZ.
+    assert "site:platy.cz" not in joined
+    assert "site:profesia.cz" not in joined
+    # The pre-T46 hardcoded "site:glassdoor.com OR site:levels.fyi" lock is gone.
+    assert "site:glassdoor.com OR site:levels.fyi" not in joined
+    # No "EUR 2025" cross-check unless the local currency genuinely IS EUR.
+    if currency != "EUR":
+        assert "EUR 2025" not in joined, (
+            f"{country} must not carry a hardcoded EUR token: {queries!r}"
+        )
+    # No CZK token outside CZ.
+    assert "CZK" not in joined
+
+
+@pytest.mark.fast
+def test_build_queries_cz_unchanged_with_explicit_country() -> None:
+    """Explicit detected_country='CZ' produces the same queries as the legacy regex path."""
+    profile = _cz_profile()
+    explicit = profile.model_copy(update={"detected_country": "CZ"})
+    assert build_queries(profile) == build_queries(explicit)
+
+
+@pytest.mark.fast
+def test_country_to_currency_table() -> None:
+    assert country_to_currency("CZ") == "CZK"
+    assert country_to_currency("DE") == "EUR"
+    assert country_to_currency("JP") == "JPY"
+    assert country_to_currency("US") == "USD"
+    assert country_to_currency("GB") == "GBP"
+    assert country_to_currency("CH") == "CHF"
+    assert country_to_currency("PL") == "PLN"
+    # Unknown ISO codes fall back to USD (live-search-friendly default).
+    assert country_to_currency("ZZ") == "USD"
+    assert country_to_currency(None) == "USD"
+    assert country_to_currency("") == "USD"
+
+
+@pytest.mark.fast
+def test_currency_to_period_table() -> None:
+    # Monthly markets: CZK, PLN, HUF, RON, BGN.
+    assert currency_to_period("CZK") == "month"
+    assert currency_to_period("PLN") == "month"
+    assert currency_to_period("HUF") == "month"
+    assert currency_to_period("RON") == "month"
+    assert currency_to_period("BGN") == "month"
+    # Everything else defaults to annual.
+    assert currency_to_period("EUR") == "year"
+    assert currency_to_period("USD") == "year"
+    assert currency_to_period("JPY") == "year"
+    assert currency_to_period("GBP") == "year"
+    assert currency_to_period("CHF") == "year"
+
+
+@pytest.mark.fast
+async def test_estimate_salary_rejects_malformed_iso_currency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ISO-4217 shape gate: 'EURO' (4 letters) rejected, fail-closed to PRD copy."""
+    ddg_results = [
+        {"href": "https://example.de/a", "body": "DE DS salary"},
+        {"href": "https://example.de/b", "body": "DE DS salary"},
+    ]
+    _patch_ddgs(monkeypatch, MagicMock(return_value=ddg_results))
+
+    malformed = SalaryEstimate(
+        low=60000,
+        high=90000,
+        currency="EURO",  # 4 letters — fails ISO-4217 shape check
+        period="year",
+        sources=[
+            Source(
+                url="https://example.de/a",  # type: ignore[arg-type]
+                snippet="DE DS salary",
+                domain="example.de",
+            )
+        ],
+        reasoning="malformed currency code",
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return malformed
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await estimate_salary(_country_profile(country="DE", location="Berlin"))
+
+    assert isinstance(result, StageFailure)
+    failure_evt = next(e for e in events if e["event"] == "stage_failure")
+    assert failure_evt["reason"] == "invalid_currency_shape"
+    assert failure_evt["currency"] == "EURO"
+
+
+@pytest.mark.fast
+async def test_estimate_salary_accepts_jpy_for_japan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """JPY round-trip — the pre-T46 `{CZK,EUR,USD}` whitelist would have rejected this."""
+    ddg_results = [
+        {"href": "https://doda.jp/career/ds", "body": "Tokyo DS 8M-12M JPY annual"},
+        {"href": "https://en.indeed.jp/data-scientist", "body": "Senior DS Tokyo annual"},
+    ]
+    _patch_ddgs(monkeypatch, MagicMock(return_value=ddg_results))
+
+    estimate = SalaryEstimate(
+        low=8_000_000,
+        high=12_000_000,
+        currency="JPY",
+        period="year",
+        sources=[
+            Source(
+                url="https://doda.jp/career/ds",  # type: ignore[arg-type]
+                snippet="Tokyo DS 8M-12M JPY annual",
+                domain="doda.jp",
+            ),
+        ],
+        reasoning="based on jp board",
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return estimate
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    result = await estimate_salary(_country_profile(country="JP", location="Tokyo"))
+
+    assert isinstance(result, SalaryEstimate), result
+    assert result.currency == "JPY"
+    assert result.period == "year"
+
+
+@pytest.mark.fast
+async def test_estimate_salary_emits_period_mismatch_warning_without_failing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Period hint disagreement is a soft signal, not a stage failure (T46)."""
+    ddg_results = [
+        {"href": "https://levels.fyi/x", "body": "SF DS comp"},
+        {"href": "https://glassdoor.com/y", "body": "SF DS comp"},
+    ]
+    _patch_ddgs(monkeypatch, MagicMock(return_value=ddg_results))
+
+    # US hint = USD / year. LLM returns USD / month — warn but accept.
+    estimate = SalaryEstimate(
+        low=15000,
+        high=25000,
+        currency="USD",
+        period="month",
+        sources=[
+            Source(
+                url="https://levels.fyi/x",  # type: ignore[arg-type]
+                snippet="SF DS comp",
+                domain="levels.fyi",
+            ),
+        ],
+        reasoning="snippets quoted monthly",
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return estimate
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await estimate_salary(_country_profile(country="US", location="San Francisco"))
+
+    assert isinstance(result, SalaryEstimate), result
+    mismatch = next(e for e in events if e["event"] == "period_mismatch")
+    assert mismatch["currency"] == "USD"
+    assert mismatch["period"] == "month"
+    assert mismatch["expected_period"] == "year"
+    assert mismatch["country"] == "US"
+
+
+@pytest.mark.fast
+async def test_search_preserves_live_order_outside_cz(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-CZ profiles must NOT apply the CZ-curated _SALARY_DOMAIN_PRIORITY (T46)."""
+    raw_results = [
+        {"href": "https://example.com/result-1", "body": "Generic salary article 1"},
+        {"href": "https://example.com/result-2", "body": "Generic salary article 2"},
+        # Pre-T46 these would have been re-ranked to the top by _SALARY_DOMAIN_PRIORITY.
+        {"href": "https://www.glassdoor.com/Salaries/data-scientist", "body": "Glassdoor DS"},
+        {"href": "https://www.levels.fyi/data-scientist", "body": "levels.fyi DS"},
+    ]
+
+    def fake_ddg_text(_query: str) -> list[dict[str, Any]]:
+        return raw_results
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    sources = await salary_mod.search(
+        ["senior data scientist salary Berlin Germany EUR"],
+        country="DE",
+        currency_hint="EUR",
+    )
+
+    # Live-search order preserved: generic results first as DDG returned them.
+    assert sources[0].domain == "example.com"
+    # Glassdoor / levels.fyi are NOT promoted to the front for a DE profile.
+    assert [s.domain for s in sources[:2]] != ["www.glassdoor.com", "www.levels.fyi"]
+
+
+@pytest.mark.fast
+async def test_salary_search_event_includes_country_and_tld_histogram(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T46 telemetry contract: salary_search must carry country / currency_hint /
+    sources_per_tld so we can observe live-search behavior per market without
+    curating per-country tables."""
+    raw_results = [
+        {"href": "https://doda.jp/career/ds", "body": "Tokyo DS"},
+        {"href": "https://en.indeed.jp/x", "body": "Tokyo DS"},
+        {"href": "https://www.glassdoor.com/x", "body": "Tokyo DS"},
+    ]
+
+    def fake_ddg_text(_query: str) -> list[dict[str, Any]]:
+        return raw_results
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        await salary_mod.search(
+            ["senior data scientist Tokyo Japan JPY 2025"],
+            country="JP",
+            currency_hint="JPY",
+        )
+
+    search_evt = next(e for e in events if e["event"] == "salary_search")
+    assert search_evt["country"] == "JP"
+    assert search_evt["currency_hint"] == "JPY"
+    assert search_evt["sources_per_tld"] == {".jp": 2, ".com": 1}
+
+
 @pytest.mark.live
 @pytest.mark.slow
 @pytest.mark.xdist_group("ddg")
 @pytest.mark.flaky(reruns=2)
-@pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="needs MINIMAX_API_KEY")
+@pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="needs OPENROUTER_API_KEY")
 async def test_senior_fixture_estimate_returns_czk_range() -> None:
-    # Ensures the live path actually calls DDG + MiniMax. Skips elsewhere.
+    # Ensures the live path actually calls DDG + OpenRouter. Skips elsewhere.
     cv_text = SENIOR_FIXTURE.read_text(encoding="utf-8")
     assert cv_text  # fixture present
     profile = _cz_profile(

@@ -9,6 +9,7 @@ Return JSON only, matching this schema exactly:
   "soft_signals": [{"text": str, "anchor": {"quote": str, "section": str | null}}],
   "detected_role": str,
   "detected_location": str | null,
+  "detected_country": str | null,
   "detected_years_experience": int
 }
 
@@ -41,7 +42,8 @@ If a redaction marker (`[NAME]`, `[EMAIL]`, `[PHONE]`, `[YEAR]`, `[POSTCODE]`, `
 ## Detected fields
 
 - `detected_role`: the candidate's most recent formal role title from Work Experience/Pracovní zkušenosti as it appears on the CV. Use the headline only when no formal work-experience title is present. Do not choose the candidate name, company name, skill list, or a tagline when a formal role title exists. Non-empty string.
-- `detected_location`: a CZ city (Prague, Brno, Ostrava, Plzeň, …) if the CV names one; otherwise the country or `null`.
+- `detected_location`: the candidate's city (Prague, Brno, Berlin, Tokyo, San Francisco, …) if the CV names one; otherwise the country name or `null`.
+- `detected_country`: ISO-3166 alpha-2 country code (`CZ`, `DE`, `JP`, `US`, `GB`, `CH`, `PL`, `HU`, …) inferred from the CV's address, phone country code, or work-history geography. Return `null` if the country is genuinely unclear. Do not guess from language alone — a CV written in English at a CZ employer is still `CZ`.
 - `detected_years_experience`: total professional years across roles, as an integer between 1 and 50. Use the CV's stated tenures; do not round up. If the candidate reports only internships or projects with no formal tenure, return 1.
 
 ## One-shot example
