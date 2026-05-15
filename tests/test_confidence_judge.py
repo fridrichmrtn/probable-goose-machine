@@ -81,7 +81,7 @@ def test_judge_signature_is_isolated() -> None:
     sig = inspect.signature(judge)
     params = set(sig.parameters.keys())
     assert params == {"sources", "low", "high", "currency", "period", "cv_quality"}, (
-        "judge() must not accept estimator reasoning, profile, or score — leakage channel"
+        "judge() must not accept estimator reasoning or produced ranges — leakage channel"
     )
     assert sig.parameters["cv_quality"].kind is inspect.Parameter.KEYWORD_ONLY
     for p in sig.parameters.values():
@@ -93,8 +93,10 @@ def test_judge_signature_is_isolated() -> None:
 
 @pytest.mark.fast
 def test_step_b_does_not_see_estimator_reasoning() -> None:
-    rendered = _render_step_b("Low", 100000, 200000, "CZK", "month").lower()
-    for token in ("estimator", "reasoning", "profile"):
+    rendered = _render_step_b(
+        "Low", "Low", "High", _clean_cv_quality(), 100000, 200000, "CZK", "month"
+    ).lower()
+    for token in ("estimator", "reasoning"):
         assert token not in rendered, f"{token!r} leaked into Step B user message"
     # The system prompt is a static template; it must not name the upstream
     # leakage channels ("estimator", "profile"). "reasoning" is excluded here

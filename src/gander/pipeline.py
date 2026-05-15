@@ -272,7 +272,7 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
                 if isinstance(state.score, Score)
                 else 3,
                 canonical_role_resolved=isinstance(state.profile, Profile)
-                and state.profile.canonical_role is not None,
+                and state.profile.role_normalization_source != "unrecognized",
                 location_detected=isinstance(state.profile, Profile)
                 and state.profile.detected_location is not None,
             )

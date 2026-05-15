@@ -172,3 +172,88 @@ async def test_pipeline_confidence_reflects_dropped_score_components(
     floor_evt = next(e for e in events if e["event"] == "confidence_cv_floor_applied")
     assert floor_evt["salary_tier"] == "High"
     assert floor_evt["cv_floor"] == "Low"
+
+
+@pytest.mark.fast
+async def test_pipeline_confidence_reflects_unrecognized_role_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_extract_text(file_bytes: bytes, filename: str) -> str:
+        return "raw cv text"
+
+    def fake_redact(text: str) -> RedactedCV:
+        return RedactedCV(text="redacted cv text", audit_log=[])
+
+    async def fake_extract_profile(redacted: RedactedCV) -> Profile:
+        item = ProfileItem(text="experience", anchor=Anchor(quote="experience"))
+        return Profile(
+            skills=[],
+            experience=[item],
+            education=[],
+            soft_signals=[],
+            detected_role="Wizard of Bytes",
+            detected_location="Prague",
+            detected_years_experience=8,
+            canonical_role="wizard of bytes",
+            role_normalization_source="unrecognized",
+        )
+
+    async def fake_score_profile(redacted: RedactedCV, profile: Profile) -> Score:
+        return Score(
+            components=[
+                Component(
+                    name="experience",
+                    score_0_100=70,
+                    justification="verified experience",
+                    anchor=Anchor(quote="experience"),
+                )
+            ],
+            dropped=[],
+        )
+
+    async def fake_estimate_salary(profile: Profile) -> SalaryEstimate:
+        return SalaryEstimate(
+            low=100000,
+            high=120000,
+            currency="CZK",
+            period="month",
+            sources=[
+                Source(
+                    url="https://platy.cz/x",  # type: ignore[arg-type]
+                    snippet="Senior data roles are well paid.",
+                    domain="platy.cz",
+                )
+            ],
+            reasoning="test",
+        )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: object) -> _TierOnly:
+        return _TierOnly(tier="High", rationale_short="sources agree")
+
+    async def fake_complete_text(self: LLMClient, **kwargs: object) -> str:
+        return "Confidence in this estimate is Medium because role resolution is thin."
+
+    async def fake_plan_growth(*_args: object, **_kwargs: object) -> list[object]:
+        return []
+
+    monkeypatch.setattr(pipeline, "extract_text", fake_extract_text)
+    monkeypatch.setattr(pipeline, "redact", fake_redact)
+    monkeypatch.setattr(pipeline, "extract_profile", fake_extract_profile)
+    monkeypatch.setattr(pipeline, "score_profile", fake_score_profile)
+    monkeypatch.setattr(pipeline, "estimate_salary", fake_estimate_salary)
+    monkeypatch.setattr(pipeline, "plan_growth", fake_plan_growth)
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, object]] = []
+    with obs.subscribe(events.append):
+        reports = await _collect(pipeline.run(b"fixture", "fixture.txt"))
+
+    final = reports[-1]
+    assert isinstance(final.confidence, Confidence)
+    assert final.confidence.tier == "Medium"
+    floor_evt = next(e for e in events if e["event"] == "confidence_cv_floor_applied")
+    assert floor_evt["salary_tier"] == "High"
+    assert floor_evt["cv_floor"] == "Medium"
+    assert floor_evt["canonical_role_resolved"] is False

@@ -28,6 +28,14 @@ def _strip_think(text: str) -> str:
     return m.group(1).strip() if m else text
 
 
+def _usage_tokens(usage: Any) -> tuple[int, int]:
+    if usage is None:
+        return 0, 0
+    prompt = getattr(usage, "prompt_tokens", 0) or 0
+    completion = getattr(usage, "completion_tokens", 0) or 0
+    return int(prompt), int(completion)
+
+
 # USD per 1M tokens, (prompt, completion).
 # TODO(T05): re-verify model identifiers and re-cost from MiniMax pricing console;
 # zeroed because public docs no longer expose per-model pricing without auth.
@@ -204,7 +212,11 @@ class LLMClient:
         mime_type: str = "image/png",
         timeout_s: float = 120.0,
     ) -> str:
-        """Transcribe one rendered page through MiniMax Token Plan API-vlm."""
+        """Transcribe one rendered page through MiniMax Token Plan API-vlm.
+
+        Chat/text provider selection does not apply here: no OpenRouter vision
+        route is wired for the Token Plan ingest tier yet.
+        """
         api_key = os.environ.get("MINIMAX_API_KEY")
         if not api_key:
             raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
@@ -272,10 +284,11 @@ class LLMClient:
             choice = response.choices[0]
             text = choice.message.content or ""
             usage = response.usage
+            prompt_tokens, completion_tokens = _usage_tokens(usage)
             return (
                 _strip_think(text),
-                usage.prompt_tokens,
-                usage.completion_tokens,
+                prompt_tokens,
+                completion_tokens,
                 choice.finish_reason or "",
             )
         client_o: Any = self._client
@@ -293,10 +306,11 @@ class LLMClient:
         if os.environ.get("OPENROUTER_STRIP_THINK") == "1":
             text_o = _strip_think(text_o)
         usage_o = response_o.usage
+        prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
         return (
             text_o,
-            usage_o.prompt_tokens,
-            usage_o.completion_tokens,
+            prompt_tokens_o,
+            completion_tokens_o,
             choice_o.finish_reason or "",
         )
 
@@ -317,10 +331,11 @@ class LLMClient:
             choice = response.choices[0]
             text = choice.message.content or ""
             usage = response.usage
+            prompt_tokens, completion_tokens = _usage_tokens(usage)
             return (
                 _strip_think(text),
-                usage.prompt_tokens,
-                usage.completion_tokens,
+                prompt_tokens,
+                completion_tokens,
                 choice.finish_reason or "",
             )
         client_o: Any = self._client
@@ -337,9 +352,10 @@ class LLMClient:
         if os.environ.get("OPENROUTER_STRIP_THINK") == "1":
             text_o = _strip_think(text_o)
         usage_o = response_o.usage
+        prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
         return (
             text_o,
-            usage_o.prompt_tokens,
-            usage_o.completion_tokens,
+            prompt_tokens_o,
+            completion_tokens_o,
             choice_o.finish_reason or "",
         )

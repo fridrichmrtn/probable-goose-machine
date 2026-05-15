@@ -185,6 +185,83 @@ def test_build_user_message_includes_current_employer_hint() -> None:
 
 
 @pytest.mark.fast
+def test_current_employer_hint_uses_normalized_anchor_match() -> None:
+    source_quote = (
+        "Senior Manager AI and Data Science led the model\n"
+        "evaluation program across product analytics"
+    )
+    anchor_quote = (
+        "senior manager ai and data science led the model evaluation program "
+        "across product analytics"
+    )
+    redacted = RedactedCV(
+        text=(
+            "## Work Experience\n"
+            "Senior Manager AI and Data Science — Stealth Startup\n"
+            "January [YEAR] - Present\n"
+            f"{source_quote}.\n"
+        ),
+        audit_log=[],
+    )
+    profile = _profile().model_copy(
+        update={
+            "experience": [
+                ProfileItem(
+                    text="Senior Manager AI and Data Science — Stealth Startup",
+                    anchor=Anchor(quote=anchor_quote, section="Work Experience"),
+                )
+            ]
+        }
+    )
+
+    payload = json.loads(
+        _build_user_message(redacted, profile, _score(), salary_midpoint=150000, currency="CZK")
+    )
+
+    assert payload["current_employer_hint"] == [
+        "Senior Manager AI and Data Science — Stealth Startup"
+    ]
+
+
+@pytest.mark.fast
+def test_current_employer_hint_does_not_bleed_present_token_to_neighbor_role() -> None:
+    current_quote = "Current platform lead owns fraud scoring systems across product analytics"
+    past_quote = "Past research engineer built recommender prototypes for a prior lab"
+    redacted = RedactedCV(
+        text=(
+            "## Work Experience\n"
+            "Current Platform Lead — Stealth Startup\n"
+            "January [YEAR] - Present\n"
+            f"{current_quote}.\n"
+            "Research Engineer — Prior Lab\n"
+            "January [YEAR] - December [YEAR]\n"
+            f"{past_quote}.\n"
+        ),
+        audit_log=[],
+    )
+    profile = _profile().model_copy(
+        update={
+            "experience": [
+                ProfileItem(
+                    text="Current Platform Lead — Stealth Startup",
+                    anchor=Anchor(quote=current_quote, section="Work Experience"),
+                ),
+                ProfileItem(
+                    text="Research Engineer — Prior Lab",
+                    anchor=Anchor(quote=past_quote, section="Work Experience"),
+                ),
+            ]
+        }
+    )
+
+    payload = json.loads(
+        _build_user_message(redacted, profile, _score(), salary_midpoint=150000, currency="CZK")
+    )
+
+    assert payload["current_employer_hint"] == ["Current Platform Lead — Stealth Startup"]
+
+
+@pytest.mark.fast
 def test_build_user_message_includes_dropped_components() -> None:
     score = Score(
         components=[c for c in _score().components if c.name != "education"],

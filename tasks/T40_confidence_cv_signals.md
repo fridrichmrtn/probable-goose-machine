@@ -18,17 +18,17 @@ A CV where the L3 extractor pulled a sparse Profile (canonical_role unresolved, 
 
 ## Approach
 
-Widen `judge()` with a typed `CVQualitySignals` payload and add a two-step rubric in Step A: compute salary-side tier as today, compute a CV-floor cap, emit `min(salary_tier, cv_floor)`. No change to Step B. Pipeline builds the signals from `state.score.dropped`, `state.profile.canonical_role`, `state.profile.detected_location` before the judge call.
+Widen `judge()` with a typed `CVQualitySignals` payload. Step A remains salary-source-only; deterministic code computes a CV-floor cap, emits `min(salary_tier, cv_floor)`, and passes the cap reason to Step B so the user-facing rationale does not blame market data for thin CV extraction. Pipeline builds the signals from `state.score.dropped`, `state.profile.role_normalization_source`, and `state.profile.detected_location` before the judge call.
 
 ## Critical files
 
 - [src/gander/schemas.py](../src/gander/schemas.py) — new `CVQualitySignals(BaseModel)` near `Confidence`
-- [src/gander/confidence.py](../src/gander/confidence.py) — widen `judge()` signature; thread `cv_quality.model_dump()` into Step A's user JSON (alongside `sources`)
-- [src/gander/prompts/confidence_step_a.md](../src/gander/prompts/confidence_step_a.md) — input contract update + two-step rubric + 2 example cases
+- [src/gander/confidence.py](../src/gander/confidence.py) — widen `judge()` signature; keep Step A source-only; apply CV-quality cap and pass cap context into Step B
+- [src/gander/prompts/confidence_step_a.md](../src/gander/prompts/confidence_step_a.md) — source-only salary-side rubric
 - [src/gander/pipeline.py:269](../src/gander/pipeline.py#L269) — build `CVQualitySignals` from `state.score` + `state.profile` before calling `judge`
 - [src/gander/pipeline.py:282](../src/gander/pipeline.py#L282) — short-circuit-Low branch unchanged (still Low when salary failed; CV signals don't matter there)
 - [tests/test_confidence_unit.py](../tests/test_confidence_unit.py) — add cases for the combined rubric
-- [tests/test_confidence_judge.py](../tests/test_confidence_judge.py) — pipeline-level case asserting `confidence_cv_floor_applied` emit
+- [tests/test_pipeline_smoke.py](../tests/test_pipeline_smoke.py) — pipeline-level case asserting `confidence_cv_floor_applied` emit
 
 ## Step-by-step changes
 
@@ -38,10 +38,10 @@ Widen `judge()` with a typed `CVQualitySignals` payload and add a two-step rubri
 class CVQualitySignals(BaseModel):
     """CV-extraction quality signals fed into the L4c confidence judge.
 
-    Built in pipeline.py from successful Profile + Score; serialized into
-    Step A's user JSON so the rubric can cap the salary-side tier when
-    extraction was thin (T40 — fills the band between T38's hard-fail gate
-    and a fully-verified extraction).
+    Built in pipeline.py from successful Profile + Score so deterministic
+    confidence code can cap the salary-side tier when extraction was thin
+    (T40 — fills the band between T38's hard-fail gate and a fully-verified
+    extraction).
     """
     dropped_score_components: int = Field(ge=0, le=3)  # at most 3 of {skills,education,soft_signals}
     canonical_role_resolved: bool
@@ -53,24 +53,17 @@ Note the `le=3` bound: `experience` is mandatory per [src/gander/schemas.py:147-
 ### 2. Widen `judge()` — [src/gander/confidence.py](../src/gander/confidence.py)
 
 - Add keyword-only param: `judge(..., *, cv_quality: CVQualitySignals)`.
-- Build `step_a_user` as a JSON object with two keys:
+- Build `step_a_user` as a JSON object with one key:
   ```json
-  {"sources": [...], "cv_quality": {"dropped_score_components": N, "canonical_role_resolved": bool, "location_detected": bool}}
+  {"sources": [...]}
   ```
-- Emit a new event `confidence_cv_floor_applied` (with the salary-side tier and the cap) only when the cap actually lowered the tier. The current `confidence_step_a` event still carries `tier=tier_obj.tier` (the final tier).
-- Keep Step B unchanged. The widened signature is keyword-only so the recompute-then-compare structural-isolation test still passes.
+- Emit a new event `confidence_cv_floor_applied` (with the salary-side tier and the cap) only when the cap actually lowered the tier. The current `confidence_step_a` event carries both `salary_tier` and final `tier`.
+- Pass the final tier, salary tier, cap, and cap reason to Step B. The widened signature is keyword-only so the recompute-then-compare structural-isolation test still passes.
 
 ### 3. Step A prompt — [src/gander/prompts/confidence_step_a.md](../src/gander/prompts/confidence_step_a.md)
 
-- Update the input-contract paragraph: now receives `{"sources": [Source...], "cv_quality": {...}}` instead of bare `[Source...]`.
-- Insert a new section after the existing rubric: "CV-floor cap (apply AFTER the salary-side tier is decided)":
-  - If `dropped_score_components >= 2` → cap at **Low**.
-  - Else if `dropped_score_components == 1` OR `canonical_role_resolved == false` → cap at **Medium**.
-  - Else if `location_detected == false` → cap at **Medium**.
-  - Else no cap.
-- Final tier = `min(salary_tier, cv_floor_cap)` per the order Low < Medium < High.
-- Add 2 example cases: (a) 4 distinct domains tight + 2 components dropped → Low, (b) 3 distinct domains tight + canonical_role unresolved → Medium.
-- Hard-rule update: `rationale_short` may reference CV thinness with words like "thin extraction" or "components dropped"; still no figures, no PII.
+- Keep the input contract as `{"sources": [Source...]}` only.
+- Keep the rubric focused on salary evidence only; the deterministic CV-floor cap lives in `confidence.py` so telemetry preserves the pre-cap salary tier separately from the final tier.
 
 ### 4. Pipeline wiring — [src/gander/pipeline.py:269](../src/gander/pipeline.py#L269)
 
@@ -78,7 +71,7 @@ Note the `le=3` bound: `experience` is mandatory per [src/gander/schemas.py:147-
   ```python
   cv_quality = CVQualitySignals(
       dropped_score_components=len(state.score.dropped) if isinstance(state.score, Score) else 3,
-      canonical_role_resolved=isinstance(state.profile, Profile) and state.profile.canonical_role is not None,
+      canonical_role_resolved=isinstance(state.profile, Profile) and state.profile.role_normalization_source != "unrecognized",
       location_detected=isinstance(state.profile, Profile) and state.profile.detected_location is not None,
   )
   ```
@@ -90,15 +83,15 @@ Note the `le=3` bound: `experience` is mandatory per [src/gander/schemas.py:147-
 - [tests/test_confidence_unit.py](../tests/test_confidence_unit.py) — add:
   - `test_cv_floor_caps_high_to_low_when_two_components_dropped` (mock LLM returns High; CV signals carry `dropped=2`; final tier=Low; `confidence_cv_floor_applied` emitted with `salary_tier="High"`, `cv_floor="Low"`).
   - `test_cv_floor_caps_high_to_medium_when_canonical_role_missing`.
+  - `test_cv_floor_caps_high_to_medium_when_location_missing`.
   - `test_cv_floor_does_not_upgrade_low_to_medium` (clean CV; salary-side Low; final tier still Low; no cap event).
   - `test_judge_signature_keyword_only` (ensures the `cv_quality` param stays keyword-only — guards the recompute-then-compare structural test).
-- [tests/test_confidence_judge.py](../tests/test_confidence_judge.py) — pipeline integration: build a state where Score has `dropped=["skills", "soft_signals"]`, salary clean → assert `state.confidence.tier == "Low"`.
+- [tests/test_pipeline_smoke.py](../tests/test_pipeline_smoke.py) — pipeline integration: build a state where Score has `dropped=["skills", "soft_signals"]`, salary clean → assert `state.confidence.tier == "Low"`.
 - [tests/test_pipeline_smoke.py](../tests/test_pipeline_smoke.py) — assert the smoke run still produces a `Confidence` (not regressed by signature widening).
 
 ### 6. Out of scope (queued for follow-up)
 
 - Anchor verify-rate as a third CV signal (more granular; needs bookkeeping changes in score.py to expose `verified/total`).
-- Surfacing the cap reason in the user-visible rationale (currently the rationale stays opaque; reviewer can read the `confidence_cv_floor_applied` event in obs but it's not in the report). Tracked as a renderer-side follow-up.
 
 ## Verification
 
@@ -117,8 +110,9 @@ Note the `le=3` bound: `experience` is mandatory per [src/gander/schemas.py:147-
 Implemented:
 - Added `CVQualitySignals` in `src/gander/schemas.py`.
 - Widened `confidence.judge(..., *, cv_quality=...)`.
-- Step A user payload now carries `{"sources": ..., "cv_quality": ...}` while remaining blind to produced salary range/reasoning.
+- Step A user payload remains `{"sources": ...}` only and stays blind to produced salary range/reasoning.
 - Deterministic CV-floor cap applied after the salary-side tier: two dropped components -> Low; one dropped/missing canonical role/missing location -> Medium.
+- Step B now receives the cap reason so Low/Medium rationales distinguish thin CV extraction from weak market data.
 - Pipeline builds CV-quality signals from `state.score` and `state.profile` before calling the judge.
 
 Verified:

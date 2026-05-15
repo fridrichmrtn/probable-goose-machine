@@ -90,6 +90,7 @@ class Profile(BaseModel):
     canonical_role: str | None = None
     seniority_band: str | None = None
     is_management: bool = False
+    role_normalization_source: str | None = None
 
 
 class Source(BaseModel):

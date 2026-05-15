@@ -40,10 +40,9 @@ def _clean_cv_quality() -> CVQualitySignals:
 
 @pytest.mark.fast
 def test_judge_signature_isolation() -> None:
-    # Recompute-then-compare contract: judge() must NOT accept any parameter
-    # that would let Step A see the estimator's reasoning or produced range
-    # as input. Any future addition like `produced_range`, `profile`, or
-    # `estimate` MUST break this assertion.
+    # Recompute-then-compare contract: judge() may receive aggregate CV-quality
+    # signals, but must NOT accept any parameter that would let Step A see the
+    # estimator's reasoning or produced salary range as input.
     sig = inspect.signature(judge)
     assert set(sig.parameters.keys()) == {
         "sources",
@@ -328,6 +327,55 @@ async def test_cv_floor_caps_high_to_low_when_two_components_dropped(
 
 
 @pytest.mark.fast
+async def test_cv_floor_low_uses_cv_quality_fallback_not_market_data_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return _TierOnly(tier="High", rationale_short="three domains agree")
+
+    text_responses = iter(
+        [
+            "Confidence in this estimate is Low. The range remains provisional.",
+            "Confidence in this estimate is Low. The sources still look usable.",
+        ]
+    )
+    call_count = {"n": 0}
+
+    async def fake_complete_text(self: LLMClient, **kwargs: Any) -> str:
+        call_count["n"] += 1
+        return next(text_responses)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await judge(
+            sources=_sources(),
+            low=100000,
+            high=200000,
+            currency="CZK",
+            period="month",
+            cv_quality=CVQualitySignals(
+                dropped_score_components=2,
+                canonical_role_resolved=True,
+                location_detected=True,
+            ),
+        )
+
+    assert isinstance(result, Confidence)
+    assert result.tier == "Low"
+    assert call_count["n"] == 2
+    assert result.rationale != _LOW_FALLBACK_RATIONALE
+    assert "CV extraction is thin" in result.rationale
+    assert "insufficient or in disagreement" not in result.rationale
+    fallback_evt = next(e for e in events if e["event"] == "confidence_low_fallback_used")
+    assert fallback_evt["reason"] == "regenerate_failed"
+
+
+@pytest.mark.fast
 async def test_cv_floor_caps_high_to_medium_when_canonical_role_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -354,6 +402,44 @@ async def test_cv_floor_caps_high_to_medium_when_canonical_role_missing(
                 dropped_score_components=0,
                 canonical_role_resolved=False,
                 location_detected=True,
+            ),
+        )
+
+    assert isinstance(result, Confidence)
+    assert result.tier == "Medium"
+    floor_evt = next(e for e in events if e["event"] == "confidence_cv_floor_applied")
+    assert floor_evt["salary_tier"] == "High"
+    assert floor_evt["cv_floor"] == "Medium"
+    assert floor_evt["final_tier"] == "Medium"
+
+
+@pytest.mark.fast
+async def test_cv_floor_caps_high_to_medium_when_location_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return _TierOnly(tier="High", rationale_short="three domains agree")
+
+    async def fake_complete_text(self: LLMClient, **kwargs: Any) -> str:
+        return "Confidence in this estimate is Medium because location evidence is thin."
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await judge(
+            sources=_sources(),
+            low=100000,
+            high=200000,
+            currency="CZK",
+            period="month",
+            cv_quality=CVQualitySignals(
+                dropped_score_components=0,
+                canonical_role_resolved=True,
+                location_detected=False,
             ),
         )
 

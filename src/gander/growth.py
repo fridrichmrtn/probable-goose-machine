@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit
-from gander.schemas import GrowthAction, Profile, RedactedCV, Score
+from gander.schemas import GrowthAction, Profile, ProfileItem, RedactedCV, Score
 from gander.tenure import _PRESENT_TOKENS, work_experience_slice
 from gander.verify import verify_quote
 
@@ -122,17 +122,58 @@ def _contains_present_token(text: str) -> bool:
     return re.search(rf"\b(?:{token_alt})\b", normalized) is not None
 
 
+def _normalized_with_offsets(text: str) -> tuple[str, list[int]]:
+    normalized = unicodedata.normalize("NFC", text).casefold()
+    chars: list[str] = []
+    offsets: list[int] = []
+    in_ws = False
+    for i, ch in enumerate(normalized):
+        if ch.isspace():
+            if not in_ws:
+                chars.append(" ")
+                offsets.append(i)
+                in_ws = True
+            continue
+        chars.append(ch)
+        offsets.append(i)
+        in_ws = False
+
+    start = 1 if chars and chars[0] == " " else 0
+    end = len(chars) - 1 if chars and chars[-1] == " " else len(chars)
+    return "".join(chars[start:end]), offsets[start:end]
+
+
+def _find_normalized_span(source: str, quote: str) -> tuple[int, int] | None:
+    haystack, offsets = _normalized_with_offsets(source)
+    needle = " ".join(unicodedata.normalize("NFC", quote).casefold().split())
+    idx = haystack.find(needle)
+    if idx < 0:
+        return None
+    end_idx = idx + len(needle) - 1
+    if idx >= len(offsets) or end_idx >= len(offsets):
+        return None
+    return offsets[idx], offsets[end_idx] + 1
+
+
 def _extract_current_employer_hint(redacted: RedactedCV, profile: Profile) -> list[str]:
     """Return experience item texts whose anchor sits near a present-tense date."""
     scoped = work_experience_slice(redacted.text) or redacted.text
     hints: list[str] = []
     seen: set[str] = set()
+    spans: list[tuple[int, int, ProfileItem]] = []
     for item in profile.experience:
-        quote = item.anchor.quote
-        idx = scoped.find(quote)
-        if idx < 0:
+        span = _find_normalized_span(scoped, item.anchor.quote)
+        if span is None:
             continue
-        context = scoped[max(0, idx - 200) : idx + len(quote) + 200]
+        spans.append((span[0], span[1], item))
+
+    spans.sort(key=lambda row: row[0])
+    for i, (start, end, item) in enumerate(spans):
+        prev_end = spans[i - 1][1] if i > 0 else 0
+        next_start = spans[i + 1][0] if i + 1 < len(spans) else len(scoped)
+        context_start = (prev_end + start) // 2 if i > 0 else 0
+        context_end = (end + next_start) // 2 if i + 1 < len(spans) else len(scoped)
+        context = scoped[context_start:context_end]
         if not _contains_present_token(context):
             continue
         key = " ".join(item.text.casefold().split())

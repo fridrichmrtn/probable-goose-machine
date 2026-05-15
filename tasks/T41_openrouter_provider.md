@@ -23,7 +23,7 @@ Full plan in [plan-wiring-open-router-wiggly-hopper.md](../../.claude/plans/plan
 - **[src/gander/llm.py](../src/gander/llm.py)** — delete anthropic branch (TYPE_CHECKING import, `_ANTHROPIC_MODEL`, `__init__` elif, `_resolve_model` early return, anthropic branches in `_chat_json` / `_chat_text`); add openrouter branch using `AsyncOpenAI(base_url="https://openrouter.ai/api/v1", default_headers={HTTP-Referer, X-Title})`; add `OPENROUTER_MODEL_{REASONING,CHEAP}` env overrides on a small registry default; keep MiniMax quirks (`_strip_think`, `extra_body={"reasoning_split": True}`, `max_tokens=4096`) **strictly inside** the minimax branch; gate `_strip_think` behind `OPENROUTER_STRIP_THINK=1` for reasoning-trace routes; add `provider=self._provider` to both `obs.emit("llm_call", ...)` call sites.
 - **[.env.example](../.env.example)** — drop `ANTHROPIC_API_KEY` line; add `OPENROUTER_API_KEY` + two model-override lines.
 - **[scripts/spike_minimax.py](../scripts/spike_minimax.py)** — generalize `_preflight` to a 2-way `{minimax, openrouter}` lookup.
-- **[tests/test_llm.py](../tests/test_llm.py)** — three new tests: openrouter constructs with stub key + honors model overrides (fast); openrouter `_chat_json` omits MiniMax quirks AND minimax branch retains them as a regression guard (fast); openrouter live JSON roundtrip gated on `OPENROUTER_API_KEY` (live).
+- **[tests/test_llm.py](../tests/test_llm.py)** — OpenRouter construction/model override tests; JSON and text chat branch tests that omit MiniMax quirks and tolerate missing usage metadata; MiniMax branch regression guard; gated OpenRouter live JSON roundtrip when `OPENROUTER_API_KEY` is present.
 - **[.github/workflows/ci.yml](../.github/workflows/ci.yml)** — no change; trunk CI stays MiniMax-only.
 
 ## Default model registry
@@ -44,18 +44,19 @@ Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_ST
 - `MODEL_PRICES` population for OpenRouter — `usd_cost=0.0` until then; rely on token counts.
 - `workflow_dispatch` job for OpenRouter live tests in CI.
 - `scripts/spike_minimax.py` rename — misleading once it speaks two providers.
+- OpenRouter vision ingest — PDF VLM still uses MiniMax API-vlm; OpenRouter covers chat/text JSON stages.
 
 ## Verification
 
 10-step runbook in the plan file. Mandatory before merge:
 
 1. `uv run ruff format --check . && uv run ruff check . && uv run mypy src/`
-2. `git grep -nE 'anthropic|ANTHROPIC|AsyncAnthropic|_ANTHROPIC_MODEL' -- src/ tests/ scripts/ .env.example` returns empty.
+2. `git grep -nE 'ANTHROPIC_API_KEY|AsyncAnthropic|_ANTHROPIC_MODEL' -- src/ tests/ scripts/ .env.example` returns empty. OpenRouter model slugs may still contain `anthropic/...`.
 3. `MINIMAX_API_KEY=test-stub uv run pytest -m fast --strict-markers -v` (no regression).
 4. `GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=test-stub uv run pytest -m fast --strict-markers -v -k "llm or openrouter"` (new branch wires up).
 5. Missing-key path raises `RuntimeError` containing `OPENROUTER_API_KEY`.
 6. `GANDER_LLM_PROVIDER=anthropic …` raises `RuntimeError` listing only `'minimax' or 'openrouter'` (deletion regression).
-7. Live single roundtrip: `pytest -m live tests/test_llm.py::test_openrouter_complete_json_roundtrip -v`.
+7. Live single roundtrip: `pytest -m live tests/test_llm.py::test_openrouter_complete_json_roundtrip_emits_telemetry -v`.
 
 Strongly recommended: 4-CV spike harness against OpenRouter (real money). Eval session: end-to-end on one fixture + A/B sanity diff between two models.
 
@@ -73,6 +74,8 @@ Implemented:
 - Added `GANDER_LLM_PROVIDER=openrouter` via the OpenAI-compatible `AsyncOpenAI` client at `https://openrouter.ai/api/v1`.
 - Default OpenRouter models changed per user preference: `anthropic/claude-haiku-4.5` for `reasoning`, `google/gemini-2.5-flash` for `cheap`.
 - Added `OPENROUTER_MODEL_REASONING` / `OPENROUTER_MODEL_CHEAP` overrides, optional OpenRouter headers, and provider telemetry on `llm_call`.
+- OpenRouter chat paths now tolerate missing provider usage metadata by reporting 0 prompt/completion tokens instead of failing a successful completion.
+- Documented that vision ingest remains MiniMax API-vlm-backed.
 - Generalized `scripts/spike_minimax.py` preflight to `{minimax, openrouter}`.
 - Updated `.env.example`.
 

@@ -36,7 +36,7 @@ HARD RULES — read carefully, violations cause the action to be dropped:
 5. DO NOT propose any of these banned actions, in any phrasing: "complete a PhD", "found a startup", "improve communication", "learn more", "network more". These are generic non-conformant outputs per PRD §4.4.
 6. DO NOT use softener phrases: "consider", "explore", "look into". Actions must be concrete imperatives — "Lead X", "Ship Y", "Own the Z migration", "Take the on-call rotation for ...".
 7. DO NOT instruct the candidate to redo, rebuild, scale, or own work attributed to a past employer. Past-employer work is evidence of capability, not the target of the action. If `current_employer_hint` is empty, treat the top work-experience entry as current and aim actions there or at new capability acquisition.
-8. At least one action MUST address a name in `dropped_components` or a component whose `score_0_100 < 60`. Its anchor may show adjacent capability, but the `what` must name the new capability, platform move, or evidence gap to close.
+8. If `dropped_components` is non-empty or any component has `score_0_100 < 60`, at least one action MUST address that dropped/weak area. Its anchor may show adjacent capability, but the `what` must name the new capability, platform move, or evidence gap to close. If there are no dropped or weak components, skip this requirement.
 
 One-shot example (anchored to a fabricated mini-CV snippet so no real candidate content leaks):
 

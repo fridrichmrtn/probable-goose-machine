@@ -80,6 +80,7 @@ _NAMED_HEADLINE_DENYLIST: Final[frozenset[str]] = frozenset(
 
 # Separator characters that signal a tagline-shape headline.
 _TAGLINE_CHARS: Final[frozenset[str]] = frozenset("|@&")
+_TITLE_WORD_RE: Final = re.compile(r"[0-9A-Za-zÀ-ž&]+", re.UNICODE)
 
 _BAND_RANK: Final[dict[SeniorityBand, int]] = {
     "junior": 0,
@@ -130,10 +131,23 @@ def _is_named_denylist(text: str) -> bool:
     return _norm(text).strip() in _NAMED_HEADLINE_DENYLIST
 
 
+def _is_title_shaped_candidate(text: str) -> bool:
+    stripped = " ".join(text.strip().split())
+    if not stripped or len(stripped) > 90:
+        return False
+    if any(ch in stripped for ch in ".;:!?"):
+        return False
+    if len(_TITLE_WORD_RE.findall(stripped)) > 8:
+        return False
+    return _classify(stripped) is not None
+
+
 def _recover_from_titles(titles: list[str]) -> tuple[str, SeniorityBand, bool] | None:
     """Pick the highest-seniority title that matches a market token; ties → first."""
     best: tuple[int, int, str, SeniorityBand, bool] | None = None
     for i, t in enumerate(titles):
+        if not _is_title_shaped_candidate(t):
+            continue
         r = _classify(t)
         if r is None:
             continue
@@ -145,6 +159,19 @@ def _recover_from_titles(titles: list[str]) -> tuple[str, SeniorityBand, bool] |
         return None
     _, _, title, band, mgmt = best
     return title, band, mgmt
+
+
+def _recover_current_title(titles: list[str]) -> tuple[str, SeniorityBand, bool] | None:
+    """Return the first title-shaped current/top candidate, preserving CV order."""
+    for t in titles:
+        if not _is_title_shaped_candidate(t):
+            continue
+        r = _classify(t)
+        if r is None:
+            continue
+        band, mgmt = r
+        return t, band, mgmt
+    return None
 
 
 def _emit_normalized(detected: str, result: NormalizedRole) -> None:
@@ -178,7 +205,7 @@ def normalize_role(
     if direct is not None and not denylisted and not tagline:
         band, mgmt = direct
         detected_rank = seniority_rank(detected)
-        recovered = _recover_from_titles(experience_titles)
+        recovered = _recover_current_title(experience_titles)
         if recovered is not None and detected_rank <= seniority_rank("data scientist"):
             title, recovered_band, recovered_mgmt = recovered
             if seniority_rank(title) > detected_rank:

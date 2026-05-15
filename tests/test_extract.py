@@ -415,8 +415,8 @@ async def test_tenure_override_skipped_when_no_deterministic(
 async def test_extract_normalizes_valid_but_wrong_side_entry_role(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A market-token-valid personal-project title must not beat the highest
-    seniority work-experience title when the extractor returns it first."""
+    """A market-token-valid side-entry title must not beat current/top
+    work-experience title evidence."""
     monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
 
     senior_quote = (
@@ -435,12 +435,12 @@ async def test_extract_normalizes_valid_but_wrong_side_entry_role(
         skills=[],
         experience=[
             ProfileItem(
-                text="Research Engineer",
-                anchor=Anchor(quote=research_quote, section="Work Experience"),
-            ),
-            ProfileItem(
                 text="Senior Manager AI and Data Science",
                 anchor=Anchor(quote=senior_quote, section="Work Experience"),
+            ),
+            ProfileItem(
+                text="Research Engineer",
+                anchor=Anchor(quote=research_quote, section="Work Experience"),
             ),
         ],
         education=[],
@@ -471,6 +471,7 @@ async def test_extract_normalizes_valid_but_wrong_side_entry_role(
     assert result.canonical_role == "senior manager ai and data science"
     assert result.seniority_band == "senior"
     assert result.is_management is True
+    assert result.role_normalization_source == "experience_recovery"
     normalized = [e for e in events if e["event"] == "role_normalized"]
     assert normalized[0]["source"] == "experience_recovery"
 
