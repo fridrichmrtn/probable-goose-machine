@@ -212,16 +212,26 @@ def _country_display_name(country: str | None) -> str | None:
     return _COUNTRY_NAMES.get(country.upper())
 
 
+_COUNTRY_ALIASES: dict[str, str] = {
+    # Common but non-ISO codes the LLM may emit. Anything not aliased and not
+    # in `_COUNTRY_CURRENCY` falls back to the location-based path so we don't
+    # silently bias an unsupported country into a USD default.
+    "UK": "GB",
+}
+
+
 def _resolve_country(profile: Profile) -> str:
     """Return ISO-3166 alpha-2 for the profile.
 
-    Prefers `detected_country` from extraction; falls back to the legacy
-    `_is_cz_location` regex on `detected_location` for backward compatibility
-    on CZ-leaning ambiguous CVs and older fixtures. Unknown -> `'XX'` (which
-    salary downstream treats as non-CZ, USD-defaulting).
+    Prefers `detected_country` from extraction (with alias resolution and a
+    membership check against the supported currency table); falls back to the
+    legacy `_is_cz_location` regex on `detected_location` for backward
+    compatibility on CZ-leaning ambiguous CVs and older fixtures. Unknown ->
+    `'XX'` (which salary downstream treats as non-CZ, USD-defaulting).
     """
     explicit = (profile.detected_country or "").strip().upper()
-    if explicit:
+    explicit = _COUNTRY_ALIASES.get(explicit, explicit)
+    if explicit and explicit in _COUNTRY_CURRENCY:
         return explicit
     if _is_cz_location(profile.detected_location):
         return "CZ"
@@ -552,6 +562,10 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 user_message=_INSUFFICIENT_DATA_MSG,
                 debug_detail=f"complete_json returned {type(estimate).__name__}",
             )
+
+        normalized_currency = (estimate.currency or "").strip().upper()
+        if normalized_currency != estimate.currency:
+            estimate = estimate.model_copy(update={"currency": normalized_currency})
 
         estimate = _apply_sanity_caps(profile, estimate)
 

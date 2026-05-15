@@ -126,7 +126,8 @@ the salary prompt, and stop *rejecting* non-{CZK,EUR,USD} outputs.
 - `uv run pytest tests/test_salary.py` — full suite green, including the
   new parametrized country cases.
 - `uv run pytest tests/test_salary.py -m live` — CZ live test
-  (`MINIMAX_API_KEY` present) unchanged.
+  (`OPENROUTER_API_KEY` present, `GANDER_LLM_PROVIDER=openrouter`)
+  unchanged.
 - `rg "EUR 2025|site:glassdoor.com OR site:levels.fyi|location else \"Europe\"" src/gander/`
   returns nothing.
 - Synthetic smoke: hand-build a `Profile(detected_country="DE",

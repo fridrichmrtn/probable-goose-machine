@@ -90,16 +90,19 @@ class Profile(BaseModel):
     detected_country: str | None = None
     detected_years_experience: int = Field(ge=0, le=70)
 
-    @field_validator("detected_country")
+    @field_validator("detected_country", mode="before")
     @classmethod
     def _validate_country_code(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        if not _ISO_3166_ALPHA2.fullmatch(value):
+        normalized = value.strip().upper() if isinstance(value, str) else value
+        if not normalized:
+            return None
+        if not _ISO_3166_ALPHA2.fullmatch(normalized):
             raise ValueError(
                 f"detected_country must be ISO-3166 alpha-2 (e.g. 'CZ'); got {value!r}"
             )
-        return value
+        return normalized
 
     # Populated post-LLM by gander.normalize.normalize_role (R4/R5 in T27).
     # When set, salary.build_queries + estimate_salary use these in place of

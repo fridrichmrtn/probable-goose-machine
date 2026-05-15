@@ -15,6 +15,7 @@ from gander.llm import LLMClient
 from gander.obs import subscribe
 from gander.salary import (
     _is_cz_location,
+    _resolve_country,
     build_queries,
     country_to_currency,
     currency_to_period,
@@ -826,6 +827,43 @@ def test_country_to_currency_table() -> None:
     assert country_to_currency("ZZ") == "USD"
     assert country_to_currency(None) == "USD"
     assert country_to_currency("") == "USD"
+
+
+@pytest.mark.fast
+def test_detected_country_normalizes_case_and_whitespace() -> None:
+    item = ProfileItem(text="x", anchor=Anchor(quote="x"))
+    base = dict(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Engineer",
+        detected_location="Berlin",
+        detected_years_experience=3,
+    )
+    assert Profile(**base, detected_country="de").detected_country == "DE"
+    assert Profile(**base, detected_country=" us ").detected_country == "US"
+    # Empty / whitespace-only collapses to None rather than raising.
+    assert Profile(**base, detected_country="").detected_country is None
+    assert Profile(**base, detected_country="   ").detected_country is None
+
+
+@pytest.mark.fast
+def test_resolve_country_aliases_uk_to_gb() -> None:
+    profile = _cz_profile(location="London").model_copy(update={"detected_country": "UK"})
+    assert _resolve_country(profile) == "GB"
+
+
+@pytest.mark.fast
+def test_resolve_country_falls_back_when_unsupported() -> None:
+    # An ISO-shaped but unsupported code (e.g. Antarctica) must not silently
+    # bias the salary stage into a USD default — fall back to location-based
+    # resolution so CZ-leaning candidates still go to CZ.
+    profile = _cz_profile(location="Prague").model_copy(update={"detected_country": "AQ"})
+    assert _resolve_country(profile) == "CZ"
+    # Non-CZ location with unsupported country -> XX (downstream USD default).
+    profile = _cz_profile(location="Berlin").model_copy(update={"detected_country": "AQ"})
+    assert _resolve_country(profile) == "XX"
 
 
 @pytest.mark.fast
