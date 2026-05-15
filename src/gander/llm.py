@@ -22,10 +22,14 @@ _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 
 
+def _strip_json_fence(text: str) -> str:
+    m = _JSON_FENCE_RE.match(text.strip())
+    return m.group(1).strip() if m else text
+
+
 def _strip_think(text: str) -> str:
     text = _THINK_BLOCK_RE.sub("", text, count=1).strip()
-    m = _JSON_FENCE_RE.match(text)
-    return m.group(1).strip() if m else text
+    return _strip_json_fence(text)
 
 
 def _usage_tokens(usage: Any) -> tuple[int, int]:
@@ -34,6 +38,25 @@ def _usage_tokens(usage: Any) -> tuple[int, int]:
     prompt = getattr(usage, "prompt_tokens", 0) or 0
     completion = getattr(usage, "completion_tokens", 0) or 0
     return int(prompt), int(completion)
+
+
+def _usage_cost_usd(usage: Any) -> float | None:
+    """Return provider-reported USD cost when the response includes it."""
+    if usage is None:
+        return None
+    cost = getattr(usage, "cost", None)
+    if cost is None and isinstance(usage, dict):
+        cost = usage.get("cost")
+    if cost is None:
+        model_extra = getattr(usage, "model_extra", None)
+        if isinstance(model_extra, dict):
+            cost = model_extra.get("cost")
+    if cost is None:
+        return None
+    try:
+        return float(cost)
+    except (TypeError, ValueError):
+        return None
 
 
 # USD per 1M tokens, (prompt, completion).
@@ -109,11 +132,21 @@ class LLMClient:
         return _PROFILE_MODELS[profile][logical]
 
     def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
-        # Cost only modeled for MiniMax; OpenRouter returns 0.0 until per-route pricing is pinned.
         price = MODEL_PRICES.get(model)
         if price is None:
             return 0.0
         return (prompt_tokens / 1e6) * price[0] + (completion_tokens / 1e6) * price[1]
+
+    def _cost_usd(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        provider_cost_usd: float | None,
+    ) -> float:
+        if self._provider == "openrouter" and provider_cost_usd is not None:
+            return provider_cost_usd
+        return self._estimate_cost(model, prompt_tokens, completion_tokens)
 
     async def complete_json(
         self,
@@ -129,6 +162,7 @@ class LLMClient:
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
+        provider_cost_usd: float | None = None
         finish_reason = ""
         try:
             current_user = user
@@ -140,14 +174,17 @@ class LLMClient:
                         + f"\n\nYour previous output failed validation: {last_err}"
                         + "\n\nReturn corrected JSON only."
                     )
-                text, attempt_prompt, attempt_completion, finish_reason = await self._chat_json(
-                    resolved,
-                    system,
-                    current_user,
-                    temperature,
-                )
+                (
+                    text,
+                    attempt_prompt,
+                    attempt_completion,
+                    finish_reason,
+                    attempt_cost_usd,
+                ) = await self._chat_json(resolved, system, current_user, temperature)
                 prompt_tokens += attempt_prompt
                 completion_tokens += attempt_completion
+                if attempt_cost_usd is not None:
+                    provider_cost_usd = (provider_cost_usd or 0.0) + attempt_cost_usd
                 try:
                     parsed = json.loads(text)
                     return schema.model_validate(parsed)
@@ -165,7 +202,9 @@ class LLMClient:
                 model=resolved,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                usd_cost=self._estimate_cost(resolved, prompt_tokens, completion_tokens),
+                usd_cost=self._cost_usd(
+                    resolved, prompt_tokens, completion_tokens, provider_cost_usd
+                ),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
             )
@@ -182,15 +221,18 @@ class LLMClient:
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
-        usd_cost = 0.0
+        provider_cost_usd: float | None = None
         finish_reason = ""
         try:
-            text, prompt_tokens, completion_tokens, finish_reason = await self._chat_text(
-                resolved, system, user, temperature
-            )
+            (
+                text,
+                prompt_tokens,
+                completion_tokens,
+                finish_reason,
+                provider_cost_usd,
+            ) = await self._chat_text(resolved, system, user, temperature)
             return text
         finally:
-            usd_cost = self._estimate_cost(resolved, prompt_tokens, completion_tokens)
             duration_ms = int((time.perf_counter() - t0) * 1000)
             obs.emit(
                 obs.current_stage.get(),
@@ -199,7 +241,9 @@ class LLMClient:
                 model=resolved,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                usd_cost=usd_cost,
+                usd_cost=self._cost_usd(
+                    resolved, prompt_tokens, completion_tokens, provider_cost_usd
+                ),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
             )
@@ -267,7 +311,7 @@ class LLMClient:
 
     async def _chat_json(
         self, model: str, system: str, user: str, temperature: float
-    ) -> tuple[str, int, int, str]:
+    ) -> tuple[str, int, int, str, float | None]:
         if self._provider == "minimax":
             client: Any = self._client
             response = await client.chat.completions.create(
@@ -290,6 +334,7 @@ class LLMClient:
                 prompt_tokens,
                 completion_tokens,
                 choice.finish_reason or "",
+                None,
             )
         client_o: Any = self._client
         response_o = await client_o.chat.completions.create(
@@ -305,6 +350,8 @@ class LLMClient:
         text_o = choice_o.message.content or ""
         if os.environ.get("OPENROUTER_STRIP_THINK") == "1":
             text_o = _strip_think(text_o)
+        else:
+            text_o = _strip_json_fence(text_o)
         usage_o = response_o.usage
         prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
         return (
@@ -312,11 +359,12 @@ class LLMClient:
             prompt_tokens_o,
             completion_tokens_o,
             choice_o.finish_reason or "",
+            _usage_cost_usd(usage_o),
         )
 
     async def _chat_text(
         self, model: str, system: str, user: str, temperature: float
-    ) -> tuple[str, int, int, str]:
+    ) -> tuple[str, int, int, str, float | None]:
         if self._provider == "minimax":
             client: Any = self._client
             response = await client.chat.completions.create(
@@ -337,6 +385,7 @@ class LLMClient:
                 prompt_tokens,
                 completion_tokens,
                 choice.finish_reason or "",
+                None,
             )
         client_o: Any = self._client
         response_o = await client_o.chat.completions.create(
@@ -358,4 +407,5 @@ class LLMClient:
             prompt_tokens_o,
             completion_tokens_o,
             choice_o.finish_reason or "",
+            _usage_cost_usd(usage_o),
         )

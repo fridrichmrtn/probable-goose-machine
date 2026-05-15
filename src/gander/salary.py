@@ -36,6 +36,7 @@ _INSUFFICIENT_DATA_MSG = "Insufficient market data for this profile"
 _DEFAULT_SALARY_SEARCH_BACKENDS = "brave,duckduckgo,yahoo,mojeek"
 _SALARY_SEARCH_MAX_RESULTS = 20
 _SALARY_LLM_SOURCE_LIMIT = 8
+_JUNIOR_CZK_MONTH_HIGH_CAP = 90_000
 _SALARY_DOMAIN_PRIORITY: tuple[str, ...] = (
     "platy.cz",
     "profesia.cz",
@@ -54,6 +55,35 @@ def _is_cz_location(location: str | None) -> bool:
     if not location:
         return True
     return bool(_CZ_TOKEN_PATTERN.search(location))
+
+
+def _apply_sanity_caps(profile: Profile, estimate: SalaryEstimate) -> SalaryEstimate:
+    if (
+        profile.seniority_band == "junior"
+        and profile.detected_years_experience <= 2
+        and estimate.currency == "CZK"
+        and estimate.period == "month"
+        and estimate.high > _JUNIOR_CZK_MONTH_HIGH_CAP
+    ):
+        original_low = estimate.low
+        original_high = estimate.high
+        high = _JUNIOR_CZK_MONTH_HIGH_CAP
+        low = min(estimate.low, high - 10_000)
+        emit(
+            "salary",
+            "salary_sanity_cap",
+            cap="junior_czk_month",
+            original_low=original_low,
+            original_high=original_high,
+            capped_low=low,
+            capped_high=high,
+        )
+        reasoning = (
+            estimate.reasoning.rstrip()
+            + " Junior CZK/month sanity cap applied for a <=2-year junior profile."
+        )
+        return estimate.model_copy(update={"low": low, "high": high, "reasoning": reasoning})
+    return estimate
 
 
 def build_queries(profile: Profile) -> list[str]:
@@ -289,6 +319,8 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 user_message=_INSUFFICIENT_DATA_MSG,
                 debug_detail=f"complete_json returned {type(estimate).__name__}",
             )
+
+        estimate = _apply_sanity_caps(profile, estimate)
 
         # Verify every emitted source against the inputs by URL AND replace the
         # snippet/domain with the actual DDG-returned values. The LLM is allowed

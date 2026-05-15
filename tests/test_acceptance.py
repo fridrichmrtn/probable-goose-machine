@@ -286,12 +286,19 @@ def test_per_run_cost_budget(triplet: _TripletRun) -> None:
     """Per-pipeline-run USD cost must stay under a smoke-test ceiling.
 
     This is intentionally a broad guardrail, not a tight budget contract:
-    VLM-backed ingest can add token-plan request costs, while text-only
-    MiniMax-M2.7-highspeed calls still report 0.0 until pricing is filled in.
+    VLM-backed ingest can add token-plan request costs, while MiniMax stays
+    compatible with the zeroed pricing table. OpenRouter reports provider cost
+    directly and must not pass this gate vacuously.
     """
+    provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
     profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
     budget = 0.15
     for fname, cost in triplet.per_run_cost_usd.items():
+        if provider == "openrouter":
+            assert cost > 0.0, (
+                f"{fname} cost ${cost:.4f} is not positive "
+                "(expected OpenRouter usage.cost telemetry)"
+            )
         assert cost < budget, f"{fname} cost ${cost:.4f} >= ${budget:.2f} (profile={profile})"
 
 

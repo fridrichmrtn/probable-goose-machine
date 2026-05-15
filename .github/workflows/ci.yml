@@ -85,3 +85,43 @@ jobs:
         # carries @pytest.mark.xdist_group("ddg") so loadgroup pins it to a
         # single worker — concurrent DDG search from one runner IP rate-limits.
         run: uv run pytest -m live --strict-markers --reruns 1 --reruns-delay 2 -n 4 --dist=loadgroup -v
+
+  openrouter-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: static
+    # Fork PRs cannot access secrets — skip the job entirely instead of failing on a missing key.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Serialize with the MiniMax live job because the acceptance suite still touches DDG.
+    concurrency:
+      group: ci-live
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Require OpenRouter secret
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY repository secret is required for openrouter-live"
+            exit 1
+          fi
+
+      - name: Pytest (OpenRouter live)
+        env:
+          GANDER_LLM_PROVIDER: openrouter
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GANDER_INGEST_MODE: text
+        run: uv run pytest tests/test_llm.py::test_openrouter_complete_json_roundtrip_emits_telemetry tests/test_acceptance.py -m live --strict-markers --reruns 1 --reruns-delay 2 -n 4 --dist=loadgroup -v

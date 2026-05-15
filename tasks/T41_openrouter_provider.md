@@ -1,6 +1,6 @@
 # T41 — Wire OpenRouter; drop direct Anthropic provider
 
-Status: implemented — pending live OpenRouter roundtrip
+Status: implemented — pending required `openrouter-live` CI pass
 Owner: software-engineer
 Depends on: —
 Unblocks: cross-provider model evaluation (no follow-up task yet)
@@ -23,8 +23,8 @@ Full plan in [plan-wiring-open-router-wiggly-hopper.md](../../.claude/plans/plan
 - **[src/gander/llm.py](../src/gander/llm.py)** — delete anthropic branch (TYPE_CHECKING import, `_ANTHROPIC_MODEL`, `__init__` elif, `_resolve_model` early return, anthropic branches in `_chat_json` / `_chat_text`); add openrouter branch using `AsyncOpenAI(base_url="https://openrouter.ai/api/v1", default_headers={HTTP-Referer, X-Title})`; add `OPENROUTER_MODEL_{REASONING,CHEAP}` env overrides on a small registry default; keep MiniMax quirks (`_strip_think`, `extra_body={"reasoning_split": True}`, `max_tokens=4096`) **strictly inside** the minimax branch; gate `_strip_think` behind `OPENROUTER_STRIP_THINK=1` for reasoning-trace routes; add `provider=self._provider` to both `obs.emit("llm_call", ...)` call sites.
 - **[.env.example](../.env.example)** — drop `ANTHROPIC_API_KEY` line; add `OPENROUTER_API_KEY` + two model-override lines.
 - **[scripts/spike_minimax.py](../scripts/spike_minimax.py)** — generalize `_preflight` to a 2-way `{minimax, openrouter}` lookup.
-- **[tests/test_llm.py](../tests/test_llm.py)** — OpenRouter construction/model override tests; JSON and text chat branch tests that omit MiniMax quirks and tolerate missing usage metadata; MiniMax branch regression guard; gated OpenRouter live JSON roundtrip when `OPENROUTER_API_KEY` is present.
-- **[.github/workflows/ci.yml](../.github/workflows/ci.yml)** — no change; trunk CI stays MiniMax-only.
+- **[tests/test_llm.py](../tests/test_llm.py)** — OpenRouter construction/model override tests; JSON and text chat branch tests that omit MiniMax quirks and tolerate missing usage metadata/cost; MiniMax branch regression guard; gated OpenRouter live JSON roundtrip when `OPENROUTER_API_KEY` is present.
+- **[.github/workflows/ci.yml](../.github/workflows/ci.yml)** — add required `openrouter-live` job for same-repo PRs/main pushes; it runs the OpenRouter live roundtrip plus EN-triplet acceptance under `GANDER_LLM_PROVIDER=openrouter`.
 
 ## Default model registry
 
@@ -41,8 +41,7 @@ Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_ST
 
 - L4c judge slot (`LogicalModel = Literal["reasoning", "cheap", "judge"]`) — restores PRD §4.3 isolation but touches `confidence.py` + every caller. Separate task.
 - `--model-reasoning` / `--model-cheap` CLI flags on `eval_corpus.py` — env vars suffice for tomorrow's exploration.
-- `MODEL_PRICES` population for OpenRouter — `usd_cost=0.0` until then; rely on token counts.
-- `workflow_dispatch` job for OpenRouter live tests in CI.
+- Static `MODEL_PRICES` population for OpenRouter — use provider-reported `usage.cost` instead.
 - `scripts/spike_minimax.py` rename — misleading once it speaks two providers.
 - OpenRouter vision ingest — PDF VLM still uses MiniMax API-vlm; OpenRouter covers chat/text JSON stages.
 
@@ -57,6 +56,7 @@ Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_ST
 5. Missing-key path raises `RuntimeError` containing `OPENROUTER_API_KEY`.
 6. `GANDER_LLM_PROVIDER=anthropic …` raises `RuntimeError` listing only `'minimax' or 'openrouter'` (deletion regression).
 7. Live single roundtrip: `pytest -m live tests/test_llm.py::test_openrouter_complete_json_roundtrip_emits_telemetry -v`.
+8. Required GitHub `openrouter-live` job passes once with the repository `OPENROUTER_API_KEY` secret configured.
 
 Strongly recommended: 4-CV spike harness against OpenRouter (real money). Eval session: end-to-end on one fixture + A/B sanity diff between two models.
 
@@ -64,7 +64,7 @@ Strongly recommended: 4-CV spike harness against OpenRouter (real money). Eval s
 
 - Provider-specific JSON-mode failures: some OpenRouter routes reject `response_format={"type": "json_object"}`. Plan lets `BadRequestError` propagate raw rather than wrapping.
 - Reasoning-trace models (DeepSeek-R1, Qwen-QwQ, OpenAI o-series) emit `<think>` blocks; `OPENROUTER_STRIP_THINK=1` covers them, off by default.
-- `usd_cost=0.0` for every OpenRouter row until `MODEL_PRICES` populated. Telemetry includes `provider` field so analyst can disambiguate from zeroed MiniMax rows.
+- OpenRouter usage metadata drift: telemetry uses provider-reported `usage.cost`; if that field disappears, the OpenRouter cost gate fails instead of passing vacuously.
 - Slug drift on OpenRouter model IDs — flagged inline in registry comments.
 
 ## Outcome
@@ -75,6 +75,10 @@ Implemented:
 - Default OpenRouter models changed per user preference: `anthropic/claude-haiku-4.5` for `reasoning`, `google/gemini-2.5-flash` for `cheap`.
 - Added `OPENROUTER_MODEL_REASONING` / `OPENROUTER_MODEL_CHEAP` overrides, optional OpenRouter headers, and provider telemetry on `llm_call`.
 - OpenRouter chat paths now tolerate missing provider usage metadata by reporting 0 prompt/completion tokens instead of failing a successful completion.
+- OpenRouter JSON-mode responses now strip markdown JSON fences without enabling reasoning-trace stripping.
+- OpenRouter telemetry now records provider-reported `usage.cost` as `usd_cost` when available.
+- Added required `openrouter-live` CI job for the live roundtrip + EN-triplet acceptance suite.
+- Tightened CZ salary calibration exposed by OpenRouter live acceptance: staff/principal IC uplift and deterministic <=2-year junior CZK/month cap.
 - Documented that vision ingest remains MiniMax API-vlm-backed.
 - Generalized `scripts/spike_minimax.py` preflight to `{minimax, openrouter}`.
 - Updated `.env.example`.
@@ -82,10 +86,11 @@ Implemented:
 Verified:
 - OpenRouter slugs checked against OpenRouter model pages on 2026-05-15.
 - `uv run pytest tests/test_llm.py -m fast -v`
-- full fast suite: `350 passed, 57 deselected`
+- full fast suite: `362 passed, 58 deselected`
 - `uv run ruff check .`
 - `uv run mypy src/`
+- Local `openrouter-live` equivalent with `.env` key: `10 passed in 145.11s`
 
 Still pending before checking T41 done:
-- Live OpenRouter JSON roundtrip with `OPENROUTER_API_KEY`.
+- Required GitHub `openrouter-live` job pass with `OPENROUTER_API_KEY`.
 - Optional one-fixture end-to-end A/B run against Haiku/Gemini Flash.

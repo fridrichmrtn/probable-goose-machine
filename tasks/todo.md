@@ -64,4 +64,4 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T40** — CV-quality signals into confidence judge (`tasks/T40_confidence_cv_signals.md`) — *implementation fast-verified; pending live Profile.pdf rerun*
 
 ## Provider plumbing
-- [ ] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *implementation fast-verified; pending live OpenRouter roundtrip*
+- [ ] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *implementation fast-verified; pending required `openrouter-live` CI pass*
