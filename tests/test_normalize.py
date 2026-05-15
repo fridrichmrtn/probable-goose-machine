@@ -332,3 +332,34 @@ async def test_async_wrapper_keeps_unrecognized_when_llm_fails(
     result = await normalize_role_with_llm_fallback("Wizard of Bytes", 4, [])
     assert result.source == "unrecognized"
     assert result.seniority_band == "mid"
+
+
+@pytest.mark.fast
+async def test_llm_canonicalize_forwards_max_tokens_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`normalize_role_with_llm_fallback` caps the cheap-tier `complete_json` call
+    at 256 tokens. Regression guard: this was the one previously-uncapped
+    OpenRouter call site missed in T45."""
+    from gander.llm import LLMClient
+    from gander.normalize import _LLMCanonicalRole
+
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_complete_json(self: LLMClient, **kwargs: Any) -> _LLMCanonicalRole:
+        captured.update(kwargs)
+        return _LLMCanonicalRole(
+            canonical_role="head of data science",
+            seniority_band="head",
+            is_management=True,
+            confidence=0.9,
+        )
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    result = await normalize_role_with_llm_fallback("Wizard of Bytes", 12, [])
+
+    assert result.source == "llm_fallback"
+    assert captured["max_tokens"] == 256

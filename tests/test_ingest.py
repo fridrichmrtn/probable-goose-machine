@@ -284,6 +284,57 @@ async def test_pdf_vlm_parallel_preserves_page_order_and_bounds_concurrency(
 
 
 @pytest.mark.fast
+async def test_pdf_vlm_cancels_siblings_on_first_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """First per-page failure cancels in-flight siblings before they complete.
+    Regression guard against re-introducing `asyncio.gather` (which lets siblings
+    run to completion and burn provider budget after the first reject)."""
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    pdf_bytes = _pdf_bytes(
+        [["Summary", f"Page {i} content for cancellation test."] for i in range(3)]
+    )
+
+    page_pngs = ingest._render_pdf_pages(pdf_bytes)
+    png_to_index = {png: i for i, png in enumerate(page_pngs)}
+    sibling_completions = {"count": 0}
+
+    async def _fake_vlm(
+        self: LLMClient,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+        timeout_s: float = 120.0,
+        max_tokens: int | None = None,
+    ) -> str:
+        idx = png_to_index[image_bytes]
+        if idx == 0:
+            await asyncio.sleep(0.01)
+            return ""  # triggers _IngestLLMReject("empty_output")
+        await asyncio.sleep(5.0)
+        sibling_completions["count"] += 1
+        return f"Page {idx} should never reach here"
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _fake_vlm)
+
+    loop_t0 = asyncio.get_event_loop().time()
+    with pytest.raises(ingest._IngestLLMReject):
+        await ingest._extract_pdf_vlm(pdf_bytes)
+    elapsed = asyncio.get_event_loop().time() - loop_t0
+
+    assert sibling_completions["count"] == 0, (
+        f"siblings ran to completion after first reject: "
+        f"{sibling_completions['count']} of 2 — TaskGroup cancellation broken"
+    )
+    assert elapsed < 1.0, (
+        f"cancellation did not short-circuit; elapsed={elapsed:.2f}s "
+        "(siblings were sleeping 5s each)"
+    )
+
+
+@pytest.mark.fast
 async def test_pdf_vlm_failure_falls_back_to_deterministic_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

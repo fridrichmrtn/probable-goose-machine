@@ -82,3 +82,15 @@ Wallclock measurement is **not** the goal of this task — Phase 4 owns the spik
 - Improvement D (DDG semaphore on salary search fan-out).
 - MiniMax vision REST `max_tokens` (the endpoint does not accept it).
 - Any wallclock spike rerun or live `openrouter-live` job — owned by the follow-up review phase.
+
+## Outcome
+
+Implemented on 2026-05-15 on `dev/parallelize-vision-cap-max-tokens` (PR
+[#29](https://github.com/fridrichmrtn/probable-goose-machine/pull/29)). Three
+landed commits (T45 impl + heal + docs) plus a bot-review follow-up commit
+addressing the gather cancellation tail, the uncapped
+`normalize_role_with_llm_fallback` call site, and this Outcome section.
+Local checks green: pre-commit, `pytest -m fast` (387 passed after the
+follow-up tests, 58 deselected), `mypy src` clean. `openrouter-live` runs in
+CI on the PR. Live wallclock re-measurement on Profile.pdf deferred to a
+post-merge spike rerun.

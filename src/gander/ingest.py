@@ -344,7 +344,18 @@ async def _extract_pdf_vlm(file_bytes: bytes) -> str:
         )
         return page_text.strip()
 
-    transcripts = await asyncio.gather(*(_transcribe(i, png) for i, png in enumerate(pages)))
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(_transcribe(i, png)) for i, png in enumerate(pages)]
+    except* (_IngestLLMReject, httpx.HTTPError, RuntimeError, TimeoutError, ValueError) as eg:
+        # TaskGroup cancels still-running siblings before re-raising; surface the
+        # first leaf exception so callers see the same single-exception contract
+        # the pre-parallel serial loop used to deliver.
+        leaf: BaseException = eg.exceptions[0]
+        while isinstance(leaf, BaseExceptionGroup):
+            leaf = leaf.exceptions[0]
+        raise leaf from eg
+    transcripts = [t.result() for t in tasks]
 
     transcript = "\n[PAGE_BREAK]\n".join(transcripts)
     transcript = _repair_inline_section_breaks(transcript)
