@@ -20,6 +20,7 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[must-fix]` §4.8 per-stage duration | PR #35 sweep (`t46-salary-multi-market`) | `score`, `salary`, `confidence`, and `growth` now emit terminal `done` events with `duration_ms`; explicit `stage_failure` events on those stages also carry `duration_ms` |
 | `[must-fix]` PRD §5(3) arbitrary-CV path | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_arbitrary_cv_smoke.py` reads `GANDER_SMOKE_CV`, runs the live pipeline, and asserts every final block is populated or a reviewer-facing `StageFailure` |
 | `[should-fix]` generic boundary raw exception leaks | PR #35 sweep (`t46-salary-multi-market`) | `stage_boundary` now uses curated stage messages for `StageFailure.user_message` and emits obs `error` events with `exc_type` only, not raw `exc_message` |
+| `[should-fix]` rendered failure copy | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_render.py::test_render_body_renders_failure_copy_for_each_stage` pins reviewer-facing failure copy for profile, score, salary, confidence, and growth |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -60,7 +61,7 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 
 **Findings**
 
-- `[should-fix] PRD §4.6 rendered-copy` no test asserts that **`render_body` output** contains the user-facing failure copy for each mode. T18 asserts the strings on the `Report` dataclass; the renderer could regress without breaking T18. Suggested fix: extend `tests/test_render.py` with one parametrised test that builds a `Report` containing a `StageFailure` per stage and asserts the failure copy appears in the rendered HTML. Owner: T14 or T18 follow-up.
+- `[resolved] PRD §4.6 rendered-copy` `tests/test_render.py` now has a parametrized `StageFailure` render test covering profile, score, salary, confidence, and growth copy.
 - `[resolved-pending-merge] Multi-failure renderer` PR #10's `tests/test_report.py::test_stage_failure_does_not_block_other_stages` asserts the renderer emits every section's failure callout (Score, Salary, Confidence, Plan) when all four downstream stages fail simultaneously. Single-stage-fails-alone permutations are owned by `tests/test_render.py`. No remaining gap on this axis; re-verify on merge.
 - `[nit] T18 cascade contract ↔ T15` the "extract fails → score/salary/growth get cascade message" assertion depends on T15's `_CASCADE_PROFILE_FAILED` dict shape. T15 has no contract-level test for the cascade keys; if a stage name changes, only T18 catches it. Suggested fix: a 5-line unit test in `tests/test_pipeline_fast.py` asserting `_CASCADE_PROFILE_FAILED` covers `{"score", "salary", "growth"}`.
 
@@ -135,15 +136,15 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 | Severity | Count |
 |---|---|
 | `[must-fix]` | 0 |
-| `[should-fix]` | 7 |
+| `[should-fix]` | 6 |
 | `[nit]` | 4 |
 
-Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, PRD §4.6 rendered-copy, T23 fresh-clone smoke, T22 secret rebind, T27 role-map test, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
+Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, T23 fresh-clone smoke, T22 secret rebind, T27 role-map test, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
 **Top actionable follow-ups**:
 
 1. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
-2. `[should-fix]` Pin rendered failure copy in `render_body` for each failure mode.
-3. `[should-fix]` Add a corpus role-normalization map test for the bundled fixture headlines.
+2. `[should-fix]` Add a corpus role-normalization map test for the bundled fixture headlines.
+3. `[should-fix]` Document the HF Space secret rebind / redeploy path.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak should-fix is also closed. 0 `[must-fix]` findings remain open in this audit.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak and rendered-copy should-fixes are also closed. 0 `[must-fix]` findings remain open in this audit.

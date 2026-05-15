@@ -336,6 +336,54 @@ def test_render_body_escapes_html_in_source_snippet() -> None:
 
 
 @pytest.mark.fast
+@pytest.mark.parametrize(
+    ("stage", "message"),
+    [
+        ("profile", "Unable to read this file. Please upload a valid PDF or DOCX."),
+        ("score", "Could not generate this section reliably"),
+        ("salary", "Insufficient market data for this profile"),
+        ("confidence", "Could not generate this section reliably"),
+        ("growth", "Could not generate this section reliably"),
+    ],
+)
+def test_render_body_renders_failure_copy_for_each_stage(
+    stage: StageName,
+    message: str,
+) -> None:
+    failure = StageFailure(stage=stage, user_message=message)
+
+    if stage == "profile":
+        downstream = StageFailure(stage="x", user_message="skipped")
+        report = _make_report(
+            profile=failure,
+            score=downstream,
+            salary=downstream,
+            confidence=downstream,
+            growth=downstream,
+            statuses=_statuses(
+                profile="failed",
+                score="skipped",
+                salary="skipped",
+                confidence="skipped",
+                growth="skipped",
+            ),
+        )
+    elif stage == "score":
+        report = _make_report(score=failure, statuses=_statuses(score="failed"))
+    elif stage == "salary":
+        report = _make_report(salary=failure, statuses=_statuses(salary="failed"))
+    elif stage == "confidence":
+        report = _make_report(confidence=failure, statuses=_statuses(confidence="failed"))
+    else:
+        report = _make_report(growth=failure, statuses=_statuses(growth="failed"))
+
+    out = render_body(report)
+
+    assert message in out
+    assert "Traceback" not in out
+
+
+@pytest.mark.fast
 def test_render_body_partial_score_shows_dropped_footer() -> None:
     # T25: partial Score renders only surviving components in the table and a
     # one-line italic footer naming the dropped categories. The total reflects
