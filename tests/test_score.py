@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from gander.errors import StageFailure
+from gander.ingest import _annotate_sections
 from gander.llm import LLMClient
 from gander.obs import subscribe
 from gander.schemas import (
@@ -801,7 +802,7 @@ async def test_score_returns_stage_failure_on_invalid_llm_output(
 )
 async def test_junior_fixture_scores_below_40() -> None:
     cv_text = JUNIOR_FIXTURE.read_text(encoding="utf-8")
-    redacted = RedactedCV(text=cv_text, audit_log=[])
+    redacted = RedactedCV(text=_annotate_sections(cv_text), audit_log=[])
     item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
     profile = Profile(
         skills=[item],
@@ -830,7 +831,7 @@ async def test_junior_fixture_scores_below_40() -> None:
 )
 async def test_senior_fixture_scores_above_70() -> None:
     cv_text = SENIOR_FIXTURE.read_text(encoding="utf-8")
-    redacted = RedactedCV(text=cv_text, audit_log=[])
+    redacted = RedactedCV(text=_annotate_sections(cv_text), audit_log=[])
     item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
     profile = Profile(
         skills=[item],
@@ -859,7 +860,7 @@ async def test_phd_fixture_education_lands_in_doctorate_band() -> None:
     # component ≥ 85. The score stage may drop the component on anchor-verify
     # — in that case the test fails closed rather than silently passing.
     cv_text = PHD_FIXTURE.read_text(encoding="utf-8")
-    redacted = RedactedCV(text=cv_text, audit_log=[])
+    redacted = RedactedCV(text=_annotate_sections(cv_text), audit_log=[])
     item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
     profile = Profile(
         skills=[item],
