@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
 JUNIOR_FIXTURE = FIXTURE_DIR / "01_junior_da_novotny.txt"
 SENIOR_FIXTURE = FIXTURE_DIR / "08_staff_ml_engineer_dvorak.txt"
+PHD_FIXTURE = FIXTURE_DIR / "09_research_phd_marek.txt"
 
 
 @pytest.mark.fast
@@ -43,6 +44,16 @@ def test_score_total_is_deterministic_weighted_sum() -> None:
     )
     # 80*0.35 + 60*0.30 + 40*0.20 + 100*0.15 = 28 + 18 + 8 + 15 = 69
     assert score.total == 69
+
+
+@pytest.mark.fast
+def test_score_prompt_pins_education_credential_bands() -> None:
+    body = (REPO_ROOT / "src" / "gander" / "prompts" / "score.md").read_text(encoding="utf-8")
+
+    assert "86–100 Doctorate completed" in body
+    assert "Multiple advanced degrees" in body
+    assert "Score on the HIGHEST credential" in body
+    assert "Do not score this component on prestige" in body
 
 
 # Shared CV body for the T25 partial-score scenarios. Each section header is
@@ -821,6 +832,40 @@ async def test_senior_fixture_scores_above_70() -> None:
     result = await score_profile(redacted, profile)
     assert isinstance(result, Score), f"expected Score, got {type(result).__name__}: {result}"
     assert result.total > 70, f"senior fixture scored {result.total}, expected >70"
+
+
+@pytest.mark.live
+async def test_phd_fixture_education_lands_in_doctorate_band() -> None:
+    # T47: the score.md education rubric maps a completed doctorate to 86–100
+    # and pushes multi-degree CVs (here: Bc. + Mgr./M.Sc. + Ph.D.) toward the
+    # top of that band. The Marek research fixture lists exactly that ladder
+    # in its Education section, so a passing run must produce an education
+    # component ≥ 85. The score stage may drop the component on anchor-verify
+    # — in that case the test fails closed rather than silently passing.
+    cv_text = PHD_FIXTURE.read_text(encoding="utf-8")
+    redacted = RedactedCV(text=cv_text, audit_log=[])
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Research Scientist",
+        detected_location="Prague",
+        detected_years_experience=12,
+    )
+    result = await score_profile(redacted, profile)
+    assert isinstance(result, Score), f"expected Score, got {type(result).__name__}: {result}"
+    education = next((c for c in result.components if c.name == "education"), None)
+    assert education is not None, (
+        f"education component missing from PhD fixture score; "
+        f"dropped={result.dropped}, components={[c.name for c in result.components]}"
+    )
+    assert education.score_0_100 >= 85, (
+        f"PhD + Master's + Bachelor's fixture scored education "
+        f"{education.score_0_100}/100, expected >=85 per T47 rubric. "
+        f"Anchor: {education.anchor.quote!r}"
+    )
 
 
 @pytest.mark.fast
