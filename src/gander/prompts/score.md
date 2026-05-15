@@ -28,7 +28,7 @@ Component definitions (score on these, nothing else):
                    66–80  Master's degree completed (MSc, MA, MEng, MBA, Mgr., Ing., …)
                    86–100 Doctorate completed (PhD, DPhil, MD, JD-equivalent doctorate, CSc., DrSc.)
 
-                 Multiple advanced degrees (e.g., two Master's; or Master's + PhD) push to the TOP of the highest applicable band. A single Master's lands mid-band (~73); two Master's push toward 80. A PhD alone lands ~90; PhD + Master's pushes toward 100. Do not score this component on prestige of the school name; treat all accredited institutions equally. Do not score on field-of-study fit to the role — that's not an education-component signal.
+                 Multiple advanced degrees (e.g., two Master's; or Master's + PhD) push higher within the highest applicable band. Do not score this component on prestige of the school name; treat all accredited institutions equally. Do not score on field-of-study fit to the role — that's not an education-component signal.
 - soft_signals:  evidence of leadership, written/verbal communication, mentorship, cross-team work, and domain depth, drawn from explicit statements in the CV.
 
 Absolute scoring scale for skills / experience / soft_signals (education uses the credential bands above; do NOT center on 50):

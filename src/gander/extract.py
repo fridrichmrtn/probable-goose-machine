@@ -16,7 +16,7 @@ from gander import obs
 from gander.errors import StageFailure, stage_boundary
 from gander.ingest import LOW_EVIDENCE_MSG
 from gander.llm import LLMClient
-from gander.normalize import normalize_role_with_llm_fallback, seniority_rank
+from gander.normalize import normalize_role_with_llm_fallback
 from gander.schemas import Anchor, Profile, ProfileItem, RedactedCV
 from gander.verify import drop_unverified, verify_quote
 
@@ -114,6 +114,14 @@ def _cv_composite_score(kept_lists: dict[str, list[ProfileItem]]) -> int:
 def _evidence_key(quote: str) -> str:
     """Normalize an anchor quote so duplicate evidence counts once."""
     return " ".join(unicodedata.normalize("NFC", quote).casefold().split())
+
+
+def _quote_source_index(source: str, quote: str) -> int:
+    """Best-effort source offset for verified anchor quotes; missing quotes sort last."""
+    haystack = unicodedata.normalize("NFC", source).casefold()
+    needle = unicodedata.normalize("NFC", quote).casefold()
+    idx = haystack.find(needle)
+    return idx if idx >= 0 else len(haystack)
 
 
 def _strip_bullet(line: str) -> str:
@@ -317,16 +325,13 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             "detected_years_experience", profile.detected_years_experience
         )
         assert isinstance(years_for_normalize, int)
+        experience_items = sorted(
+            kept_lists["experience"],
+            key=lambda item: _quote_source_index(redacted.text, item.anchor.quote),
+        )
         experience_titles: list[str] = []
-        for item in kept_lists["experience"]:
+        for item in experience_items:
             experience_titles.append(item.text)
-        experience_titles = [
-            title
-            for _, title in sorted(
-                enumerate(experience_titles),
-                key=lambda row: (-seniority_rank(row[1]), row[0]),
-            )
-        ]
         normalized = await normalize_role_with_llm_fallback(
             profile.detected_role, years_for_normalize, experience_titles
         )

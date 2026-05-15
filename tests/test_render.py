@@ -270,17 +270,19 @@ def test_render_body_populated_contains_expected_content() -> None:
     assert "[platy.cz]" in out
     assert "https://platy.cz" not in out
     # Components render as always-visible tiles, not a table+accordion stack.
-    assert '<div class="gander-components-grid">' in out
+    assert '<div class="gander-components-grid" role="list">' in out
     assert out.count('class="gander-component"') == 4
-    assert '<blockquote class="gander-component-quote">' in out
+    assert 'role="listitem"' in out
+    assert '<h3 id="gander-score-skills" class="gander-component-head">' in out
+    assert '<blockquote class="gander-component-quote" title=' in out
     assert "<details open>" not in out
     # Plan / growth list renders as structured HTML with horizon chips.
     assert '<ol class="gander-plan">' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
-    assert '<span class="gander-chip">6 months</span>' in out
+    assert '<span class="gander-chip" aria-label="Time horizon: 6 months">6 months</span>' in out
     assert "**learn rust**" not in out
     # Confidence badge is visually separated from the rationale.
-    assert '<span class="gander-chip">[!] High</span>' in out
+    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
 
 
 @pytest.mark.fast
@@ -298,7 +300,7 @@ def test_render_body_with_salary_failure_keeps_score_block() -> None:
     assert "Insufficient market data for this profile" in out
     assert "CZK" not in out
     # Confidence + plan still render.
-    assert '<span class="gander-chip">[!] High</span>' in out
+    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
 
 
@@ -454,8 +456,8 @@ def test_render_body_partial_score_shows_dropped_footer() -> None:
     assert "## Score: 42/100" in out
     # Surviving component labels render as tiles; dropped one absent.
     for label in ("Experience", "Education", "Soft"):
-        assert f"<strong>{label}</strong>" in out
-    assert "<strong>Skills</strong>" not in out
+        assert f">{label} <span" in out
+    assert ">Skills <span" not in out
     # Italic dropped-components footer (matches T25 §Deliverables wording).
     assert "1 component(s) dropped (Skills)" in out
     assert "no anchor verified against CV text" in out
@@ -474,7 +476,7 @@ def test_render_body_score_failure_keeps_other_sections() -> None:
     # Salary, confidence, growth still render.
     assert "CZK" in out
     assert "80,000" in out
-    assert '<span class="gander-chip">[!] High</span>' in out
+    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
 
 
@@ -507,7 +509,7 @@ def test_render_body_growth_failure_keeps_other_sections() -> None:
     # Score, salary, confidence still render.
     assert "## Score: 69/100" in out
     assert "CZK" in out
-    assert '<span class="gander-chip">[!] High</span>' in out
+    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
 
 
 # ---------- render_body — confidence badge tiers ----------

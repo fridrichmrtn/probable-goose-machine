@@ -19,7 +19,7 @@ from gander.schemas import (
     RedactedCV,
     Score,
 )
-from gander.score import _ComponentList, score_profile
+from gander.score import _ComponentList, _education_credential_floor, score_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
@@ -63,6 +63,46 @@ def test_score_prompt_pins_education_credential_bands() -> None:
     assert "Multiple advanced degrees" in body
     assert "Score on the HIGHEST credential" in body
     assert "Do not score this component on prestige" in body
+
+
+@pytest.mark.fast
+def test_education_credential_floor_scans_only_education_section() -> None:
+    source = (
+        "## Work Experience\n"
+        "Supervised PhD students and managed the MBA program for a university lab.\n"
+        "## Education\n"
+        "Bachelor of Science in Statistics, Charles University, two thousand eighteen.\n"
+    )
+
+    assert _education_credential_floor(source) is None
+
+
+@pytest.mark.fast
+def test_education_credential_floor_ignores_substring_false_positives() -> None:
+    source = (
+        "## Education\n"
+        "Bachelor of Engineering, accredited university, two thousand eighteen.\n"
+        "## Skills\n"
+        "Marketing analytics, Scrum Master facilitation, and CSCP certification.\n"
+    )
+
+    assert _education_credential_floor(source) is None
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("Ph.D. in Machine Learning, Czech Technical University.", 86),
+        ("M.Sc. in Computer Science, Charles University.", 66),
+        ("Ing. in Applied Informatics, VUT Brno.", 66),
+    ],
+)
+def test_education_credential_floor_matches_section_local_degree_tokens(
+    line: str,
+    expected: int,
+) -> None:
+    assert _education_credential_floor(f"## Vzdělání\n{line}\n") == expected
 
 
 # Shared CV body for the T25 partial-score scenarios. Each section header is
@@ -252,6 +292,39 @@ async def test_score_partial_missing_two(
     assert isinstance(result, Score)
     assert result.dropped == ["education", "skills"]
     assert {c.name for c in result.components} == {"experience", "soft_signals"}
+
+
+@pytest.mark.fast
+async def test_score_emits_unmet_education_floor_when_degree_anchor_never_verifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(RedactedCV(text=_T25_CV, audit_log=[]), _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == ["education"]
+    unmet = [e for e in events if e["event"] == "education_credential_unmet"]
+    assert unmet[-1]["floor"] == 66
+    assert unmet[-1]["score"] is None
 
 
 @pytest.mark.fast

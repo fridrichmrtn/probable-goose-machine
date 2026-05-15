@@ -105,6 +105,20 @@ Docentura v oboru Informatika na Masarykově univerzitě a Ph.D. v informatice.
     assert verify_quote(quote, source, section="Academic Experience") is False
 
 
+def test_academic_alias_does_not_match_general_work_section() -> None:
+    source = """## Pracovní zkušenosti
+Vedl komerční datový tým v bankovnictví a dodal tři produkční modely rizika.
+
+## Akademická praxe
+Vede výzkumnou skupinu pro strojové učení v biomedicíně a koordinuje grantovou spolupráci.
+"""
+    work_quote = "Vedl komerční datový tým v bankovnictví a dodal"
+    academic_quote = "Vede výzkumnou skupinu pro strojové učení v biomedicíně"
+
+    assert verify_quote(work_quote, source, section="Academic Experience") is False
+    assert verify_quote(academic_quote, source, section="Academic Experience") is True
+
+
 def test_known_parent_section_includes_employer_subheaders() -> None:
     source = (
         "## Pracovní zkušenosti\n"

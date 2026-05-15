@@ -622,6 +622,65 @@ async def test_extract_normalizes_valid_but_wrong_side_entry_role(
     assert normalized[0]["source"] == "experience_recovery"
 
 
+@pytest.mark.fast
+async def test_extract_role_recovery_preserves_cv_order_over_peak_seniority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    current_quote = (
+        "Data Scientist built retention models for the product analytics team "
+        "and owned weekly experimentation readouts"
+    )
+    prior_quote = (
+        "Head of Data Science led a historical analytics group before returning "
+        "to individual contributor delivery"
+    )
+    redacted = RedactedCV(
+        text=(f"## Work Experience\n{current_quote}.\n{prior_quote}.\n"),
+        audit_log=[],
+    )
+    llm_profile = Profile(
+        skills=[],
+        experience=[
+            ProfileItem(
+                text="Head of Data Science",
+                anchor=Anchor(quote=prior_quote, section="Work Experience"),
+            ),
+            ProfileItem(
+                text="Data Scientist",
+                anchor=Anchor(quote=current_quote, section="Work Experience"),
+            ),
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Data Scientist",
+        detected_location="Prague",
+        detected_years_experience=8,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert result.canonical_role == "data scientist"
+    assert result.seniority_band == "mid"
+    assert result.is_management is False
+    assert result.role_normalization_source == "market_token"
+
+
 # ---------- T38 low-evidence gate -------------------------------------------
 
 

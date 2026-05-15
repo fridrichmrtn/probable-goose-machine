@@ -11,7 +11,7 @@ from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit, subscribe
 from gander.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
-from gander.verify import verify_quote
+from gander.verify import _section_text, verify_quote
 
 # Per-stage cap on `verify_section_miss` events tolerated before declaring the
 # stage section-blind. Half-plus-one of the 4 components — a CV that loses
@@ -30,8 +30,21 @@ _GENERATION_FAILURE_MSG = "Could not generate this section reliably"
 _SCORE_LLM_MAX_RETRIES = 2
 _SCORE_LOGICAL_MAX_RETRIES = 1
 _SALVAGE_RETRY_COMPONENTS = {"skills", "education", "soft_signals"}
-_DOCTORATE_TOKENS = ("ph.d", "phd", "doctorate", "dphil", "csc", "drsc")
-_MASTERS_TOKENS = ("m.sc", "msc", "master", "mgr.", "ing.", "m.eng", "mba")
+_DOCTORATE_PATTERNS = (
+    re.compile(r"(?<!\w)ph\.?\s*d\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"\bdoctorate\b", flags=re.IGNORECASE),
+    re.compile(r"\bdphil\b", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)csc\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)drsc\.?(?!\w)", flags=re.IGNORECASE),
+)
+_MASTERS_PATTERNS = (
+    re.compile(r"(?<!\w)m\.?\s*sc\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)m\.?\s*eng\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"\bmaster(?:['’]s|s)?\b", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)mgr\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)ing\.(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"\bmba\b", flags=re.IGNORECASE),
+)
 
 
 class _ComponentList(BaseModel):
@@ -92,19 +105,12 @@ def _build_education_floor_retry_message(user_message: str, floor: int, actual: 
 
 
 def _education_credential_floor(source: str) -> int | None:
-    if (
-        re.search(
-            r"^#{1,6}\s*(?:education|vzdělání)\b",
-            source,
-            flags=re.IGNORECASE | re.MULTILINE,
-        )
-        is None
-    ):
+    education_text = _section_text(source, "education")
+    if education_text is None:
         return None
-    text = source.casefold()
-    if any(token in text for token in _DOCTORATE_TOKENS):
+    if any(pattern.search(education_text) for pattern in _DOCTORATE_PATTERNS):
         return 86
-    if any(token in text for token in _MASTERS_TOKENS):
+    if any(pattern.search(education_text) for pattern in _MASTERS_PATTERNS):
         return 66
     return None
 
@@ -192,6 +198,9 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
             for name, comp in verified.items():
                 previous = best_verified.get(name)
                 if previous is None or (
+                    # Education can move upward on retry because the credential
+                    # floor is deterministic and section-local; other components
+                    # keep first-verified anchors to avoid retry score drift.
                     name == "education" and comp.score_0_100 > previous.score_0_100
                 ):
                     best_verified[name] = comp
@@ -300,6 +309,18 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
             components=[best_verified[name] for name in COMPONENT_WEIGHTS if name in best_verified],
             dropped=sorted(missing),  # type: ignore[arg-type]
         )
+        education_floor = _education_credential_floor(redacted.text)
+        education = best_verified.get("education")
+        if education_floor is not None and (
+            education is None or education.score_0_100 < education_floor
+        ):
+            emit(
+                "score",
+                "education_credential_unmet",
+                floor=education_floor,
+                score=None if education is None else education.score_0_100,
+                dropped=sorted(missing),
+            )
         if missing:
             emit(
                 "score",

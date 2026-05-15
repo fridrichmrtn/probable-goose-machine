@@ -130,7 +130,12 @@ _CSS = """<style>
   border-radius: 6px;
   padding: 0.75rem 0.9rem;
 }
-.gander-component-head { font-size: 0.95rem; margin-bottom: 0.25rem; }
+.gander-output .gander-component-head {
+  font-size: 0.95rem;
+  margin: 0 0 0.25rem;
+  color: inherit;
+}
+.gander-component-score { font-weight: 500; color: #667085; }
 .gander-component-just { margin: 0.25rem 0 0.4rem; }
 .gander-component-quote {
   margin: 0;
@@ -187,6 +192,7 @@ _CSS = """<style>
   .gander-output table.gander-components td { border-color: #3f3f46; }
   .gander-component { border-color: #3f3f46; }
   .gander-component-quote { color: #a1a1aa; border-left-color: #3f3f46; }
+  .gander-component-score { color: #a1a1aa; }
   .gander-chip { border-color: #3f3f46; color: #d4d4d8; }
   .gander-plan-mech, .gander-salary-unit { color: #a1a1aa; }
 }
@@ -206,6 +212,7 @@ body.dark .gander-output table.gander-components th,
 body.dark .gander-output table.gander-components td { border-color: #3f3f46; }
 body.dark .gander-component { border-color: #3f3f46; }
 body.dark .gander-component-quote { color: #a1a1aa; border-left-color: #3f3f46; }
+body.dark .gander-component-score { color: #a1a1aa; }
 body.dark .gander-chip { border-color: #3f3f46; color: #d4d4d8; }
 body.dark .gander-plan-mech, body.dark .gander-salary-unit { color: #a1a1aa; }
 </style>"""
@@ -338,16 +345,21 @@ def _score_section(score: Score | StageFailure | None) -> str:
     for name in surviving:
         comp = by_name[name]
         quote = _html_inline(comp.anchor.quote)
+        quote_title = _esc(" ".join(comp.anchor.quote.split()))
+        heading_id = f"gander-score-{name}"
         section = f" <em>({_esc(comp.anchor.section)})</em>" if comp.anchor.section else ""
         tiles.append(
-            '<div class="gander-component">'
-            f'<div class="gander-component-head"><strong>{_COMPONENT_DISPLAY[name]}</strong> '
-            f"&middot; {comp.score_0_100}/100</div>"
+            f'<section class="gander-component" role="listitem" aria-labelledby="{heading_id}">'
+            f'<h3 id="{heading_id}" class="gander-component-head">'
+            f"{_COMPONENT_DISPLAY[name]} "
+            f'<span class="gander-component-score">{comp.score_0_100}/100</span>'
+            "</h3>"
             f'<p class="gander-component-just">{_html_inline(comp.justification)}</p>'
-            f'<blockquote class="gander-component-quote">"{quote}"{section}</blockquote>'
-            "</div>"
+            f'<blockquote class="gander-component-quote" title="{quote_title}">"{quote}"'
+            f"{section}</blockquote>"
+            "</section>"
         )
-    grid = '<div class="gander-components-grid">' + "".join(tiles) + "</div>"
+    grid = '<div class="gander-components-grid" role="list">' + "".join(tiles) + "</div>"
 
     body = f"## Score: {score.total}/100\n\n{grid}"
     if score.dropped:
@@ -399,7 +411,7 @@ def _confidence_section(conf: Confidence | StageFailure | None) -> str:
     badge = _CONFIDENCE_BADGE[conf.tier]
     return (
         "## Confidence\n\n"
-        f'<p><span class="gander-chip">{badge}</span></p>'
+        f'<p><span class="gander-chip" aria-label="Confidence: {conf.tier}">{badge}</span></p>'
         f"<p>{_html_inline(conf.rationale)}</p>"
     )
 
@@ -415,7 +427,8 @@ def _growth_section(growth: list[GrowthAction] | StageFailure | None) -> str:
     for action in growth:
         lines.append(
             "<li>"
-            f'<span class="gander-chip">{action.time_horizon_months} months</span>'
+            f'<span class="gander-chip" aria-label="Time horizon: {action.time_horizon_months} '
+            f'months">{action.time_horizon_months} months</span>'
             f'<p class="gander-plan-title">{_html_inline(action.what)}</p>'
             f'<p class="gander-plan-mech">{_html_inline(action.mechanism)}</p>'
             "</li>"

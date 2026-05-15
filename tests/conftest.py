@@ -9,6 +9,16 @@ import pytest
 
 _DDG_CASSETTE_PATH = Path(__file__).parent / "fixtures" / "ddg" / "market_cassettes.json"
 _ORIGINAL_DDG_TEXT: object | None = None
+_NON_CZ_MARKERS = (
+    "san francisco",
+    "united states",
+    "usa",
+    "berlin",
+    "germany",
+    "deutschland",
+    "tokyo",
+    "japan",
+)
 
 
 def _load_ddg_cassettes() -> dict[str, list[dict[str, str]]]:
@@ -21,14 +31,19 @@ def _load_ddg_cassettes() -> dict[str, list[dict[str, str]]]:
 
 def _ddg_cassette_key(query: str) -> str:
     lowered = query.casefold()
+    if any(marker in lowered for marker in _NON_CZ_MARKERS):
+        raise RuntimeError(
+            "No DDG cassette is available for this non-CZ salary query. "
+            "Set GANDER_LIVE_DDG=1 to exercise real search, or add a country-keyed cassette."
+        )
+    if "manager" in lowered or "head of" in lowered or "vedouc" in lowered:
+        return "senior_manager_prague"
     if "junior" in lowered or "data analyst" in lowered:
         return "junior_data_analyst_prague"
     if "staff machine learning engineer" in lowered or "machine learning engineer" in lowered:
         return "staff_mle_prague"
     if "data scientist" in lowered:
         return "data_scientist_prague"
-    if "manager" in lowered or "head of" in lowered or "vedouc" in lowered:
-        return "senior_manager_prague"
     return "generic_cz_data"
 
 
@@ -62,3 +77,24 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         return
 
     salary_mod._ddg_text = _replay_ddg_text  # type: ignore[assignment]
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> None:
+    """Restore the DDG transport after each live test item."""
+    if not item.get_closest_marker("live") or _ORIGINAL_DDG_TEXT is None:
+        return
+
+    import gander.salary as salary_mod
+
+    salary_mod._ddg_text = _ORIGINAL_DDG_TEXT  # type: ignore[assignment]
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Leave salary search unpatched even if a live test aborts mid-item."""
+    if _ORIGINAL_DDG_TEXT is None:
+        return
+
+    import gander.salary as salary_mod
+
+    salary_mod._ddg_text = _ORIGINAL_DDG_TEXT  # type: ignore[assignment]

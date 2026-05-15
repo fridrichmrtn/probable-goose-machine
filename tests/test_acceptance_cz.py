@@ -179,8 +179,14 @@ def test_salary_lands_in_expected_cz_band(cz_run: _CZRun, fname: str) -> None:
     assert salary.currency == "CZK"
     assert salary.period == "month"
     assert salary.low < salary.high, f"{fname}: invalid salary range {salary.low}-{salary.high}"
+    assert salary.low >= int(expected["low"]) * 0.85, (
+        f"{fname}: low {salary.low} misses expected lower window {expected['low']}"
+    )
     assert salary.high >= int(expected["high"]) * 0.85, (
         f"{fname}: high {salary.high} misses expected upper window {expected['high']}"
+    )
+    assert salary.high <= int(expected["high"]) * 1.15, (
+        f"{fname}: high {salary.high} exceeds expected upper window {expected['high']}"
     )
 
 
@@ -219,6 +225,9 @@ def test_score_spread_at_least_30_cz(cz_run: _CZRun, fname: str) -> None:
     senior_score = _require_score(cz_run.reports[fname], fname)
     delta = senior_score.total - junior_score.total
     assert senior_score.total >= 65, f"{fname}: expected senior-ish score >=65"
+    # T29 live calibration: the junior baseline landed roughly 20 points below
+    # the senior/management fixtures; this gate guards that discrimination, not
+    # an absolute score target.
     assert delta >= 20, (
         f"{fname}: score spread {senior_score.total} - {junior_score.total} = {delta}, "
         "expected >= 20"
@@ -238,6 +247,8 @@ def test_salary_non_overlap_with_junior_for_cz_seniors(cz_run: _CZRun, fname: st
 def test_senior_salary_multiplier_cz(cz_run: _CZRun, fname: str) -> None:
     junior_salary = _require_salary(cz_run.reports[JUNIOR], JUNIOR)
     senior_salary = _require_salary(cz_run.reports[fname], fname)
+    # T29 live calibration: senior CZ leadership fixtures cleared 2.5x the
+    # junior high bound after role normalization and DDG cassette replay.
     threshold = 2.5 * junior_salary.high
     assert senior_salary.high >= threshold, (
         f"{fname}: senior high {senior_salary.high} < 2.5 * junior high {threshold:.0f}"
