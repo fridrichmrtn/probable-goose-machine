@@ -32,6 +32,16 @@ def _strip_think(text: str) -> str:
     return _strip_json_fence(text)
 
 
+def _openrouter_extra_body() -> dict[str, Any]:
+    # OpenRouter routes Claude 4.x with hybrid reasoning enabled by default; the
+    # OpenAI-compat shim then leaves message.content empty and counts every output
+    # token as thinking, which breaks JSON-mode callers. Disable reasoning unless
+    # explicitly opted in (e.g. for DeepSeek-R1 or OpenAI o-series).
+    if os.environ.get("OPENROUTER_REASONING") == "1":
+        return {}
+    return {"reasoning": {"enabled": False}}
+
+
 def _usage_tokens(usage: Any) -> tuple[int, int]:
     if usage is None:
         return 0, 0
@@ -345,6 +355,7 @@ class LLMClient:
             ],
             response_format={"type": "json_object"},
             temperature=temperature,
+            extra_body=_openrouter_extra_body(),
         )
         choice_o = response_o.choices[0]
         text_o = choice_o.message.content or ""
@@ -395,6 +406,7 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
             temperature=temperature,
+            extra_body=_openrouter_extra_body(),
         )
         choice_o = response_o.choices[0]
         text_o = choice_o.message.content or ""

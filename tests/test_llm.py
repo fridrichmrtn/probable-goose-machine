@@ -228,7 +228,7 @@ async def test_openrouter_chat_json_omits_minimax_quirks(
     assert cost_usd == 0.00042
     assert fake_completions.kwargs is not None
     assert fake_completions.kwargs["response_format"] == {"type": "json_object"}
-    assert "extra_body" not in fake_completions.kwargs
+    assert fake_completions.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
     assert "max_tokens" not in fake_completions.kwargs
 
 
@@ -313,9 +313,22 @@ async def test_openrouter_chat_text_omits_minimax_quirks_and_handles_missing_usa
     assert (prompt_tokens, completion_tokens, finish_reason) == (0, 0, "stop")
     assert cost_usd is None
     assert fake_completions.kwargs is not None
-    assert "extra_body" not in fake_completions.kwargs
+    assert fake_completions.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
     assert "max_tokens" not in fake_completions.kwargs
     assert "response_format" not in fake_completions.kwargs
+
+
+@pytest.mark.fast
+async def test_openrouter_reasoning_opt_in_drops_disable_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_REASONING", "1")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+
+    await client._chat_json("anthropic/claude-haiku-4.5", "System", "User", 0.0)
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["extra_body"] == {}
 
 
 @pytest.mark.fast
