@@ -93,6 +93,11 @@ _BAND_RANK: Final[dict[SeniorityBand, int]] = {
 
 _SORTED_SENIORITY_TOKENS: Final = sorted(_SENIORITY_TOKENS.items(), key=lambda kv: -len(kv[0]))
 _ROLE_TOKEN_RE: Final = re.compile(rf"\b(?:{'|'.join(_ROLE_TOKENS)})\b")
+_AT_EMPLOYER_RE: Final = re.compile(r"\s+at\s+", flags=re.IGNORECASE)
+_DURATION_SUFFIX_RE: Final = re.compile(
+    r"\b\d+\s+(?:years?|months?|tenure|let|měsíc|měsíce|měsíců|mesic|mesice|mesicu)\b.*$",
+    flags=re.IGNORECASE,
+)
 
 
 def _strip_accents(s: str) -> str:
@@ -135,26 +140,56 @@ def _is_title_shaped_candidate(text: str) -> bool:
     stripped = " ".join(text.strip().split())
     if not stripped or len(stripped) > 90:
         return False
-    if any(ch in stripped for ch in ".;:!?"):
+    if _is_named_denylist(stripped):
+        return False
+    if any(ch in stripped for ch in ".,;:!?"):
         return False
     if len(_TITLE_WORD_RE.findall(stripped)) > 8:
         return False
     return _classify(stripped) is not None
 
 
+def _title_prefix_candidates(text: str) -> list[str]:
+    """Return title-shaped prefixes from an extracted experience summary.
+
+    L3 returns compact summaries such as "Senior Manager AI at TD SYNNEX, led …"
+    or "Research Engineer, 10 years tenure". Salary role recovery needs the
+    title prefix, not employer/duration prose.
+    """
+    stripped = " ".join(text.strip().split())
+    if not stripped:
+        return []
+
+    candidates: list[str] = []
+
+    def _add(candidate: str) -> None:
+        candidate = _DURATION_SUFFIX_RE.sub("", candidate).strip(" -–—,")
+        candidate = " ".join(candidate.split())
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    _add(stripped)
+    comma_prefix = stripped.split(",", 1)[0]
+    _add(comma_prefix)
+    for candidate in tuple(candidates):
+        _add(_AT_EMPLOYER_RE.split(candidate, maxsplit=1)[0])
+    return candidates
+
+
 def _recover_from_titles(titles: list[str]) -> tuple[str, SeniorityBand, bool] | None:
     """Pick the highest-seniority title that matches a market token; ties → first."""
     best: tuple[int, int, str, SeniorityBand, bool] | None = None
     for i, t in enumerate(titles):
-        if not _is_title_shaped_candidate(t):
-            continue
-        r = _classify(t)
-        if r is None:
-            continue
-        band, mgmt = r
-        rank = seniority_rank(t)
-        if best is None or rank > best[0]:
-            best = (rank, i, t, band, mgmt)
+        for candidate in _title_prefix_candidates(t):
+            if not _is_title_shaped_candidate(candidate):
+                continue
+            r = _classify(candidate)
+            if r is None:
+                continue
+            band, mgmt = r
+            rank = seniority_rank(candidate)
+            if best is None or rank > best[0]:
+                best = (rank, i, candidate, band, mgmt)
     if best is None:
         return None
     _, _, title, band, mgmt = best
@@ -164,13 +199,14 @@ def _recover_from_titles(titles: list[str]) -> tuple[str, SeniorityBand, bool] |
 def _recover_current_title(titles: list[str]) -> tuple[str, SeniorityBand, bool] | None:
     """Return the first title-shaped current/top candidate, preserving CV order."""
     for t in titles:
-        if not _is_title_shaped_candidate(t):
-            continue
-        r = _classify(t)
-        if r is None:
-            continue
-        band, mgmt = r
-        return t, band, mgmt
+        for candidate in _title_prefix_candidates(t):
+            if not _is_title_shaped_candidate(candidate):
+                continue
+            r = _classify(candidate)
+            if r is None:
+                continue
+            band, mgmt = r
+            return candidate, band, mgmt
     return None
 
 

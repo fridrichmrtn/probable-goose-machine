@@ -1,6 +1,6 @@
 # T42 — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, mixed-model defaults)
 
-Status: implemented — fast/live-verified; pending UI smoke
+Status: done — fast/live/UI-smoke verified
 Owner: software-engineer
 Depends on: T41 (OpenRouter provider)
 Unblocks: lower-cost / lower-latency live runs in production
@@ -119,4 +119,9 @@ Implemented D1–D3 locally on 2026-05-15. Salary DDG queries now fan out concur
 Full fast verification passed: `uv run pytest -m fast --strict-markers -v` (366 passed, 58 deselected).
 Live OpenRouter acceptance passed: `GANDER_LLM_PROVIDER=openrouter GANDER_INGEST_MODE=text uv run pytest tests/test_acceptance.py -m live --strict-markers --reruns 1 --reruns-delay 2 -v` (9 passed in 69.23s).
 
-Still pending before marking done: manual Gradio streaming smoke for the L4c/L5 ordering change.
+Manual/backend Gradio streaming smoke passed on 2026-05-15 using the real
+`app.handle()` path with app-default PDF vision ingest and OpenRouter downstream
+models: 10 UI updates, 9 pipeline snapshots, at least one snapshot with
+`confidence=running` and `growth=running`, running pills rendered,
+intermediate "Reading file"/"Generating report" copy rendered, and final body
+included `## Plan`.

@@ -1,6 +1,6 @@
 # T40 — CV-quality signals into confidence judge
 
-Status: implemented — pending live Profile.pdf rerun
+Status: implemented — final private Profile.pdf rerun pending explicit approval
 Owner: ai-ml-engineer
 Depends on: T39 (Martin CV rerun verifies both fixes in one pass)
 Unblocks: —
@@ -120,6 +120,13 @@ Verified:
 - full fast suite: `350 passed, 57 deselected`
 - `uv run ruff check .`
 - `uv run mypy src/`
+- Live app-default Profile.pdf run on 2026-05-15 after the section-slicing fix
+  reached all five stages. Score dropped `skills` and `soft_signals`; confidence
+  rendered `Low`, proving the CV-quality cap path is visible in the user-facing
+  report when parsing/scoring quality is thin.
 
 Still pending before checking T40 done:
-- Live Profile.pdf rerun after T39 to confirm any remaining dropped-score-components visibly cap confidence.
+- Final private Profile.pdf rerun after the T39 role-prefix fix, with explicit
+  approval to resend the local PDF to MiniMax/OpenRouter, to confirm any
+  remaining dropped-score-components visibly cap confidence on the final salary
+  role.

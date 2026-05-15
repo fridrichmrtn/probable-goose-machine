@@ -74,6 +74,49 @@ def test_verify_quote_section_match_cz() -> None:
     assert verify_quote(quote, SOURCE_CZ, section="Pracovní zkušenosti") is True
 
 
+def test_known_parent_section_includes_employer_subheaders() -> None:
+    source = (
+        "## Pracovní zkušenosti\n"
+        "\n"
+        "## TD SYNNEX\n"
+        "Founded and led data science & business intelligence teams, was responsible for "
+        "co-formulating data strategy, delivery, methodology, architecture, and ROI.\n"
+        "\n"
+        "## Vzdělání\n"
+        "PhD, Economics and Management, Applied Machine Learning.\n"
+    )
+
+    quote = (
+        "Founded and led data science & business intelligence teams, "
+        "was responsible for co-formulating data strategy"
+    )
+    assert verify_quote(quote, source, section="Pracovní zkušenosti") is True
+
+
+def test_known_parent_section_stops_at_next_known_section() -> None:
+    source = """## Pracovní zkušenosti
+
+## TD SYNNEX
+Founded and led data science & business intelligence teams.
+
+## Vzdělání
+PhD, Economics and Management, Applied Machine Learning.
+"""
+    quote = "PhD, Economics and Management, Applied Machine Learning"
+    assert verify_quote(quote, source, section="Pracovní zkušenosti") is False
+
+
+def test_unknown_section_still_stops_at_next_header() -> None:
+    source = """## Selected Case Studies
+Built a recommendation system that reduced churn by 18% over six months.
+
+## Client Confidential
+Led migration from monolith to microservices across three quarters.
+"""
+    quote = "Led migration from monolith to microservices across"
+    assert verify_quote(quote, source, section="Selected Case Studies") is False
+
+
 def test_verify_quote_section_miss_falls_back() -> None:
     # Source has the quote in body but NO `## SectionName` header for the
     # name the model picked → whole-CV substring fallback rescues the anchor.
