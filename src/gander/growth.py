@@ -232,6 +232,7 @@ async def plan_growth(
                     schema=_GrowthList,
                     model="reasoning",
                     temperature=0.0,
+                    max_tokens=1536,
                 )
             except Exception as exc:
                 emit(

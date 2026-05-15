@@ -344,7 +344,10 @@ async def test_plan_growth_drops_ban_phrase_action(
         ]
     )
 
+    captured: dict[str, Any] = {}
+
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        captured.update(kwargs)
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
@@ -358,6 +361,7 @@ async def test_plan_growth_drops_ban_phrase_action(
     assert isinstance(result, list)
     assert len(result) == 4
     assert all(banned_what != a.what for a in result)
+    assert captured["max_tokens"] == 1536
 
     drop_evt = next(
         e for e in events if e["event"] == "growth_action_dropped" and e["reason"] == "ban_phrase"

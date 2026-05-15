@@ -300,6 +300,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 model="reasoning",
                 temperature=0.0,
                 max_retries=2,
+                max_tokens=768,
             )
         except Exception as exc:
             emit(
