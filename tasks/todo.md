@@ -62,6 +62,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T38** — Low-evidence profile gate (`tasks/T38_low_evidence_gate.md`) — *PR #22; non-CV uploads now fail closed before downstream salary/score/growth*
 - [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`) — *implementation fast-verified; pending live Profile.pdf rerun*
 - [ ] **T40** — CV-quality signals into confidence judge (`tasks/T40_confidence_cv_signals.md`) — *implementation fast-verified; pending live Profile.pdf rerun*
+- [ ] **T42** — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, mixed-model defaults) (`tasks/T42_pipeline_wallclock_wins.md`) — *3 deliverables, depends on T41 — spike evidence frozen 2026-05-15*
 
 ## Provider plumbing
 - [x] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *PR #25, required `openrouter-live` CI pass*
