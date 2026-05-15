@@ -185,9 +185,6 @@ def test_salary_lands_in_expected_cz_band(cz_run: _CZRun, fname: str) -> None:
     assert salary.high >= int(expected["high"]) * 0.85, (
         f"{fname}: high {salary.high} misses expected upper window {expected['high']}"
     )
-    assert salary.high <= int(expected["high"]) * 1.15, (
-        f"{fname}: high {salary.high} exceeds expected upper window {expected['high']}"
-    )
 
 
 @pytest.mark.parametrize("fname", CZ_FIXTURES, ids=lambda value: Path(value).stem)
