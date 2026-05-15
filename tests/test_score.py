@@ -501,6 +501,77 @@ async def test_score_retries_when_education_anchor_drops(
 
 
 @pytest.mark.fast
+async def test_score_retries_when_education_score_ignores_doctorate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cv_text = _T25_CV.replace(
+        "MSc in Computer Science, accredited university, two thousand eighteen.",
+        "Ph.D. in Applied Machine Learning at CVUT FEL, dissertation on causal attribution.",
+    )
+    doctorate_anchor = Anchor(
+        quote="ph.d. in applied machine learning at cvut fel",
+        section="Education",
+    )
+    first_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education",
+                score_0_100=0,
+                justification="No formal credential found.",
+                anchor=doctorate_anchor,
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    second_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education",
+                score_0_100=90,
+                justification="Doctorate completed.",
+                anchor=doctorate_anchor,
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    payloads = [first_payload, second_payload]
+    seen_users: list[str] = []
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        seen_users.append(kwargs["user"])
+        return payloads.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(RedactedCV(text=cv_text, audit_log=[]), _t25_profile())
+
+    assert isinstance(result, Score)
+    education = next(c for c in result.components if c.name == "education")
+    assert education.score_0_100 == 90
+    assert len(seen_users) == 2
+    assert "education credential rubric" in seen_users[1]
+    retry_evt = next(e for e in events if e["event"] == "score_retry")
+    assert retry_evt["reason"] == "education_below_credential_floor"
+    assert retry_evt["score"] == 0
+    assert retry_evt["floor"] == 86
+
+
+@pytest.mark.fast
 async def test_score_retry_preserves_previously_verified_components(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

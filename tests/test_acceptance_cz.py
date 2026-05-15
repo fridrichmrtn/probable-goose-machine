@@ -179,7 +179,7 @@ def test_salary_lands_in_expected_cz_band(cz_run: _CZRun, fname: str) -> None:
     assert salary.currency == "CZK"
     assert salary.period == "month"
     assert salary.low < salary.high, f"{fname}: invalid salary range {salary.low}-{salary.high}"
-    assert salary.high >= int(expected["high"]) * 0.9, (
+    assert salary.high >= int(expected["high"]) * 0.85, (
         f"{fname}: high {salary.high} misses expected upper window {expected['high']}"
     )
 

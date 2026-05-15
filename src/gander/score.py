@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,8 @@ _GENERATION_FAILURE_MSG = "Could not generate this section reliably"
 _SCORE_LLM_MAX_RETRIES = 2
 _SCORE_LOGICAL_MAX_RETRIES = 1
 _SALVAGE_RETRY_COMPONENTS = {"skills", "education", "soft_signals"}
+_DOCTORATE_TOKENS = ("ph.d", "phd", "doctorate", "dphil", "csc", "drsc")
+_MASTERS_TOKENS = ("m.sc", "msc", "master", "mgr.", "ing.", "m.eng", "mba")
 
 
 class _ComponentList(BaseModel):
@@ -75,6 +78,35 @@ def _build_retry_user_message(user_message: str, missing: set[str], dropped: int
             "preserve punctuation, accents, and redaction markers exactly as shown."
         )
     return message
+
+
+def _build_education_floor_retry_message(user_message: str, floor: int, actual: int) -> str:
+    return (
+        user_message
+        + "\n\nYour previous score output failed the education credential rubric: "
+        + f"education_score={actual} but the CV contains a formal credential that "
+        + f"requires education >= {floor}. Return corrected JSON only. For education, "
+        + "choose an exact literal highest-credential degree/institution line from "
+        + "the CV and score it according to the credential bands."
+    )
+
+
+def _education_credential_floor(source: str) -> int | None:
+    if (
+        re.search(
+            r"^#{1,6}\s*(?:education|vzdělání)\b",
+            source,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        is None
+    ):
+        return None
+    text = source.casefold()
+    if any(token in text for token in _DOCTORATE_TOKENS):
+        return 86
+    if any(token in text for token in _MASTERS_TOKENS):
+        return 66
+    return None
 
 
 def _verify_components(
@@ -158,7 +190,11 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
 
             verified, dropped, section_miss_count = _verify_components(raw, redacted)
             for name, comp in verified.items():
-                best_verified.setdefault(name, comp)
+                previous = best_verified.get(name)
+                if previous is None or (
+                    name == "education" and comp.score_0_100 > previous.score_0_100
+                ):
+                    best_verified[name] = comp
             emit(
                 "score",
                 "score_components",
@@ -231,6 +267,27 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     dropped=dropped,
                 )
                 user_message = _build_retry_user_message(user_message, missing, dropped)
+                continue
+            education_floor = _education_credential_floor(redacted.text)
+            education = best_verified.get("education")
+            if (
+                education_floor is not None
+                and education is not None
+                and education.score_0_100 < education_floor
+                and attempt < _SCORE_LOGICAL_MAX_RETRIES
+            ):
+                emit(
+                    "score",
+                    "score_retry",
+                    reason="education_below_credential_floor",
+                    score=education.score_0_100,
+                    floor=education_floor,
+                )
+                user_message = _build_education_floor_retry_message(
+                    user_message,
+                    floor=education_floor,
+                    actual=education.score_0_100,
+                )
                 continue
             break
 
