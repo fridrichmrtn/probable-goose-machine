@@ -26,7 +26,7 @@ import pytest
 from gander import pipeline
 from gander.confidence import Confidence
 from gander.errors import StageFailure
-from gander.ingest import CORRUPT_MSG, SCANNED_MSG, UNKNOWN_MSG
+from gander.ingest import CORRUPT_MSG, LOW_EVIDENCE_MSG, SCANNED_MSG, UNKNOWN_MSG
 from gander.llm import LLMClient
 from gander.schemas import (
     Anchor,
@@ -100,6 +100,14 @@ def _redacted(text: str = "redacted") -> RedactedCV:
 
 async def _collect(it: Any) -> list[Report]:
     return [r async for r in it]
+
+
+def _read_cv_fixture_bytes(name: str) -> bytes:
+    fixture = Path(__file__).resolve().parent / "fixtures" / "cvs" / name
+    file_bytes = fixture.read_bytes()
+    if file_bytes.startswith(b"version https://git-lfs.github.com/"):
+        pytest.fail(f"{fixture.name} is an unresolved LFS pointer. Run `git lfs pull`.")
+    return file_bytes
 
 
 def _patch_non_salary_stages(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -287,9 +295,9 @@ async def test_extract_validation_error_cascades_to_every_downstream_stage(
     monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     # Use a real CV docx so ingest succeeds and we actually reach extract.
-    fixture = Path(__file__).resolve().parent / "fixtures" / "cvs" / "01_junior_da_novotny.docx"
-    file_bytes = fixture.read_bytes()
-    reports = await _collect(pipeline.run(file_bytes, fixture.name))
+    fixture_name = "01_junior_da_novotny.docx"
+    file_bytes = _read_cv_fixture_bytes(fixture_name)
+    reports = await _collect(pipeline.run(file_bytes, fixture_name))
     final = reports[-1]
 
     assert isinstance(final.profile, StageFailure)
@@ -303,6 +311,64 @@ async def test_extract_validation_error_cascades_to_every_downstream_stage(
             f"{stage} cascade message should explain the upstream gap, got {block.user_message!r}"
         )
         assert final.statuses[stage] == "failed"  # type: ignore[index]
+
+
+# ---------- low-evidence gate (T38) — non-CV upload cascades --------------
+
+
+@pytest.mark.fast
+async def test_low_evidence_profile_cascades_to_every_downstream_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T38: non-CV upload (or CV whose anchors all drop) → extract returns
+    StageFailure(LOW_EVIDENCE_MSG); pipeline cascades to score/salary/
+    confidence/growth without invoking them; no stage left in `running`."""
+
+    # LLM "extracts" a profile from a non-CV — anchors won't substring-verify
+    # against the real CV docx, so post-verification composite score = 0.
+    hallucinated = Profile(
+        skills=[
+            ProfileItem(
+                text="Python",
+                anchor=Anchor(quote="Wrote scalable Python pipelines for niche ETL workloads"),
+            ),
+        ],
+        experience=[
+            ProfileItem(
+                text="Engineer",
+                anchor=Anchor(quote="Led a small team to ship quarterly product milestones."),
+            ),
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Senior Engineer",
+        detected_location=None,
+        detected_years_experience=5,
+    )
+
+    async def _fake_complete_json(self: LLMClient, **_kw: Any) -> Any:
+        return hallucinated
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    # Real docx so ingest+redact actually run; the anchors above won't appear
+    # in the redacted text, so drop_unverified strips every item.
+    fixture_name = "01_junior_da_novotny.docx"
+    file_bytes = _read_cv_fixture_bytes(fixture_name)
+    reports = await _collect(pipeline.run(file_bytes, fixture_name))
+    final = reports[-1]
+
+    assert isinstance(final.profile, StageFailure)
+    assert final.profile.user_message == LOW_EVIDENCE_MSG
+    assert final.statuses["profile"] == "failed"
+
+    for stage in ("score", "salary", "confidence", "growth"):
+        block = getattr(final, stage)
+        assert isinstance(block, StageFailure), f"{stage} should cascade as StageFailure"
+        assert final.statuses[stage] == "failed"  # type: ignore[index]
+
+    assert all(v != "running" for v in final.statuses.values())
 
 
 # ---------- liveness assertion (every test in this file shares it) -----------

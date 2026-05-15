@@ -8,10 +8,12 @@ anchor does not survive `verify_quote` (PRD §4.6 hallucination guard).
 from __future__ import annotations
 
 import time
+import unicodedata
 from pathlib import Path
 
 from gander import obs
 from gander.errors import StageFailure, stage_boundary
+from gander.ingest import LOW_EVIDENCE_MSG
 from gander.llm import LLMClient
 from gander.normalize import normalize_role_with_llm_fallback
 from gander.schemas import Profile, ProfileItem, RedactedCV
@@ -19,6 +21,36 @@ from gander.verify import drop_unverified
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _LIST_FIELDS: tuple[str, ...] = ("skills", "experience", "education", "soft_signals")
+
+# Composite-evidence weights, post-anchor-verification (T38). Experience is the
+# strongest single CV signal; education is the structured second; skills and
+# soft_signals are easier to extract incidentally from non-CV text and weight
+# accordingly. Threshold of 3 admits 1 experience entry, 1 education + 1 skill,
+# 3 skills, etc. — and rejects empty / single-skill profiles that today silently
+# produce a fabricated salary.
+_CV_EVIDENCE_WEIGHTS: dict[str, int] = {
+    "experience": 3,
+    "education": 2,
+    "skills": 1,
+    "soft_signals": 1,
+}
+MIN_CV_SCORE = 3
+
+
+def _cv_composite_score(kept_lists: dict[str, list[ProfileItem]]) -> int:
+    """Sum of best weights for distinct post-verification evidence anchors."""
+    evidence_weights: dict[str, int] = {}
+    for field in _LIST_FIELDS:
+        field_weight = _CV_EVIDENCE_WEIGHTS[field]
+        for item in kept_lists[field]:
+            key = _evidence_key(item.anchor.quote)
+            evidence_weights[key] = max(field_weight, evidence_weights.get(key, 0))
+    return sum(evidence_weights.values())
+
+
+def _evidence_key(quote: str) -> str:
+    """Normalize an anchor quote so duplicate evidence counts once."""
+    return " ".join(unicodedata.normalize("NFC", quote).casefold().split())
 
 
 def load_prompt(name: str) -> str:
@@ -61,6 +93,31 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             kept_lists[field] = kept
             total_kept += len(kept)
             total_dropped += dropped
+
+        # Document-level evidence gate (T38). Per-claim anchor verification can
+        # leave a profile completely empty when the upload isn't a CV (or is a
+        # CV the extractor failed on); without this gate, downstream stages
+        # would fabricate a salary on no evidence. We frame this honestly: we
+        # don't know the file is "not a CV", only that we couldn't find the
+        # fields we expect — the user message reflects that.
+        composite = _cv_composite_score(kept_lists)
+        if composite < MIN_CV_SCORE:
+            counts = {field: len(kept_lists[field]) for field in _LIST_FIELDS}
+            obs.emit(
+                "extract",
+                "low_evidence",
+                composite=composite,
+                threshold=MIN_CV_SCORE,
+                **counts,
+            )
+            return StageFailure(
+                stage="profile",
+                user_message=LOW_EVIDENCE_MSG,
+                debug_detail=(
+                    f"composite={composite} threshold={MIN_CV_SCORE} "
+                    f"kept={counts} dropped={total_dropped}"
+                ),
+            )
 
         # Deterministic tenure override (PRD §4.7 + R7 in T28): when L2's
         # date-range parser produced a value, it wins over the LLM's count so

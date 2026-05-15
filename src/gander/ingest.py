@@ -22,6 +22,11 @@ UNKNOWN_MSG = "Unable to read this file. Please upload a valid PDF or DOCX."
 DOC_MSG = "Legacy .doc is not supported. Please convert to PDF or DOCX and re-upload."
 CORRUPT_MSG = "Could not read this file. It may be corrupt or password-protected."
 EMPTY_MSG = "This file appears to be empty or too short to be a CV."
+LOW_EVIDENCE_MSG = (
+    "We couldn't find the experience, education, or skills we look for in a CV. "
+    "If this is a CV, check that the text is selectable (not a scanned image) "
+    "and that sections like Experience or Education are clearly labelled, then try again."
+)
 
 SECTION_NAMES: frozenset[str] = frozenset(
     {
