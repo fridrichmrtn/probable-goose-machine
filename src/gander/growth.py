@@ -247,8 +247,54 @@ _COMPANY_STOPWORDS: frozenset[str] = frozenset(
         "and",
         "the",
         "member",
+        # Employer-descriptor / contract-shape words that aren't a company
+        # name. Without these, "Research Engineer — Independent" emits the
+        # candidate "independent", and an action mentioning "independent
+        # contractor" would falsely satisfy the current-employer bypass.
+        "independent",
+        "freelance",
+        "freelancer",
+        "contract",
+        "contractor",
+        "consultant",
+        "consulting",
+        "remote",
+        "onsite",
+        "hybrid",
+        "self",
+        "employed",
+        "current",
+        "present",
+        # Common legal/entity suffixes that survive normalization but don't
+        # discriminate (Alza.cz a.s., Acme Inc., Foo LLC, …).
+        "inc",
+        "llc",
+        "ltd",
+        "corp",
+        "gmbh",
+        "spol",
+        "sro",
+        "kft",
     }
 )
+
+
+def _token_in(needle: str, haystack: str) -> bool:
+    """Word-boundary match for single-token candidates, substring for phrases.
+
+    Bare substring (`needle in haystack`) lets short tokens like "inc" match
+    inside "increase" and "oss" match inside "across". Multi-word candidates
+    (after `_normalize_for_match` collapses whitespace, the candidate retains
+    spaces only when it was a multi-word header part) keep substring
+    semantics — false-positive risk is low and word boundaries get muddled
+    by internal punctuation like "alza.cz a.s.".
+    """
+    if not needle:
+        return False
+    if " " in needle:
+        return needle in haystack
+    pattern = re.compile(rf"(?<!\w){re.escape(needle)}(?!\w)")
+    return bool(pattern.search(haystack))
 
 
 def _employer_match_candidates(header: str) -> list[str]:
@@ -262,7 +308,11 @@ def _employer_match_candidates(header: str) -> list[str]:
     candidates: set[str] = {normalized}
     for part in re.split(r"\s+[-–—]\s+", normalized):
         part = part.strip()
-        if len(part) >= 4:
+        # Only add multi-token parts as phrase candidates. A single-token
+        # part like "independent" must clear the stopword filter via the
+        # per-token path below; otherwise an employer header that ends in
+        # a generic descriptor pollutes the candidate set.
+        if " " in part and len(part) >= 4:
             candidates.add(part)
         for token in part.split():
             stripped = token.strip(".,;:")
@@ -277,14 +327,22 @@ def _violates_forward_setting(
     closed_employers: list[str],
 ) -> str | None:
     what = _normalize_for_match(action.what)
-    current_candidates = [c for h in current_employers for c in _employer_match_candidates(h)]
     closed_candidates = [c for h in closed_employers for c in _employer_match_candidates(h)]
-    if any(c in what for c in current_candidates):
-        return None
-    closed_hits = [c for c in closed_candidates if c in what]
+    closed_hits = [c for c in closed_candidates if _token_in(c, what)]
+    # Resolve the closed-employer signal first so a generic current-employer
+    # token can't short-circuit before we've seen the closed evidence.
     if not closed_hits:
         return None
     if _FORWARD_MARKER_RE.search(what):
+        return None
+    current_candidates = [c for h in current_employers for c in _employer_match_candidates(h)]
+    closed_set = set(closed_candidates)
+    # Only a current-employer candidate that is *not* also a closed candidate
+    # can override a closed hit. With the expanded stopword filter the
+    # remaining tokens are real company names, so a hit here is a genuine
+    # current-employer reference rather than a generic title token.
+    current_hits = [c for c in current_candidates if c not in closed_set and _token_in(c, what)]
+    if current_hits:
         return None
     return "forward_setting_targets_closed_employer:" + closed_hits[0][:40]
 
