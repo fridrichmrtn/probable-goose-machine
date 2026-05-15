@@ -31,7 +31,7 @@ class _RetryingLLMClient(LLMClient):
         self._provider = "test"
         self.calls = 0
 
-    def _resolve_model(self, logical: str) -> str:
+    def _resolve_model(self, logical: str, provider: str | None = None) -> str:
         return f"fake-{logical}"
 
     def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -44,6 +44,7 @@ class _RetryingLLMClient(LLMClient):
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        provider: str | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         self.calls += 1
         if self.calls == 1:
@@ -85,6 +86,7 @@ async def test_complete_vision_text_posts_api_vlm_payload_and_telemetry(
     monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
     monkeypatch.setattr("gander.llm.httpx.AsyncClient", _FakeAsyncClient)
     client = object.__new__(LLMClient)
+    client._provider = "minimax"
     events: list[dict[str, Any]] = []
 
     with subscribe(events.append):
@@ -256,6 +258,49 @@ def _client_with_fake_chat(provider: str) -> tuple[LLMClient, _FakeChatCompletio
     client._provider = provider
     client._client = fake_client
     return client, fake_completions
+
+
+@pytest.mark.fast
+async def test_extract_provider_override_routes_only_extract_to_openrouter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_clients: list[dict[str, Any]] = []
+    fake_completions = _FakeChatCompletions()
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_clients.append(kwargs)
+            self.chat = type("Chat", (), {"completions": fake_completions})()
+
+    monkeypatch.setattr("gander.llm.AsyncOpenAI", _FakeAsyncOpenAI)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "minimax")
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "openrouter")
+    monkeypatch.setenv("MINIMAX_API_KEY", "mm-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", raising=False)
+
+    client = LLMClient()
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append):
+        echo = await client.complete_json(
+            system='You echo. Return JSON {"message": "..."}.',
+            user="Echo back the word pong.",
+            schema=Echo,
+            model="extract",
+        )
+
+    assert echo == Echo(message="pong")
+    assert client._resolve_provider("cheap") == "minimax"
+    assert client._resolve_provider("extract") == "openrouter"
+    assert [call["api_key"] for call in captured_clients] == ["mm-test", "or-test"]
+    assert str(captured_clients[1]["base_url"]) == "https://openrouter.ai/api/v1"
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["model"] == "google/gemini-2.5-flash"
+    llm_event = next(e for e in events if e["event"] == "llm_call")
+    assert llm_event["provider"] == "openrouter"
+    assert llm_event["model"] == "google/gemini-2.5-flash"
 
 
 @pytest.mark.fast

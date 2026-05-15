@@ -8,6 +8,8 @@ import pytest
 
 from gander.normalize import (
     NormalizedRole,
+    _llm_canonicalize_role,
+    _LLMCanonicalRole,
     normalize_role,
     normalize_role_with_llm_fallback,
     seniority_rank,
@@ -295,8 +297,6 @@ async def test_async_wrapper_calls_llm_for_unrecognized(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Unrecognized headline with no recovery → LLM fallback fires."""
-    from gander.normalize import _LLMCanonicalRole
-
     fake_calls: list[dict[str, Any]] = []
 
     async def fake_canonicalize(detected: str, titles: list[str], years: int) -> Any:
@@ -317,6 +317,33 @@ async def test_async_wrapper_calls_llm_for_unrecognized(
     # Sanity-check the LLM schema is callable (the test patches it out, but the
     # real one must exist to keep the import path live).
     _ = _LLMCanonicalRole.model_fields
+
+
+@pytest.mark.fast
+async def test_llm_canonicalize_role_uses_extract_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Role fallback belongs to L3 extraction, so it uses the extract model slot."""
+    seen: dict[str, Any] = {}
+
+    async def fake_complete_json(self: object, **kwargs: Any) -> _LLMCanonicalRole:
+        seen.update(kwargs)
+        return _LLMCanonicalRole(
+            canonical_role="head of data science",
+            seniority_band="head",
+            is_management=True,
+            confidence=0.9,
+        )
+
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setattr("gander.llm.LLMClient.complete_json", fake_complete_json)
+
+    result = await _llm_canonicalize_role("Wizard of Bytes", ["Head of Data Science"], 12)
+
+    assert isinstance(result, NormalizedRole)
+    assert seen["model"] == "extract"
+    assert result.canonical_role == "head of data science"
+    assert result.source == "llm_fallback"
 
 
 @pytest.mark.fast
