@@ -58,7 +58,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## Post-merge follow-ups (T30 phase 1 self-heal residue)
 - [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *unblocks reverting the partial-Score branch in `test_score_spread_at_least_30`*
-- [ ] **T37** — Cassette/mock DDG for live tests (`tasks/T37_ddg_cassette.md`) — *unblocks removing `_optional_growth` + `@flaky(reruns=2)`*
+- [x] **T37** — Cassette/mock DDG for live tests (`tasks/T37_ddg_cassette.md`) — *DDG replay fixture added; `_optional_growth` and salary flaky rerun removed*
 - [x] **T38** — Low-evidence profile gate (`tasks/T38_low_evidence_gate.md`) — *PR #22; non-CV uploads now fail closed before downstream salary/score/growth*
 - [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`) — *verifier + role recovery fixes fast-verified; final private Profile.pdf rerun pending explicit approval*
 - [ ] **T40** — CV-quality signals into confidence judge (`tasks/T40_confidence_cv_signals.md`) — *live cap path observed; final post-T39 private Profile.pdf rerun pending explicit approval*
