@@ -7,6 +7,7 @@ anchor does not survive `verify_quote` (PRD §4.6 hallucination guard).
 
 from __future__ import annotations
 
+import re
 import time
 import unicodedata
 from pathlib import Path
@@ -64,18 +65,39 @@ _SKILL_TERM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("RAG", ("rag", "retrieval augmented")),
     ("vector databases", ("vector database", "vector databases")),
 )
+# Soft-signal needles use a trailing "*" to mark stem matches — e.g. ``mentor*``
+# matches "mentor", "mentored", "mentoring", "mentorship". Bare needles are
+# exact-word: ``led`` matches "led" but not "ledger".
 _SOFT_SIGNAL_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("leadership", (" led ", " lead ", " managed ", " managed two ", " řídil ", " řídila ")),
-    ("mentorship", (" mentor", " coached ", " trained ", " mentored ", " kouč", " školil ")),
+    ("leadership", ("led", "lead", "managed", "managed two", "řídil", "řídila")),
+    ("mentorship", ("mentor*", "coached", "trained", "kouč*", "školil")),
     (
         "stakeholder communication",
-        ("stakeholder", "executive", "presented", "communicated", "prezentoval", "prezentovala"),
+        ("stakeholder*", "executive*", "presented", "communicated", "prezentoval*"),
     ),
     ("cross-team work", ("cross-team", "cross functional", "cross-functional", "napříč týmy")),
-    ("ownership", (" owned ", " ownership ", " accountable ", " zodpověd", " vlastnil ")),
+    ("ownership", ("owned", "ownership", "accountable", "zodpověd*", "vlastnil")),
 )
 _HEADER_PREFIX = "#"
 _BULLET_PREFIXES = ("- ", "* ", "• ", "· ")
+
+
+def _compile_needle(needle: str) -> re.Pattern[str]:
+    if needle.endswith("*"):
+        return re.compile(rf"\b{re.escape(needle[:-1])}\w*")
+    return re.compile(rf"\b{re.escape(needle)}\b")
+
+
+def _compile_groups(
+    groups: tuple[tuple[str, tuple[str, ...]], ...],
+) -> tuple[tuple[str, tuple[re.Pattern[str], ...]], ...]:
+    return tuple(
+        (label, tuple(_compile_needle(needle) for needle in needles)) for label, needles in groups
+    )
+
+
+_SKILL_TERM_PATTERNS = _compile_groups(_SKILL_TERM_GROUPS)
+_SOFT_SIGNAL_PATTERNS = _compile_groups(_SOFT_SIGNAL_GROUPS)
 
 
 def _cv_composite_score(kept_lists: dict[str, list[ProfileItem]]) -> int:
@@ -121,11 +143,18 @@ def _iter_anchorable_lines(source: str) -> list[tuple[str, str | None]]:
     return candidates
 
 
-def _matched_labels(text: str, groups: tuple[tuple[str, tuple[str, ...]], ...]) -> list[str]:
-    haystack = f" {unicodedata.normalize('NFC', text).casefold()} "
+def _matched_labels(
+    text: str, patterns: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...]
+) -> list[str]:
+    """Return labels whose needles match `text` on word boundaries.
+
+    Short cues like ``aws``, ``rag``, ``sql`` need real token boundaries — raw
+    substring checks falsely match ``draws``/``storage``/``rags``.
+    """
+    haystack = unicodedata.normalize("NFC", text).casefold()
     labels: list[str] = []
-    for label, needles in groups:
-        if any(needle in haystack for needle in needles):
+    for label, label_patterns in patterns:
+        if any(pattern.search(haystack) for pattern in label_patterns):
             labels.append(label)
     return labels
 
@@ -134,14 +163,14 @@ def _salvage_item(
     source: str,
     *,
     field: str,
-    groups: tuple[tuple[str, tuple[str, ...]], ...],
+    patterns: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...],
     used_quotes: set[str],
 ) -> ProfileItem | None:
     for quote, section in _iter_anchorable_lines(source):
         key = _evidence_key(quote)
         if key in used_quotes:
             continue
-        labels = _matched_labels(quote, groups)
+        labels = _matched_labels(quote, patterns)
         if not labels:
             continue
         if not verify_quote(quote, source, section=section):
@@ -167,13 +196,13 @@ def _salvage_missing_profile_evidence(kept_lists: dict[str, list[ProfileItem]], 
         _evidence_key(item.anchor.quote) for items in kept_lists.values() for item in items
     }
     salvage_specs = (
-        ("skills", _SKILL_TERM_GROUPS),
-        ("soft_signals", _SOFT_SIGNAL_GROUPS),
+        ("skills", _SKILL_TERM_PATTERNS),
+        ("soft_signals", _SOFT_SIGNAL_PATTERNS),
     )
-    for field, groups in salvage_specs:
+    for field, patterns in salvage_specs:
         if kept_lists[field]:
             continue
-        item = _salvage_item(source, field=field, groups=groups, used_quotes=used_quotes)
+        item = _salvage_item(source, field=field, patterns=patterns, used_quotes=used_quotes)
         if item is None:
             continue
         kept_lists[field].append(item)

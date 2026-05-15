@@ -234,6 +234,66 @@ async def test_extract_salvages_skills_and_soft_signals_from_long_cv_lines(
 
 
 @pytest.mark.fast
+async def test_extract_salvage_ignores_substring_false_positives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PR #28 review (Codex P1 / Copilot): short skill cues like `aws`, `rag`,
+    # `llm` must match on word boundaries, not raw substrings. Without this,
+    # "draws"/"ragged"/"fulfillment" trigger AWS/RAG/LLM salvage, and
+    # "represented" triggers a stakeholder-communication salvage.
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    decoy_soft = (
+        "represented quarterly results to senior partners across two timezones daily routine"
+    )
+    decoy_skill = (
+        "draws ragged fulfillment patterns across teams and supports cross-quarter reviews"
+    )
+    experience_quote = (
+        "Owned churn model delivery for the retention squad and reduced manual review work"
+    )
+    redacted = RedactedCV(
+        text=(f"## Work Experience\n{experience_quote}.\n{decoy_soft}.\n{decoy_skill}.\n"),
+        audit_log=[],
+    )
+    llm_profile = Profile(
+        skills=[],
+        experience=[
+            ProfileItem(
+                text="churn model delivery owner",
+                anchor=Anchor(quote=experience_quote, section="Work Experience"),
+            )
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Data Scientist",
+        detected_location="Prague",
+        detected_years_experience=5,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert result.skills == []
+    assert result.soft_signals == []
+    assert not any(e["event"] == "evidence_salvaged" for e in events)
+
+
+@pytest.mark.fast
 async def test_stage_failure_returned_when_llm_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
