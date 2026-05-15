@@ -45,7 +45,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T26** — verify_quote: section-fallback + per-stage cap, R3 (`tasks/T26_verify_fallback.md`) — *PR #9, 212aff5*
 - [x] **T27** — Role normalization (polarity-flipped + LLM fallback) + salary 3-shot, R4+R5 (`tasks/T27_role_normalize.md`) — *PR #17, 3cc0092*
 - [x] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`) — *PR #11, 3602324*
-- [x] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *PR #35 `openrouter-live` passed on run 25930418885*
+- [x] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *PR #35 `openrouter-live` passed on run 25932192588*
 - [x] **T30 phase 1** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *PR #10, dea3dcf*
 - [x] **T30 phase 2** — CZ-triplet extension — *CZ cross-fixture invariants implemented in `test_acceptance_cz.py`; PR #35 `openrouter-live` passed*
 - [x] ~~**T31** — SPIKE: multimodal vision ingest~~ — *superseded by T32–T35 Token Plan VLM chain; no longer an active pickup* (`tasks/T31_multimodal_spike.md`)
@@ -57,7 +57,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T35** — Regression, live gating, and docs (`tasks/T35_corpus_regression_and_gating.md`) — *opt-in synthetic MiniMax API-vlm smoke + spend docs added; live run still pending*
 
 ## Post-merge follow-ups (T30 phase 1 self-heal residue)
-- [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *education-anchor salvage retry fast-verified; live EN-triplet acceptance + partial-Score branch removal pending*
+- [x] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *strict EN score-spread gate restored; PR #35 `openrouter-live` passed*
 - [x] **T37** — Cassette/mock DDG for live tests (`tasks/T37_ddg_cassette.md`) — *DDG replay fixture added; `_optional_growth` and salary flaky rerun removed*
 - [x] **T38** — Low-evidence profile gate (`tasks/T38_low_evidence_gate.md`) — *PR #22; non-CV uploads now fail closed before downstream salary/score/growth*
 - [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`) — *verifier + role recovery fixes fast-verified; final private Profile.pdf rerun pending explicit approval*
@@ -67,7 +67,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T44** — Skills/soft-signal evidence salvage (`tasks/T44_skills_soft_salvage.md`) — *keeps 6-word quote floor; rescues verifier-passing evidence from longer CV lines*
 - [x] **T45** — Vision parallelization + per-stage max_tokens caps (`tasks/T45_vision_parallel_and_token_caps.md`) — *implemented on branch `dev/parallelize-vision-cap-max-tokens`; fast suite green*
 - [x] **T46** — Salary stage: country-agnostic, live-search-first (`tasks/T46_salary_multi_market.md`) — *implemented on branch `t46-salary-multi-market`; fast salary/country coverage and PR #35 live CI green*
-- [ ] **T47** — Education scoring rubric: degree-band calibration (`tasks/T47_education_calibration.md`) — *prompt + fast guard implemented; live PhD/bias regression pending*
+- [x] **T47** — Education scoring rubric: degree-band calibration (`tasks/T47_education_calibration.md`) — *PhD and bias live regressions passed in PR #35 `openrouter-live`*
 
 ## Provider plumbing
 - [x] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *PR #25, required `openrouter-live` CI pass*

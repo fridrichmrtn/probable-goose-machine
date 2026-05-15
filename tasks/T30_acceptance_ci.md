@@ -74,9 +74,11 @@ Failure-mode mapping:
 
 ## Outcome
 
-**Phase 1 (EN triplet)** shipped in PR #10 (`dea3dcf`). Closed T17. Self-heal during the PR added two known-debt absorbers that survive merge:
-- inline `if senior.dropped:` branch in `test_score_spread_at_least_30` (owned by T36)
-- `_optional_growth` + `@flaky(reruns=2)` for DDG flakes (owned by T37)
+**Phase 1 (EN triplet)** shipped in PR #10 (`dea3dcf`). Closed T17. Self-heal during the PR added two known-debt absorbers:
+- inline `if senior.dropped:` branch in `test_score_spread_at_least_30`
+  (owned by T36; removed in PR #35 after strict live gate passed)
+- `_optional_growth` + `@flaky(reruns=2)` for DDG flakes (owned by T37;
+  removed by T37)
 
 **Phase 2 (CZ extension)** implemented in the T29 CZ suite rather than adding
 duplicate pipeline runs to `tests/test_acceptance.py`. `tests/test_acceptance_cz.py`
@@ -95,7 +97,7 @@ same §5.4 shape as the EN triplet.
 
 Verified:
 - PR #35 OpenRouter live CI run
-  `25930418885` / job `76222685954` → passed. This run exercised the
+  `25932192588` / job `76228665081` → passed. This run exercised the
   EN triplet, the CZ triplet session fixture, and the T30 phase 2
   cross-fixture invariants in `tests/test_acceptance_cz.py`.
 - Current CZ suite collection:

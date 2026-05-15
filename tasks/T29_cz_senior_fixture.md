@@ -102,7 +102,7 @@ Verified:
 - `uv run ruff check scripts/build_cv_fixtures.py tests/test_acceptance_cz.py`
   → passed.
 - PR #35 OpenRouter live CI run
-  `25930418885` / job `76222685954` → passed. This run exercised the
+  `25932192588` / job `76228665081` → passed. This run exercised the
   full live marker suite, including the CZ acceptance session fixture and the
   T29 score/salary/redaction/role-normalization checks.
 - Current local collection with the additional T30 cross-fixture checks:

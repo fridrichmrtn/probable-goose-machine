@@ -1,6 +1,6 @@
 # T36 — Senior fixture education-anchor verify miss
 
-Status: implemented — education-anchor retry fast-verified; live acceptance pending
+Status: done — education retry verified and strict EN spread gate restored
 Owner: ai-ml-engineer (follow-up from T30 phase 1)
 Depends on: T24 (merged), T25 (merged), T26 (merged), T30 phase 1 (PR #10)
 Unblocks: removing the `if senior.dropped:` partial-Score absorber branch
@@ -122,12 +122,17 @@ Verified:
 - `uv run ruff check src/gander/score.py tests/test_score.py` → passed.
 - `uv run mypy src/gander/score.py` → passed.
 
-Still pending before checking T36 done in `tasks/todo.md`:
-- A live EN-triplet acceptance run that proves `08_staff_ml_engineer_dvorak.pdf`
-  no longer drops `education`.
-- Removing the partial-Score absorber branch in
-  `tests/test_acceptance.py::test_score_spread_at_least_30` after that live
-  evidence lands.
+Final verification:
+- Removed the partial-Score absorber branch from
+  `tests/test_acceptance.py::test_score_spread_at_least_30`; the test now
+  enforces the unrelaxed `delta >= 30` gate again.
+- `uv --cache-dir /tmp/uv-cache run ruff check tests/test_acceptance.py`
+  → passed.
+- `uv --cache-dir /tmp/uv-cache run pytest tests/test_acceptance.py --collect-only --strict-markers -q`
+  → `10 tests collected`.
+- PR #35 OpenRouter live CI run
+  `25932192588` / job `76228665081` → passed, including
+  `tests/test_acceptance.py::test_score_spread_at_least_30`.
 
 ## Reference
 

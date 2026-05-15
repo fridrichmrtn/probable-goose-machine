@@ -1,6 +1,6 @@
 # T47 — Education scoring rubric: degree-band calibration
 
-Status: implemented — prompt + fast guard verified; live PhD regression pending
+Status: done — prompt, fast guard, PhD live, and bias live regression verified
 Owner: software-engineer
 Depends on: T10 (L4a scorer), T25 (score-partial / drop-as-zero)
 Unblocks: PhD-and-multi-Master CVs landing in the 86–100 band as users expect
@@ -89,9 +89,7 @@ Verified:
 - `uv run ruff check tests/test_score.py` → passed.
 - `uv run pytest -m live tests/test_score.py -k phd_fixture_education_lands_in_doctorate_band -q`
   with no provider key in this shell → `1 skipped`.
-
-Still pending before checking T47 done in `tasks/todo.md`:
-- Live `tests/test_score.py::test_phd_fixture_education_lands_in_doctorate_band`
-  with provider credentials.
-- Bias live smoke against the `09`/`09b` pair to confirm the explicit
-  prestige-blind clause still holds under the new rubric.
+- PR #35 OpenRouter live CI run
+  `25932192588` / job `76228665081` → passed, including
+  `tests/test_score.py::test_phd_fixture_education_lands_in_doctorate_band`
+  and `tests/test_bias_smoke.py::test_school_prestige_delta_within_threshold`.
