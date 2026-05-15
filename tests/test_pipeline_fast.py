@@ -19,6 +19,7 @@ from gander.schemas import (
     Component,
     ComponentName,
     Confidence,
+    CVQualitySignals,
     GrowthAction,
     Profile,
     ProfileItem,
@@ -122,6 +123,8 @@ def _patch_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         high: int,
         currency: str,
         period: str,
+        *,
+        cv_quality: CVQualitySignals,
     ) -> Confidence:
         return _confidence()
 
@@ -376,7 +379,13 @@ async def test_cost_and_latency_accumulate_from_obs_emit(
         return _salary()
 
     async def _judge_emit(
-        sources: list[Source], low: int, high: int, currency: str, period: str
+        sources: list[Source],
+        low: int,
+        high: int,
+        currency: str,
+        period: str,
+        *,
+        cv_quality: CVQualitySignals,
     ) -> Confidence:
         obs.emit("confidence", "llm_call", usd_cost=0.005, duration_ms=50)
         return _confidence()

@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit
-from gander.schemas import Confidence, Source
+from gander.schemas import Confidence, CVQualitySignals, Source
 
 _STEP_A_PROMPT = (Path(__file__).parent / "prompts" / "confidence_step_a.md").read_text(
     encoding="utf-8"
@@ -48,6 +48,7 @@ _LOW_FALLBACK_RATIONALE = (
     "The underlying market data is insufficient or in disagreement, "
     "so treat this estimate as provisional."
 )
+_CV_FLOOR_LOW_REGEX = re.compile(r"cv|extraction|component|thin|profile", re.I)
 
 
 class _TierOnly(BaseModel):
@@ -55,14 +56,81 @@ class _TierOnly(BaseModel):
     rationale_short: str
 
 
+_TIER_RANK: dict[str, int] = {"Low": 0, "Medium": 1, "High": 2}
+_RANK_TIER: dict[int, Literal["Low", "Medium", "High"]] = {
+    0: "Low",
+    1: "Medium",
+    2: "High",
+}
+
+
+def _cv_floor(cv_quality: CVQualitySignals) -> Literal["Low", "Medium", "High"]:
+    if cv_quality.dropped_score_components >= 2:
+        return "Low"
+    if cv_quality.dropped_score_components == 1 or not cv_quality.canonical_role_resolved:
+        return "Medium"
+    if not cv_quality.location_detected:
+        return "Medium"
+    return "High"
+
+
+def _apply_cv_floor(
+    salary_tier: Literal["Low", "Medium", "High"],
+    cv_quality: CVQualitySignals,
+) -> tuple[Literal["Low", "Medium", "High"], Literal["Low", "Medium", "High"]]:
+    floor = _cv_floor(cv_quality)
+    final_rank = min(_TIER_RANK[salary_tier], _TIER_RANK[floor])
+    return _RANK_TIER[final_rank], floor
+
+
+def _cv_floor_reason(cv_quality: CVQualitySignals) -> str:
+    if cv_quality.dropped_score_components >= 2:
+        return "two or more score components were dropped during CV verification"
+    if cv_quality.dropped_score_components == 1:
+        return "one score component was dropped during CV verification"
+    if not cv_quality.canonical_role_resolved:
+        return "the canonical market role could not be resolved confidently"
+    if not cv_quality.location_detected:
+        return "the candidate location was not detected"
+    return "no CV-quality cap was applied"
+
+
 def _render_step_b(
-    tier: str,
+    salary_tier: str,
+    final_tier: str,
+    cv_floor: str,
+    cv_quality: CVQualitySignals,
     low: int,
     high: int,
     currency: str,
     period: Literal["month", "year"],
 ) -> str:
-    return f"Step A tier: {tier}\nProduced range: {low}-{high} {currency}/{period}"
+    return (
+        f"Salary-source tier: {salary_tier}\n"
+        f"Final tier: {final_tier}\n"
+        f"CV-quality cap: {cv_floor}\n"
+        f"CV-quality reason: {_cv_floor_reason(cv_quality)}\n"
+        f"Produced range: {low}-{high} {currency}/{period}"
+    )
+
+
+def _low_fallback_rationale(
+    *,
+    salary_tier: Literal["Low", "Medium", "High"],
+    low: int,
+    high: int,
+    currency: str,
+    period: Literal["month", "year"],
+    cv_quality: CVQualitySignals,
+) -> str:
+    if salary_tier == "Low":
+        return _LOW_FALLBACK_RATIONALE
+    return (
+        "Confidence in this estimate is Low. "
+        f"The {low}-{high} {currency}/{period} band has salary-source support, "
+        f"but CV extraction is thin because {_cv_floor_reason(cv_quality)}, "
+        "so treat the estimate as provisional."
+    )
 
 
 async def judge(
@@ -71,11 +139,13 @@ async def judge(
     high: int,
     currency: str,
     period: Literal["month", "year"],
+    *,
+    cv_quality: CVQualitySignals,
 ) -> Confidence | StageFailure:
     async with stage_boundary("confidence") as cm:
         client = LLMClient()
 
-        step_a_user = json.dumps([s.model_dump(mode="json") for s in sources])
+        step_a_user = json.dumps({"sources": [s.model_dump(mode="json") for s in sources]})
         try:
             tier_obj = await client.complete_json(
                 system=_STEP_A_PROMPT,
@@ -108,14 +178,32 @@ async def judge(
                 user_message=_FAILURE_MSG,
                 debug_detail=f"complete_json returned {type(tier_obj).__name__}",
             )
+        salary_tier = tier_obj.tier
+        final_tier, cv_floor = _apply_cv_floor(salary_tier, cv_quality)
+        if final_tier != salary_tier:
+            emit(
+                "confidence",
+                "confidence_cv_floor_applied",
+                salary_tier=salary_tier,
+                cv_floor=cv_floor,
+                final_tier=final_tier,
+                dropped_score_components=cv_quality.dropped_score_components,
+                canonical_role_resolved=cv_quality.canonical_role_resolved,
+                location_detected=cv_quality.location_detected,
+            )
+
         emit(
             "confidence",
             "confidence_step_a",
-            tier=tier_obj.tier,
+            tier=final_tier,
+            salary_tier=salary_tier,
+            cv_floor=cv_floor,
             sources_count=len(sources),
         )
 
-        step_b_user = _render_step_b(tier_obj.tier, low, high, currency, period)
+        step_b_user = _render_step_b(
+            salary_tier, final_tier, cv_floor, cv_quality, low, high, currency, period
+        )
         try:
             rationale = await client.complete_text(
                 system=_STEP_B_PROMPT,
@@ -124,17 +212,23 @@ async def judge(
                 temperature=0.0,
             )
             regenerated = False
-            if tier_obj.tier == "Low" and not _RATIONALE_LOW_REGEX.search(rationale):
+            low_regex = _RATIONALE_LOW_REGEX if salary_tier == "Low" else _CV_FLOOR_LOW_REGEX
+            if final_tier == "Low" and not low_regex.search(rationale):
                 emit(
                     "confidence",
                     "confidence_step_b_regenerated",
                     reason="missing_low_marker",
                 )
-                retry_user = step_b_user + (
-                    "\n\nThe previous draft did not include the words 'insufficient' or "
+                marker_instruction = (
+                    "The previous draft did not include the words 'insufficient' or "
                     "'disagree'. Rewrite the paragraph keeping the same meaning, but use "
                     "one of those words to signal the provisional nature of the estimate."
+                    if salary_tier == "Low"
+                    else "The previous draft did not explain the CV-quality cap. Rewrite the "
+                    "paragraph keeping the same meaning, but explicitly mention thin CV "
+                    "extraction or dropped CV components."
                 )
+                retry_user = step_b_user + "\n\n" + marker_instruction
                 rationale = await client.complete_text(
                     system=_STEP_B_PROMPT,
                     user=retry_user,
@@ -142,13 +236,20 @@ async def judge(
                     temperature=0.0,
                 )
                 regenerated = True
-                if not _RATIONALE_LOW_REGEX.search(rationale):
+                if not low_regex.search(rationale):
                     emit(
                         "confidence",
                         "confidence_low_fallback_used",
                         reason="regenerate_failed",
                     )
-                    rationale = _LOW_FALLBACK_RATIONALE
+                    rationale = _low_fallback_rationale(
+                        salary_tier=salary_tier,
+                        low=low,
+                        high=high,
+                        currency=currency,
+                        period=period,
+                        cv_quality=cv_quality,
+                    )
         except Exception as exc:
             emit(
                 "confidence",
@@ -171,9 +272,9 @@ async def judge(
         emit(
             "confidence",
             "confidence_decision",
-            tier=tier_obj.tier,
+            tier=final_tier,
             rationale_len=len(rationale),
         )
-        return Confidence(tier=tier_obj.tier, rationale=rationale)
+        return Confidence(tier=final_tier, rationale=rationale)
 
     return cm.failure  # type: ignore[return-value]

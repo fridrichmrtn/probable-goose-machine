@@ -28,6 +28,7 @@ class Echo(BaseModel):
 
 class _RetryingLLMClient(LLMClient):
     def __init__(self) -> None:
+        self._provider = "test"
         self.calls = 0
 
     def _resolve_model(self, logical: str) -> str:
@@ -122,6 +123,161 @@ async def test_complete_json_retry_telemetry_accumulates_tokens() -> None:
     assert llm_events[0]["prompt_tokens"] == 10
     assert llm_events[0]["completion_tokens"] == 16
     assert llm_events[0]["usd_cost"] == 26.0
+    assert llm_events[0]["provider"] == "test"
+
+
+@pytest.mark.fast
+def test_openrouter_constructs_with_defaults_and_model_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr("gander.llm.AsyncOpenAI", _FakeAsyncOpenAI)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.delenv("OPENROUTER_MODEL_REASONING", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+
+    client = LLMClient()
+
+    assert captured["api_key"] == "or-test"
+    assert str(captured["base_url"]) == "https://openrouter.ai/api/v1"
+    assert captured["default_headers"]["X-Title"] == "Gander"
+    assert client._resolve_model("reasoning") == "anthropic/claude-haiku-4.5"
+    assert client._resolve_model("cheap") == "google/gemini-2.5-flash"
+
+    monkeypatch.setenv("OPENROUTER_MODEL_REASONING", "anthropic/claude-sonnet-4.5")
+    monkeypatch.setenv("OPENROUTER_MODEL_CHEAP", "google/gemini-2.5-flash-lite")
+    assert client._resolve_model("reasoning") == "anthropic/claude-sonnet-4.5"
+    assert client._resolve_model("cheap") == "google/gemini-2.5-flash-lite"
+
+
+@pytest.mark.fast
+def test_openrouter_missing_key_and_removed_anthropic_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        LLMClient()
+
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "anthropic")
+    with pytest.raises(RuntimeError, match="'minimax' or 'openrouter'"):
+        LLMClient()
+
+
+class _FakeChatCompletions:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, Any] | None = None
+        self.content = '{"message": "pong"}'
+        self.usage: Any = type("Usage", (), {"prompt_tokens": 3, "completion_tokens": 4})()
+
+    async def create(self, **kwargs: Any) -> Any:
+        self.kwargs = kwargs
+        return type(
+            "Response",
+            (),
+            {
+                "choices": [
+                    type(
+                        "Choice",
+                        (),
+                        {
+                            "message": type("Message", (), {"content": self.content})(),
+                            "finish_reason": "stop",
+                        },
+                    )()
+                ],
+                "usage": self.usage,
+            },
+        )()
+
+
+def _client_with_fake_chat(provider: str) -> tuple[LLMClient, _FakeChatCompletions]:
+    fake_completions = _FakeChatCompletions()
+    fake_chat = type("Chat", (), {"completions": fake_completions})()
+    fake_client = type("Client", (), {"chat": fake_chat})()
+    client = object.__new__(LLMClient)
+    client._provider = provider
+    client._client = fake_client
+    return client, fake_completions
+
+
+@pytest.mark.fast
+async def test_openrouter_chat_json_omits_minimax_quirks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_STRIP_THINK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+
+    text, prompt_tokens, completion_tokens, finish_reason = await client._chat_json(
+        "google/gemini-2.5-flash",
+        "System",
+        "User",
+        0.0,
+    )
+
+    assert text == '{"message": "pong"}'
+    assert (prompt_tokens, completion_tokens, finish_reason) == (3, 4, "stop")
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["response_format"] == {"type": "json_object"}
+    assert "extra_body" not in fake_completions.kwargs
+    assert "max_tokens" not in fake_completions.kwargs
+
+
+@pytest.mark.fast
+async def test_openrouter_chat_json_handles_missing_usage() -> None:
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.usage = None
+
+    text, prompt_tokens, completion_tokens, finish_reason = await client._chat_json(
+        "google/gemini-2.5-flash",
+        "System",
+        "User",
+        0.0,
+    )
+
+    assert text == '{"message": "pong"}'
+    assert (prompt_tokens, completion_tokens, finish_reason) == (0, 0, "stop")
+
+
+@pytest.mark.fast
+async def test_openrouter_chat_text_omits_minimax_quirks_and_handles_missing_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_STRIP_THINK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Plain rationale."
+    fake_completions.usage = None
+
+    text, prompt_tokens, completion_tokens, finish_reason = await client._chat_text(
+        "google/gemini-2.5-flash",
+        "System",
+        "User",
+        0.0,
+    )
+
+    assert text == "Plain rationale."
+    assert (prompt_tokens, completion_tokens, finish_reason) == (0, 0, "stop")
+    assert fake_completions.kwargs is not None
+    assert "extra_body" not in fake_completions.kwargs
+    assert "max_tokens" not in fake_completions.kwargs
+    assert "response_format" not in fake_completions.kwargs
+
+
+@pytest.mark.fast
+async def test_minimax_chat_json_retains_reasoning_split_and_token_cap() -> None:
+    client, fake_completions = _client_with_fake_chat("minimax")
+
+    await client._chat_json("MiniMax-M2.7-highspeed", "System", "User", 0.0)
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["extra_body"] == {"reasoning_split": True}
+    assert fake_completions.kwargs["max_tokens"] == 4096
 
 
 @pytest.mark.live
@@ -143,6 +299,32 @@ async def test_complete_json_roundtrip_emits_telemetry() -> None:
     assert len(llm_events) == 1
     e = llm_events[0]
     assert e["prompt_tokens"] > 0
+    assert e["completion_tokens"] >= 0
+
+
+@pytest.mark.live
+@pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="OPENROUTER_API_KEY not set")
+async def test_openrouter_complete_json_roundtrip_emits_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
+    events: list[dict[str, Any]] = []
+    client = LLMClient()
+    with subscribe(events.append):
+        echo = await client.complete_json(
+            system='You echo. Return JSON {"message": "..."}.',
+            user="Echo back the word pong.",
+            schema=Echo,
+            model="cheap",
+        )
+    assert isinstance(echo, Echo)
+    assert "pong" in echo.message.lower()
+
+    llm_events = [e for e in events if e["event"] == "llm_call"]
+    assert len(llm_events) == 1
+    e = llm_events[0]
+    assert e["provider"] == "openrouter"
+    assert e["prompt_tokens"] >= 0
     assert e["completion_tokens"] >= 0
     assert e["duration_ms"] >= 0
     assert e["usd_cost"] >= 0.0

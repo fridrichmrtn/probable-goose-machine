@@ -411,6 +411,71 @@ async def test_tenure_override_skipped_when_no_deterministic(
     assert not override
 
 
+@pytest.mark.fast
+async def test_extract_normalizes_valid_but_wrong_side_entry_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A market-token-valid side-entry title must not beat current/top
+    work-experience title evidence."""
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    senior_quote = (
+        "Senior Manager AI and Data Science led the enterprise model portfolio "
+        "and managed two analytics squads"
+    )
+    research_quote = (
+        "Research Engineer prototype explored embeddings for a personal "
+        "recommendation project outside the core role"
+    )
+    redacted = RedactedCV(
+        text=(f"## Work Experience\n{senior_quote}.\n{research_quote}.\n"),
+        audit_log=[],
+    )
+    llm_profile = Profile(
+        skills=[],
+        experience=[
+            ProfileItem(
+                text="Senior Manager AI and Data Science",
+                anchor=Anchor(quote=senior_quote, section="Work Experience"),
+            ),
+            ProfileItem(
+                text="Research Engineer",
+                anchor=Anchor(quote=research_quote, section="Work Experience"),
+            ),
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Research Engineer",
+        detected_location="Prague",
+        detected_years_experience=10,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert result.canonical_role == "senior manager ai and data science"
+    assert result.seniority_band == "senior"
+    assert result.is_management is True
+    assert result.role_normalization_source == "experience_recovery"
+    normalized = [e for e in events if e["event"] == "role_normalized"]
+    assert normalized[0]["source"] == "experience_recovery"
+
+
 # ---------- T38 low-evidence gate -------------------------------------------
 
 

@@ -10,6 +10,7 @@ from gander.normalize import (
     NormalizedRole,
     normalize_role,
     normalize_role_with_llm_fallback,
+    seniority_rank,
 )
 from gander.obs import subscribe
 
@@ -163,6 +164,80 @@ def test_market_token_match_does_not_emit_role_normalized() -> None:
     with subscribe(events.append):
         normalize_role("Senior Data Scientist", 5, [])
     assert not [e for e in events if e["event"] == "role_normalized"]
+
+
+@pytest.mark.fast
+def test_valid_but_lower_seniority_detected_role_recovers_from_titles() -> None:
+    """A market-token-valid side-entry like Research Engineer must not beat
+    a clearly senior management title pulled from current work evidence."""
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = normalize_role(
+            "Research Engineer",
+            10,
+            [
+                "Senior Manager AI & Data Science",
+                "Research Engineer",
+                "Manažer datového oddělení",
+            ],
+        )
+
+    assert result.canonical_role == "senior manager ai & data science"
+    assert result.seniority_band == "senior"
+    assert result.is_management is True
+    assert result.source == "experience_recovery"
+    normalized = [e for e in events if e["event"] == "role_normalized"]
+    assert normalized[0]["source"] == "experience_recovery"
+
+
+@pytest.mark.fast
+def test_valid_mid_detected_role_not_overridden_by_prior_head_title() -> None:
+    result = normalize_role(
+        "Data Scientist",
+        8,
+        ["Data Scientist", "Head of Data Science"],
+    )
+
+    assert result.canonical_role == "data scientist"
+    assert result.source == "market_token"
+
+
+@pytest.mark.fast
+def test_role_recovery_ignores_sentence_shaped_experience_summaries() -> None:
+    result = normalize_role(
+        "Research Engineer",
+        10,
+        [
+            "Senior Manager AI and Data Science led the enterprise model portfolio "
+            "and managed two analytics squads",
+            "Research Engineer",
+        ],
+    )
+
+    assert result.canonical_role == "research engineer"
+    assert result.source == "market_token"
+
+
+@pytest.mark.fast
+def test_valid_senior_detected_role_is_not_overridden_by_prior_head_title() -> None:
+    """The recovery path is intentionally narrow: it fixes low/mid side-entry
+    picks without converting every senior IC with a past head title into management."""
+    result = normalize_role(
+        "Senior Data Scientist",
+        10,
+        ["Head of Data Science", "Senior Data Scientist"],
+    )
+
+    assert result.canonical_role == "senior data scientist"
+    assert result.source == "market_token"
+
+
+@pytest.mark.fast
+def test_seniority_rank_orders_management_and_cz_titles() -> None:
+    assert seniority_rank("Wizard of Bytes") == 0
+    assert seniority_rank("Research Engineer") < seniority_rank("Senior Manager AI")
+    assert seniority_rank("Senior Manager AI") == seniority_rank("Manažer datového oddělení")
+    assert seniority_rank("Senior Manager AI") < seniority_rank("Vedoucí výzkumného týmu")
 
 
 @pytest.mark.fast

@@ -90,6 +90,7 @@ class Profile(BaseModel):
     canonical_role: str | None = None
     seniority_band: str | None = None
     is_management: bool = False
+    role_normalization_source: str | None = None
 
 
 class Source(BaseModel):
@@ -128,6 +129,18 @@ class SalaryEstimate(BaseModel):
 class Confidence(BaseModel):
     tier: Literal["Low", "Medium", "High"]
     rationale: str
+
+
+class CVQualitySignals(BaseModel):
+    """CV-extraction quality signals fed into the confidence judge.
+
+    Built by pipeline.py from the verified Profile + Score so confidence can
+    reflect thin CV understanding, not only market-source agreement.
+    """
+
+    dropped_score_components: int = Field(ge=0, le=3)
+    canonical_role_resolved: bool
+    location_detected: bool
 
 
 class GrowthAction(BaseModel):

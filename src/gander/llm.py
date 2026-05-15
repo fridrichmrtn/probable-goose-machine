@@ -5,17 +5,13 @@ import json
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from gander import obs
-
-if TYPE_CHECKING:
-    # Optional fallback dep — not installed by default.
-    from anthropic import AsyncAnthropic  # type: ignore[import-not-found]
 
 LogicalModel = Literal["reasoning", "cheap"]
 
@@ -32,6 +28,14 @@ def _strip_think(text: str) -> str:
     return m.group(1).strip() if m else text
 
 
+def _usage_tokens(usage: Any) -> tuple[int, int]:
+    if usage is None:
+        return 0, 0
+    prompt = getattr(usage, "prompt_tokens", 0) or 0
+    completion = getattr(usage, "completion_tokens", 0) or 0
+    return int(prompt), int(completion)
+
+
 # USD per 1M tokens, (prompt, completion).
 # TODO(T05): re-verify model identifiers and re-cost from MiniMax pricing console;
 # zeroed because public docs no longer expose per-model pricing without auth.
@@ -44,7 +48,11 @@ _PROFILE_MODELS: dict[str, dict[str, str]] = {
     "ci": {"reasoning": "MiniMax-M2.7-highspeed", "cheap": "MiniMax-M2.7-highspeed"},
 }
 
-_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+_OPENROUTER_MODELS: dict[LogicalModel, str] = {
+    # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
+    "reasoning": "anthropic/claude-haiku-4.5",
+    "cheap": "google/gemini-2.5-flash",
+}
 _API_VLM_MODEL = "api-vlm"
 _API_VLM_ENDPOINT = "https://api.minimax.io/v1/coding_plan/vlm"
 _API_VLM_USD_PER_REQUEST = 0.06
@@ -52,41 +60,46 @@ _API_VLM_TOKEN_PLAN_M2_REQUESTS = 3
 
 
 class LLMClient:
-    """Async chat client over MiniMax (default) or Anthropic (fallback).
+    """Async chat client over MiniMax (default) or OpenRouter.
 
-    Provider selected via GANDER_LLM_PROVIDER env (`minimax` | `anthropic`).
+    Provider selected via GANDER_LLM_PROVIDER env (`minimax` | `openrouter`).
     Model resolution for MiniMax via GANDER_MODEL_PROFILE env (`local` | `ci`).
     Every call emits an `llm_call` telemetry event (success or failure).
     """
 
     def __init__(self) -> None:
         self._provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
-        self._client: AsyncOpenAI | AsyncAnthropic
+        self._client: AsyncOpenAI
         if self._provider == "minimax":
             api_key = os.environ.get("MINIMAX_API_KEY")
             if not api_key:
                 raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
             self._client = AsyncOpenAI(api_key=api_key, base_url="https://api.minimaxi.chat/v1")
-        elif self._provider == "anthropic":
-            try:
-                import anthropic
-            except ImportError as e:
-                raise RuntimeError(
-                    "GANDER_LLM_PROVIDER=anthropic but `anthropic` package not "
-                    "installed — `uv add anthropic`"
-                ) from e
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
+        elif self._provider == "openrouter":
+            api_key = os.environ.get("OPENROUTER_API_KEY")
             if not api_key:
-                raise RuntimeError("ANTHROPIC_API_KEY not set — add it to .env or export it")
-            self._client = anthropic.AsyncAnthropic(api_key=api_key)
+                raise RuntimeError("OPENROUTER_API_KEY not set — add it to .env or export it")
+            self._client = AsyncOpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": os.environ.get(
+                        "OPENROUTER_HTTP_REFERER",
+                        "https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine",
+                    ),
+                    "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Gander"),
+                },
+            )
         else:
             raise RuntimeError(
-                f"Unknown GANDER_LLM_PROVIDER={self._provider!r}; expected 'minimax' or 'anthropic'"
+                f"Unknown GANDER_LLM_PROVIDER={self._provider!r}; "
+                "expected 'minimax' or 'openrouter'"
             )
 
     def _resolve_model(self, logical: LogicalModel) -> str:
-        if self._provider == "anthropic":
-            return _ANTHROPIC_MODEL
+        if self._provider == "openrouter":
+            env_key = f"OPENROUTER_MODEL_{logical.upper()}"
+            return os.environ.get(env_key, _OPENROUTER_MODELS[logical])
         profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
         if profile not in _PROFILE_MODELS:
             raise RuntimeError(
@@ -96,7 +109,7 @@ class LLMClient:
         return _PROFILE_MODELS[profile][logical]
 
     def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
-        # Cost only modeled for MiniMax; Anthropic fallback returns 0.0 for now.
+        # Cost only modeled for MiniMax; OpenRouter returns 0.0 until per-route pricing is pinned.
         price = MODEL_PRICES.get(model)
         if price is None:
             return 0.0
@@ -148,6 +161,7 @@ class LLMClient:
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
+                provider=self._provider,
                 model=resolved,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
@@ -181,6 +195,7 @@ class LLMClient:
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
+                provider=self._provider,
                 model=resolved,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
@@ -197,7 +212,11 @@ class LLMClient:
         mime_type: str = "image/png",
         timeout_s: float = 120.0,
     ) -> str:
-        """Transcribe one rendered page through MiniMax Token Plan API-vlm."""
+        """Transcribe one rendered page through MiniMax Token Plan API-vlm.
+
+        Chat/text provider selection does not apply here: no OpenRouter vision
+        route is wired for the Token Plan ingest tier yet.
+        """
         api_key = os.environ.get("MINIMAX_API_KEY")
         if not api_key:
             raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
@@ -236,6 +255,7 @@ class LLMClient:
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
+                provider="minimax",
                 model=_API_VLM_MODEL,
                 prompt_tokens=0,
                 completion_tokens=0,
@@ -264,23 +284,35 @@ class LLMClient:
             choice = response.choices[0]
             text = choice.message.content or ""
             usage = response.usage
+            prompt_tokens, completion_tokens = _usage_tokens(usage)
             return (
                 _strip_think(text),
-                usage.prompt_tokens,
-                usage.completion_tokens,
+                prompt_tokens,
+                completion_tokens,
                 choice.finish_reason or "",
             )
-        client_a: Any = self._client
-        response_a = await client_a.messages.create(
+        client_o: Any = self._client
+        response_o = await client_o.chat.completions.create(
             model=model,
-            system=system + "\n\nReturn JSON only, no prose.",
-            messages=[{"role": "user", "content": user}],
-            max_tokens=2048,
+            messages=[
+                {"role": "system", "content": system + "\n\nReturn JSON only, no prose."},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_object"},
             temperature=temperature,
         )
-        text = response_a.content[0].text
-        usage_a = response_a.usage
-        return text, usage_a.input_tokens, usage_a.output_tokens, response_a.stop_reason or ""
+        choice_o = response_o.choices[0]
+        text_o = choice_o.message.content or ""
+        if os.environ.get("OPENROUTER_STRIP_THINK") == "1":
+            text_o = _strip_think(text_o)
+        usage_o = response_o.usage
+        prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
+        return (
+            text_o,
+            prompt_tokens_o,
+            completion_tokens_o,
+            choice_o.finish_reason or "",
+        )
 
     async def _chat_text(
         self, model: str, system: str, user: str, temperature: float
@@ -299,20 +331,31 @@ class LLMClient:
             choice = response.choices[0]
             text = choice.message.content or ""
             usage = response.usage
+            prompt_tokens, completion_tokens = _usage_tokens(usage)
             return (
                 _strip_think(text),
-                usage.prompt_tokens,
-                usage.completion_tokens,
+                prompt_tokens,
+                completion_tokens,
                 choice.finish_reason or "",
             )
-        client_a: Any = self._client
-        response_a = await client_a.messages.create(
+        client_o: Any = self._client
+        response_o = await client_o.chat.completions.create(
             model=model,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            max_tokens=2048,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
             temperature=temperature,
         )
-        text = response_a.content[0].text
-        usage_a = response_a.usage
-        return text, usage_a.input_tokens, usage_a.output_tokens, response_a.stop_reason or ""
+        choice_o = response_o.choices[0]
+        text_o = choice_o.message.content or ""
+        if os.environ.get("OPENROUTER_STRIP_THINK") == "1":
+            text_o = _strip_think(text_o)
+        usage_o = response_o.usage
+        prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
+        return (
+            text_o,
+            prompt_tokens_o,
+            completion_tokens_o,
+            choice_o.finish_reason or "",
+        )
