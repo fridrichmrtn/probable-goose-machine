@@ -1,62 +1,105 @@
-# /dev Report
+# /dev Report — T45 vision parallelization + per-stage `max_tokens` caps
 
-**Task:** Implement the approved plan at `/home/mf/.claude/plans/i-want-ux-engineer-jolly-wadler.md` — UI polish pass 2: kill streaming overlay, fix dead gap, add disabled-button state, shift primary color, responsive hero, dark-mode handling, report-body max-width, scanned-PDF caption.
-**Branch:** `dev/ui-polish-pass-2`
-**Worktree:** `/home/mf/GitHub/probable-goose-machine/.worktrees/ui-polish-pass-2`
+**Task:** Implement improvements A (parallelize vision page loop) and B (cap `max_tokens` per stage) from `/home/mf/.claude/plans/as-it-is-after-nested-shell.md`. Also create a pickup-able `tasks/T45_*.md` and mark it in `tasks/todo.md`.
+**Branch:** `dev/parallelize-vision-cap-max-tokens`
+**Worktree:** `/home/mf/GitHub/probable-goose-machine/.worktrees/parallelize-vision-cap-max-tokens`
 **Stack:** py, precommit, gradio
 
 ## Files touched
-- `app.py` — EDIT. `show_progress="hidden"` on `file_in.change` + `run_btn.click`; `gr.HTML`/`gr.Markdown` outputs start `visible=False` with `elem_classes=["gander-output"]`; all 4 `handle()` yields rewritten to `gr.update(visible=..., value=...)`; primary `#b54708` → `#92400e` (hover `#7c2d12`); new `button.primary:disabled` rule (`#fdba74`, `cursor: not-allowed`); `.gander-hero` got `flex-wrap: wrap`; new `@media (prefers-color-scheme: dark)` block; caption updated with scanned-PDF clause; `_read_error_report()` helper added so file-read failures surface a failed `profile` pill + PRD §4.6 copy.
-- `src/gander/report.py` — EDIT. Appended `_CSS` rules: `.gander-output { max-width: 72ch; margin-inline: auto }`; `.gander-output table` borders + centering; full dark-mode override block (pill palette, callout, table borders). Heal pass tightened selector from `.gander-output .prose, .gander-output .md` to `.gander-output` (the `prose` and our class are siblings on the same element, not parent-child).
-- `tasks/dev-plan.md` — NEW. Phase 1 implementation checklist (92 lines): files to modify, ordered step-by-step edits, explicit "no test changes", risks, pre-merge gates.
+
+T45 implementation (commit `0e4c4c3`):
+
+- `src/gander/ingest.py` — vision page loop wrapped with `asyncio.gather` + `asyncio.Semaphore(4)`; per-page `max_tokens=1500`; emits `ingest_vlm_page_done` per page.
+- `src/gander/llm.py` — added `max_tokens: int | None = None` to `complete_json`, `complete_text`, `complete_vision_text`, and the three underlying OpenRouter chat helpers. Conditional forwarding when not None preserves baseline tests.
+- `src/gander/extract.py:241` — `max_tokens=3000` on extract slot.
+- `src/gander/score.py:112` — `max_tokens=1024` on reasoning slot.
+- `src/gander/salary.py:296` — `max_tokens=768` on reasoning slot.
+- `src/gander/confidence.py:150,214,236` — step A `max_tokens=128`, step B initial + regenerate `max_tokens=256`.
+- `src/gander/growth.py:229` — `max_tokens=1536` on reasoning slot.
+- `tests/test_ingest.py` — new `test_pdf_vlm_parallel_preserves_page_order_and_bounds_concurrency`.
+- `tests/test_llm.py` — three forwarding tests for the new parameter (one per entry point).
+- `tests/test_{extract,score,salary,growth_unit,confidence_unit}.py` — captured-kwargs assertions for the per-stage cap.
+- `tasks/T45_vision_parallel_and_token_caps.md` — new pickup-able task spec.
+- `tasks/todo.md` — T45 line under "Post-merge follow-ups".
+- `tasks/dev-plan.md` — overwritten with T45 plan (flagged in residue: use `--prefix T45` next time).
+
+Heal pass (commit `3904d80`):
+
+- `src/gander/llm.py` — added `_emit_truncation` helper; wired into `_chat_json`, `_chat_text`, `_chat_vision_text` to emit a structured `llm_truncated` obs event when `finish_reason == "length"` and `max_tokens` was set by the caller. Does not raise — visibility-only, per the plan's §B Risk contract.
+- `tests/test_llm.py` — added `test_chat_json_emits_llm_truncated_when_finish_reason_length`; asserts the event carries `stage`, `model`, `max_tokens`, `prompt_tokens`, `completion_tokens`.
 
 ## Checks
 
-| Command | Initial | After heal |
+| Command | Initial (after T45) | After heal |
 |---|---|---|
-| `uv run ruff format --check .` | pass | pass |
-| `uv run ruff check .` | pass | pass |
-| `uv run mypy src/gander` (15 files) | pass | pass |
-| `uv run pytest -m fast` (196 tests) | pass | pass |
 | `uv run pre-commit run --all-files` | pass | pass |
+| `uv run pytest -m fast --strict-markers -q` | pass (384) | pass (385, +1 regression test) |
+| `uv run mypy src` | pass | pass |
+
+No failing checks at either stage. Heal was triggered by `must_fix` non-empty, not by red checks.
 
 ## Review findings
 
 ### Must-fix (resolved this run)
-- `[ux-engineer] src/gander/report.py:96-97` — Dead CSS selector. `.gander-output .prose, .gander-output .md` cannot match because Gradio renders `<div class="prose ${elem_classes}...">` — i.e., `.prose` and `.gander-output` land on the SAME element as siblings, not parent-child. Verified by reading the Gradio frontend svelte chunk. Healed: replaced with `.gander-output { max-width: 72ch; margin-inline: auto }`. Commit `7ec8466`.
-- `[product-owner] app.py error branches` — No-file and OSError branches yielded only an italic markdown error string with the tracker hidden, leaving the reviewer with no failed-stage signal. PRD §4.6 specifies the exact copy `"Unable to read this file. Please upload a valid PDF or DOCX."` and §4.8 expects the tracker to show the failed stage. Healed: added `_read_error_report(user_message)` helper that constructs a `Report` with `profile=StageFailure` + `statuses["profile"]="failed"`; both error branches now yield the visible failed tracker + the PRD §4.6 string. Commit `7ec8466`.
+
+- `[ai-ml-engineer] src/gander/llm.py` — `finish_reason == "length"` was captured but never surfaced; truncated responses flowed downstream silently. **Resolved**: added `_emit_truncation` helper that fires an `llm_truncated` obs event (with stage, model, cap, and token usage) on every chat call where the cap was set and the provider returned `length`.
+- `[qa-engineer] tests/` — no regression test for the cap-truncation path. **Resolved**: added `test_chat_json_emits_llm_truncated_when_finish_reason_length` in the fast suite; stubs OpenRouter chat to return `finish_reason="length"` + still-parseable JSON (the silent-success failure mode) and asserts the new event fires.
+- `[qa-engineer] obs` — no per-stage cap-truncation counter (PRD §4.8). **Resolved**: the `llm_truncated` event carries `stage` (from `obs.current_stage`) so existing event aggregation groups by stage without code changes.
 
 ### Must-fix (remaining — exhaustion)
+
 None.
 
-### Should-fix (deferred → backlog)
-12 items captured in `tasks/backlog.md` under `## ui-polish-pass-2 — 2026-05-14T09:46Z`. Headline ones:
-- `[ux-engineer]` dark-mode `.pill.running` `#fbbf24` reads as warning, not progress.
-- `[product-owner]` `handle()` lacks `try/finally` around the `async for`; unexpected exceptions still surface as Gradio toast stack traces.
-- `[product-owner]` `app.py:1-13` module docstring is now partially stale (still says body is "initialised empty").
-- `[hiring-manager]` `button.primary` selector pairs `!important` AND the `.gradio-container`-prefixed override — pick one.
-- `[hiring-manager]` cool-blue focus ring `#1d4ed8` against warm `#92400e` button is visually jarring; derive ring from brand.
-- `[hiring-manager]` dark-mode disabled `#7c2d12` collides with light-mode primary `:hover` of the same color — two distinct states sharing a tone.
-- `[qa-engineer]` no unit test on `handle()` async-iterator yield shape; a forgotten `visible=True` ships untested.
-- `[qa-engineer]` no contract test pins the PRD §4.6 error strings; string drift ships untested.
-- `[codex]` `dict[str, Any]` typing on `gr.update()` return is more specific than Gradio's actual contract.
+### Should-fix (deferred → `tasks/backlog.md`)
+
+15 items captured under `## parallelize-vision-cap-max-tokens — 2026-05-15T11:00Z`. Convergent themes:
+
+- `[ai-ml + ux + hiring + qa]` MiniMax silently drops `max_tokens` — foot-gun when the provider toggle flips back; MiniMax currently inactive.
+- `[ai-ml + hiring]` three repeated OpenRouter kwargs blocks — extract a `_build_openrouter_kwargs` helper.
+- `[qa + hiring]` `peak["max"] >= 2` concurrency assertion is timing-coupled; tighten with `asyncio.Event` gating.
+- `[qa]` no 2-page failure-isolation test for `asyncio.gather(..., return_exceptions=False)` partial-failure semantics.
+- `[hiring]` five stage-cap literals lack a central registry (`STAGE_TOKEN_CAPS`).
+- `[hiring + ai-ml]` `_STEP_B_MAX_TOKENS` literal `256` repeated across initial + regenerate paths.
+- `[hiring]` `assert captured["max_tokens"] == N` per-stage cap tests are tautological.
+- `[po + hiring]` T45 marked `Done` without `openrouter-live` run.
 
 ### Nits
-- count: 6 (recorded in `tasks/backlog.md` under the same heading).
+
+5 items (semaphore magic literal, `dev-plan.md` overwrite without `--prefix`, `png_to_index` round-trip dict, three near-identical `test_llm.py` forwarding tests not parametrized, single-letter loop variable `i`). Listed in the backlog block.
 
 ## Hiring grade
 
-**on-bar** — Consensus across `ux-engineer`, `product-owner`, `hiring-manager`, and `qa-engineer`. The change is focused, well-scoped, and every gate is green; the heal pass closed both must-fixes without expanding scope. Held back from `strong` by the specificity-cargo-cult in the CSS overrides (double `!important` + `.gradio-container` prefix), the cool-blue focus ring on a warm button, and the dark-mode disabled color collision with light-mode hover — all polish-level, none load-bearing. Codex independently returned `strong`; its verdict is *not* the hiring grade per dev-skill convention, but the convergence is a useful signal that the design intent reads cleanly.
+**on-bar** — consensus across all five Agent reviewers. One-line rationale: implementation is correct, scoped, and ships with the right test for the parallelism property — but ships without a regression test for the cap-truncation failure mode that §B itself introduces. The heal closed that gap; remaining residue is convention/refactor, not bar-changing. Codex's independent verdict on the diff was `on-bar` as well; convergence between provider families is a useful corroboration that the design reads cleanly.
+
+## Verification posture
+
+Verified:
+
+- Pre-commit, fast pytest (385 tests), mypy strict all green at HEAD `3904d80`.
+- `asyncio.gather` preserves page order (`tests/test_ingest.py::test_pdf_vlm_parallel_preserves_page_order_and_bounds_concurrency`).
+- `max_tokens` forwarding into the OpenRouter `chat.completions.create` call (three tests in `test_llm.py`).
+- New `llm_truncated` obs event fires with expected fields when the cap clips a response (`test_chat_json_emits_llm_truncated_when_finish_reason_length`).
+
+Not verified (deferred):
+
+- **End-to-end measurement** of the predicted wallclock win on Profile.pdf (~61 s → ~53 s). Plan §"Verification path" step 2 calls for re-running `scripts/measure_pipeline.py` post-implementation. Deferred to next manual run with `OPENROUTER_API_KEY` set.
+- **`openrouter-live` CI workflow** on this branch — the binding live gate runs after merge.
+- **MiniMax path** is unchanged by this work and is currently inactive (provider toggle is on OpenRouter); no live MiniMax verification attempted.
 
 ## Cleanup
 
 When you're done with this work:
+
 ```
-git worktree remove .worktrees/ui-polish-pass-2
-git branch -D dev/ui-polish-pass-2
+git worktree remove .worktrees/parallelize-vision-cap-max-tokens
+git branch -D dev/parallelize-vision-cap-max-tokens
 ```
+
 Or, to land it:
+
 ```
 git checkout main
-git merge --no-ff dev/ui-polish-pass-2
+git merge --no-ff dev/parallelize-vision-cap-max-tokens
 ```
+
+Note: parent branch is `t42-pipeline-wallclock-wins`, which is ahead of `main`. For a clean PR diff against `main`, rebase or merge `t42-pipeline-wallclock-wins` first (or open the PR against `t42-pipeline-wallclock-wins` directly).
