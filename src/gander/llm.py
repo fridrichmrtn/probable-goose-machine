@@ -5,7 +5,7 @@ import json
 import os
 import re
 import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 from openai import AsyncOpenAI
@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 from gander import obs
 
 LogicalModel = Literal["reasoning", "cheap", "extract", "vision"]
+ProviderName = Literal["minimax", "openrouter"]
 
 # MiniMax-M2.x models prepend a <think>...</think> reasoning block to chat output
 # regardless of response_format, and often wrap JSON-mode payloads in ```json fences.
@@ -139,23 +140,40 @@ class LLMClient:
     """Async chat client over MiniMax (default) or OpenRouter.
 
     Provider selected via GANDER_LLM_PROVIDER env (`minimax` | `openrouter`).
+    A logical model may override it with GANDER_LLM_PROVIDER_<LOGICAL_MODEL>,
+    e.g. GANDER_LLM_PROVIDER_EXTRACT=openrouter.
     Model resolution for MiniMax via GANDER_MODEL_PROFILE env (`local` | `ci`).
     Every call emits an `llm_call` telemetry event (success or failure).
     """
 
     def __init__(self) -> None:
-        self._provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
+        self._provider = self._validate_provider(
+            os.environ.get("GANDER_LLM_PROVIDER", "minimax"),
+            "GANDER_LLM_PROVIDER",
+        )
         self._client: AsyncOpenAI
-        if self._provider == "minimax":
+        self._clients: dict[ProviderName, AsyncOpenAI] = {}
+        self._client = self._build_client(self._provider)
+        self._clients[self._provider] = self._client
+
+    @staticmethod
+    def _validate_provider(raw: str, env_name: str) -> ProviderName:
+        provider = raw.strip().lower()
+        if provider in {"minimax", "openrouter"}:
+            return cast(ProviderName, provider)
+        raise RuntimeError(f"Unknown {env_name}={raw!r}; expected 'minimax' or 'openrouter'")
+
+    def _build_client(self, provider: ProviderName) -> AsyncOpenAI:
+        if provider == "minimax":
             api_key = os.environ.get("MINIMAX_API_KEY")
             if not api_key:
                 raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
-            self._client = AsyncOpenAI(api_key=api_key, base_url="https://api.minimaxi.chat/v1")
-        elif self._provider == "openrouter":
+            return AsyncOpenAI(api_key=api_key, base_url="https://api.minimaxi.chat/v1")
+        if provider == "openrouter":
             api_key = os.environ.get("OPENROUTER_API_KEY")
             if not api_key:
                 raise RuntimeError("OPENROUTER_API_KEY not set — add it to .env or export it")
-            self._client = AsyncOpenAI(
+            return AsyncOpenAI(
                 api_key=api_key,
                 base_url="https://openrouter.ai/api/v1",
                 default_headers={
@@ -166,14 +184,25 @@ class LLMClient:
                     "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Gander"),
                 },
             )
-        else:
-            raise RuntimeError(
-                f"Unknown GANDER_LLM_PROVIDER={self._provider!r}; "
-                "expected 'minimax' or 'openrouter'"
-            )
+        raise AssertionError(f"unhandled provider {provider!r}")
 
-    def _resolve_model(self, logical: LogicalModel) -> str:
-        if self._provider == "openrouter":
+    def _client_for_provider(self, provider: ProviderName) -> AsyncOpenAI:
+        if provider == self._provider:
+            return self._client
+        if provider not in self._clients:
+            self._clients[provider] = self._build_client(provider)
+        return self._clients[provider]
+
+    def _resolve_provider(self, logical: LogicalModel) -> ProviderName:
+        env_key = f"GANDER_LLM_PROVIDER_{logical.upper()}"
+        raw = os.environ.get(env_key)
+        if raw is None:
+            return self._provider
+        return self._validate_provider(raw, env_key)
+
+    def _resolve_model(self, logical: LogicalModel, provider: ProviderName | None = None) -> str:
+        provider = provider or self._resolve_provider(logical)
+        if provider == "openrouter":
             env_key = f"OPENROUTER_MODEL_{logical.upper()}"
             return os.environ.get(env_key, _OPENROUTER_MODELS[logical])
         profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
@@ -184,9 +213,12 @@ class LLMClient:
             )
         return _PROFILE_MODELS[profile][logical]
 
-    def _resolve_models(self, logical: LogicalModel) -> tuple[str, ...]:
-        primary = self._resolve_model(logical)
-        if self._provider != "openrouter":
+    def _resolve_models(
+        self, logical: LogicalModel, provider: ProviderName | None = None
+    ) -> tuple[str, ...]:
+        provider = provider or self._resolve_provider(logical)
+        primary = self._resolve_model(logical, provider)
+        if provider != "openrouter":
             return (primary,)
         env_key = f"OPENROUTER_MODEL_{logical.upper()}_FALLBACK"
         fallback_raw = os.environ.get(env_key)
@@ -208,8 +240,10 @@ class LLMClient:
         prompt_tokens: int,
         completion_tokens: int,
         provider_cost_usd: float | None,
+        provider: ProviderName | None = None,
     ) -> float:
-        if self._provider == "openrouter" and provider_cost_usd is not None:
+        provider = provider or self._provider
+        if provider == "openrouter" and provider_cost_usd is not None:
             return provider_cost_usd
         return self._estimate_cost(model, prompt_tokens, completion_tokens)
 
@@ -224,7 +258,8 @@ class LLMClient:
         max_retries: int = 1,
         max_tokens: int | None = None,
     ) -> BaseModel:
-        resolved_models = self._resolve_models(model)
+        provider = self._resolve_provider(model)
+        resolved_models = self._resolve_models(model, provider)
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
@@ -252,7 +287,12 @@ class LLMClient:
                             finish_reason,
                             attempt_cost_usd,
                         ) = await self._chat_json(
-                            resolved, system, current_user, temperature, max_tokens
+                            resolved,
+                            system,
+                            current_user,
+                            temperature,
+                            max_tokens=max_tokens,
+                            provider=provider,
                         )
                         prompt_tokens += attempt_prompt
                         completion_tokens += attempt_completion
@@ -275,7 +315,7 @@ class LLMClient:
                     obs.emit(
                         obs.current_stage.get(),
                         "llm_model_fallback",
-                        provider=self._provider,
+                        provider=provider,
                         logical_model=model,
                         from_model=resolved,
                         to_model=resolved_models[model_i + 1],
@@ -290,7 +330,7 @@ class LLMClient:
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
-                provider=self._provider,
+                provider=provider,
                 model=attempted_models[-1] if attempted_models else resolved_models[0],
                 models_attempted=attempted_models,
                 prompt_tokens=prompt_tokens,
@@ -300,6 +340,7 @@ class LLMClient:
                     prompt_tokens,
                     completion_tokens,
                     provider_cost_usd,
+                    provider,
                 ),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
@@ -314,7 +355,8 @@ class LLMClient:
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> str:
-        resolved_models = self._resolve_models(model)
+        provider = self._resolve_provider(model)
+        resolved_models = self._resolve_models(model, provider)
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
@@ -332,7 +374,14 @@ class LLMClient:
                         attempt_completion,
                         finish_reason,
                         attempt_cost_usd,
-                    ) = await self._chat_text(resolved, system, user, temperature, max_tokens)
+                    ) = await self._chat_text(
+                        resolved,
+                        system,
+                        user,
+                        temperature,
+                        max_tokens=max_tokens,
+                        provider=provider,
+                    )
                     prompt_tokens += attempt_prompt
                     completion_tokens += attempt_completion
                     if attempt_cost_usd is not None:
@@ -344,7 +393,7 @@ class LLMClient:
                         obs.emit(
                             obs.current_stage.get(),
                             "llm_model_fallback",
-                            provider=self._provider,
+                            provider=provider,
                             logical_model=model,
                             from_model=resolved,
                             to_model=resolved_models[model_i + 1],
@@ -360,7 +409,7 @@ class LLMClient:
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
-                provider=self._provider,
+                provider=provider,
                 model=attempted_models[-1] if attempted_models else resolved_models[0],
                 models_attempted=attempted_models,
                 prompt_tokens=prompt_tokens,
@@ -370,6 +419,7 @@ class LLMClient:
                     prompt_tokens,
                     completion_tokens,
                     provider_cost_usd,
+                    provider,
                 ),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
@@ -385,7 +435,8 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> str:
         """Transcribe one rendered page through the configured vision provider."""
-        if getattr(self, "_provider", "minimax") == "openrouter":
+        provider = self._resolve_provider("vision")
+        if provider == "openrouter":
             return await self._complete_openrouter_vision_text(
                 image_bytes=image_bytes,
                 prompt=prompt,
@@ -468,7 +519,8 @@ class LLMClient:
         timeout_s: float,
         max_tokens: int | None = None,
     ) -> str:
-        resolved_models = self._resolve_models("vision")
+        provider: ProviderName = "openrouter"
+        resolved_models = self._resolve_models("vision", provider)
         t0 = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
@@ -503,7 +555,7 @@ class LLMClient:
                         obs.emit(
                             obs.current_stage.get(),
                             "llm_model_fallback",
-                            provider=self._provider,
+                            provider=provider,
                             logical_model="vision",
                             from_model=resolved,
                             to_model=resolved_models[model_i + 1],
@@ -517,7 +569,7 @@ class LLMClient:
             obs.emit(
                 obs.current_stage.get(),
                 "llm_call",
-                provider=self._provider,
+                provider=provider,
                 model=attempted_models[-1] if attempted_models else resolved_models[0],
                 models_attempted=attempted_models,
                 prompt_tokens=prompt_tokens,
@@ -527,6 +579,7 @@ class LLMClient:
                     prompt_tokens,
                     completion_tokens,
                     provider_cost_usd,
+                    provider,
                 ),
                 duration_ms=duration_ms,
                 finish_reason=finish_reason,
@@ -539,9 +592,11 @@ class LLMClient:
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
-        if self._provider == "minimax":
-            client: Any = self._client
+        provider = provider or self._provider
+        if provider == "minimax":
+            client: Any = self._client_for_provider(provider)
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
@@ -564,7 +619,7 @@ class LLMClient:
                 choice.finish_reason or "",
                 None,
             )
-        client_o: Any = self._client
+        client_o: Any = self._client_for_provider(provider)
         openrouter_kwargs: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -609,9 +664,11 @@ class LLMClient:
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
-        if self._provider == "minimax":
-            client: Any = self._client
+        provider = provider or self._provider
+        if provider == "minimax":
+            client: Any = self._client_for_provider(provider)
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
@@ -632,7 +689,7 @@ class LLMClient:
                 choice.finish_reason or "",
                 None,
             )
-        client_o: Any = self._client
+        client_o: Any = self._client_for_provider(provider)
         openrouter_kwargs: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -676,9 +733,7 @@ class LLMClient:
         timeout_s: float,
         max_tokens: int | None = None,
     ) -> tuple[str, int, int, str, float | None]:
-        if self._provider != "openrouter":
-            raise RuntimeError("_chat_vision_text is only implemented for OpenRouter")
-        client_o: Any = self._client
+        client_o: Any = self._client_for_provider("openrouter")
         image_url = f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("ascii")
         openrouter_kwargs: dict[str, Any] = {
             "model": model,

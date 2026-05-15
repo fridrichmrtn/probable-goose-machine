@@ -14,8 +14,8 @@ makes "doesn't match a market token" the signal, which generalizes to the
 next "Data Gardener" without a denylist update.
 
 The sync `normalize_role` covers every deterministic path; the async
-`normalize_role_with_llm_fallback` wraps it with a cheap-tier LLM canonicalize
-call for the leftover "unrecognized" cases.
+`normalize_role_with_llm_fallback` wraps it with an extraction-slot LLM
+canonicalize call for the leftover "unrecognized" cases.
 """
 
 from __future__ import annotations
@@ -331,7 +331,7 @@ async def _llm_canonicalize_role(
     experience_titles: list[str],
     years: int,
 ) -> NormalizedRole | None:
-    """Cheap-tier LLM fallback. Returns `None` on low confidence, error, or bad shape."""
+    """Extraction-slot LLM fallback. Returns `None` on low confidence, error, or bad shape."""
     from gander.llm import LLMClient
 
     payload = json.dumps(
@@ -343,7 +343,7 @@ async def _llm_canonicalize_role(
             system=_LLM_CANONICALIZE_PROMPT,
             user=payload,
             schema=_LLMCanonicalRole,
-            model="cheap",
+            model="extract",
             temperature=0.0,
             max_tokens=256,
         )

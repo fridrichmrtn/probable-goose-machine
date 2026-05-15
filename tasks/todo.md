@@ -69,3 +69,4 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## Provider plumbing
 - [x] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *PR #25, required `openrouter-live` CI pass*
+- [x] **T45** — Gemini extraction routing + prompt stability (`tasks/T45_gemini_extract_stabilization.md`) — *LLM-first extraction-only provider routing plus prompt stability fixes; private PDF rerun pending explicit approval*

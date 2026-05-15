@@ -22,9 +22,13 @@ Preserve case and punctuation exactly. No ellipses. No edits. No reformatting.
 
 Returning `[]` for any of `skills`, `experience`, `education`, or `soft_signals` is valid when no item in that category has a qualifying 6+ word literal substring. An empty list is correct; a paraphrased or too-short anchor is not.
 
+Resolve multi-column and line-wrapped CV text semantically before choosing items. The extraction may use nearby headers, dates, employers, and wrapped continuation lines to understand the CV, but every returned `anchor.quote` must still be one literal contiguous substring from the provided text after whitespace is collapsed. Do not stitch together separate sidebar entries, separated bullets, or non-contiguous fragments to satisfy the quote floor.
+
 For `skills` and `soft_signals`, do not depend only on a compact dedicated section. A short line like `Python, SQL, Kubernetes` may be useful as a cue, but it is not a valid anchor by itself. If a longer Experience, Projects, Profile, or Summary line demonstrates those tools or behaviours, extract the item from that longer literal line instead.
 
-If the CV contains a section header like `## Experience` or `## Education`, set `anchor.section` to the header text without the leading `##` (e.g. `"Experience"`). Otherwise set it to `null`.
+For `education`, extract completed or attended qualifications from an Education/Vzdělání section when the degree/program/institution line provides a valid 6+ word literal quote. Do not omit education only because the date range is wrapped onto the next line. If the only available education evidence is a school name without a degree, program, field, or attendance detail, omit that item.
+
+If the CV contains a section header like `## Experience` or `## Education`, set `anchor.section` to the parent CV section header text without the leading `##` (e.g. `"Experience"`). If employers, schools, or projects appear as subheaders inside that parent section, keep using the parent section for the anchor. Otherwise set it to `null`.
 
 ## Evidence, not surface
 
@@ -36,7 +40,7 @@ If a redaction marker (`[NAME]`, `[EMAIL]`, `[PHONE]`, `[YEAR]`, `[POSTCODE]`, `
 
 ## Detected fields
 
-- `detected_role`: the candidate's most recent or headline role title as it appears on the CV. Non-empty string.
+- `detected_role`: the candidate's most recent formal role title from Work Experience/Pracovní zkušenosti as it appears on the CV. Use the headline only when no formal work-experience title is present. Do not choose the candidate name, company name, skill list, or a tagline when a formal role title exists. Non-empty string.
 - `detected_location`: a CZ city (Prague, Brno, Ostrava, Plzeň, …) if the CV names one; otherwise the country or `null`.
 - `detected_years_experience`: total professional years across roles, as an integer between 1 and 50. Use the CV's stated tenures; do not round up. If the candidate reports only internships or projects with no formal tenure, return 1.
 
