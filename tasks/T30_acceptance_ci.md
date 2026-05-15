@@ -1,6 +1,6 @@
 # T30 — §5.4 differentiation eval wired into CI (close T17)
 
-Status: phase 1 done (PR #10, `dea3dcf`); phase 2 todo (CZ extension, deps T29)
+Status: phase 1 done (PR #10, `dea3dcf`); phase 2 implemented in CZ suite, live run pending
 Owner: ai-ml-engineer
 Depends on: — (CZ extension deps T29)
 Unblocks: T17
@@ -78,4 +78,15 @@ Failure-mode mapping:
 - inline `if senior.dropped:` branch in `test_score_spread_at_least_30` (owned by T36)
 - `_optional_growth` + `@flaky(reruns=2)` for DDG flakes (owned by T37)
 
-**Phase 2 (CZ extension)** pending — fans in T29's three CZ fixtures.
+**Phase 2 (CZ extension)** implemented in the T29 CZ suite rather than adding
+duplicate pipeline runs to `tests/test_acceptance.py`. `tests/test_acceptance_cz.py`
+runs the junior baseline plus #11/#12/#13 once, then owns the CZ-specific
+salary-band checks and the T30 cross-fixture invariants for #11 and #13:
+
+- `test_score_spread_at_least_30_cz`
+- `test_salary_non_overlap_with_junior_for_cz_seniors`
+- `test_senior_salary_multiplier_cz`
+
+This keeps the live cost to one CZ session fixture while still asserting the
+same §5.4 shape as the EN triplet. Live provider run still pending:
+`uv run pytest -m live tests/test_acceptance_cz.py -v`.

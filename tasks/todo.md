@@ -47,7 +47,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`) — *PR #11, 3602324*
 - [ ] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *fixtures + live CZ acceptance scaffold implemented; live provider run pending*
 - [x] **T30 phase 1** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *PR #10, dea3dcf*
-- [ ] **T30 phase 2** — CZ-triplet extension — *deps T29 live run*
+- [ ] **T30 phase 2** — CZ-triplet extension — *CZ cross-fixture invariants implemented in `test_acceptance_cz.py`; live provider run pending*
 - [x] ~~**T31** — SPIKE: multimodal vision ingest~~ — *superseded by T32–T35 Token Plan VLM chain; no longer an active pickup* (`tasks/T31_multimodal_spike.md`)
 
 ## MiniMax Token Plan LLM ingest

@@ -179,9 +179,30 @@ def test_role_normalization_source_on_cz_fixtures(cz_run: _CZRun, fname: str) ->
 
 
 @pytest.mark.parametrize("fname", (STEALTH, CORPORATE), ids=lambda value: Path(value).stem)
+def test_score_spread_at_least_30_cz(cz_run: _CZRun, fname: str) -> None:
+    junior_score = _require_score(cz_run.reports[JUNIOR], JUNIOR)
+    senior_score = _require_score(cz_run.reports[fname], fname)
+    delta = senior_score.total - junior_score.total
+    assert delta >= 30, (
+        f"{fname}: score spread {senior_score.total} - {junior_score.total} = {delta}, "
+        "expected >= 30"
+    )
+
+
+@pytest.mark.parametrize("fname", (STEALTH, CORPORATE), ids=lambda value: Path(value).stem)
 def test_salary_non_overlap_with_junior_for_cz_seniors(cz_run: _CZRun, fname: str) -> None:
     junior_salary = _require_salary(cz_run.reports[JUNIOR], JUNIOR)
     senior_salary = _require_salary(cz_run.reports[fname], fname)
     assert senior_salary.low > junior_salary.high, (
         f"{fname}: senior low {senior_salary.low} not above junior high {junior_salary.high}"
+    )
+
+
+@pytest.mark.parametrize("fname", (STEALTH, CORPORATE), ids=lambda value: Path(value).stem)
+def test_senior_salary_multiplier_cz(cz_run: _CZRun, fname: str) -> None:
+    junior_salary = _require_salary(cz_run.reports[JUNIOR], JUNIOR)
+    senior_salary = _require_salary(cz_run.reports[fname], fname)
+    threshold = 2.5 * junior_salary.high
+    assert senior_salary.high >= threshold, (
+        f"{fname}: senior high {senior_salary.high} < 2.5 * junior high {threshold:.0f}"
     )
