@@ -24,6 +24,7 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[should-fix]` T27 corpus role-map coverage | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_normalize.py::test_bundled_corpus_headlines_normalize_deterministically` pins the committed fixture headline strings, including CZ manager/research titles and the tagline senior case |
 | `[should-fix]` T23 README falsifiability + fresh-clone smoke | PR #35 sweep (`t46-salary-multi-market`) | `README.md` now has a clean-clone runbook, the expected healthy-run signal, corpus regeneration, and opt-in arbitrary-CV smoke commands; `tasks/T23_readme.md` mirrors the verification |
 | `[should-fix]` T22 secret rebind | PR #35 sweep (`t46-salary-multi-market`) | `README.md` and `tasks/T22_deploy.md` now list the HF Space secrets/env, GitHub secrets/vars, and `hf`/`gh` recovery commands |
+| `[should-fix]` PRD §5(6) salary source URL reachability | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_acceptance.py::test_salary_source_urls_reachable` opt-in gates on `GANDER_LIVE_DDG=1` + `GANDER_CHECK_SALARY_URLS=1`, then HEAD/GET-checks the top two salary sources per EN acceptance CV |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -40,12 +41,12 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 | 4b | Salary ranges don't overlap | T17 `test_salary_ranges_dont_overlap` (PR #10) | covered (pending merge) |
 | 4c | No verbatim / near-dup growth | T17 verbatim + Jaccard 4-gram (PR #10) | covered (pending merge) |
 | 5 | Substring-grounded explanations | T17 `test_all_claims_substring_verified` (PR #10) | covered (pending merge) |
-| 6 | Working salary source URLs | T11 + T17 (PR #10) | partial — URL shape asserted, reachability (`HEAD` 2xx) not |
+| 6 | Working salary source URLs | `test_salary_source_urls_reachable` | covered opt-in against fresh DDG via `GANDER_CHECK_SALARY_URLS=1` |
 
 **Findings**
 
 - `[resolved] PRD §5(3)` arbitrary-CV path has opt-in coverage via `GANDER_SMOKE_CV`; the test skips when unset so private reviewer CVs stay out of the repo.
-- `[should-fix] PRD §5(6)` reachability gap. Add `test_salary_source_urls_reachable` under `@pytest.mark.live` that does `httpx.head(url, follow_redirects=True, timeout=3)` per source and asserts `< 400` for at least 1 of the top-2 sources per CV. Without this, T17 passes on hallucinated-but-well-shaped URLs.
+- `[resolved] PRD §5(6)` reachability now has an opt-in live gate. The test intentionally requires `GANDER_LIVE_DDG=1` so it checks URLs from fresh DDG, not deterministic cassettes, and uses HEAD with GET fallback for the top two salary sources per EN acceptance CV.
 - `[resolved] T23` README verification is now falsifiable: fresh clone, dependency sync, app launch, expected report signal, corpus regeneration, and arbitrary-CV smoke commands are named explicitly.
 
 ---
@@ -144,14 +145,13 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 | Severity | Count |
 |---|---|
 | `[must-fix]` | 0 |
-| `[should-fix]` | 2 |
+| `[should-fix]` | 1 |
 | `[nit]` | 4 |
 
-Open `[should-fix]` bullets: PRD §5(6) reachability and T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
+Open `[should-fix]` bullets: T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
 **Top actionable follow-ups**:
 
-1. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
-2. `[should-fix]` Run the CZ triplet live and close T30 Phase 2 once the provider-key gate is satisfied.
+1. `[should-fix]` Run the CZ triplet live and close T30 Phase 2 once the provider-key gate is satisfied.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak, rendered-copy, and corpus role-map should-fixes are also closed. 0 `[must-fix]` findings remain open in this audit.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak, rendered-copy, corpus role-map, README reproducibility, deploy recovery, and salary URL reachability should-fixes are also closed. 0 `[must-fix]` findings remain open in this audit.

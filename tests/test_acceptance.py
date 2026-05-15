@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import pytest_asyncio
 
@@ -39,6 +40,7 @@ JUNIOR = "01_junior_da_novotny.docx"
 MID = "03_ds_horak.pdf"
 SENIOR = "08_staff_ml_engineer_dvorak.pdf"
 TRIPLET: tuple[str, ...] = (JUNIOR, MID, SENIOR)
+URL_REACHABILITY_TIMEOUT_S = 5.0
 
 
 pytestmark = [
@@ -115,6 +117,26 @@ def _require_profile(report: Report, label: str) -> Profile:
     return report.profile
 
 
+async def _source_url_reachable(client: httpx.AsyncClient, url: str) -> tuple[bool, str]:
+    headers = {"User-Agent": "Gander acceptance URL check"}
+    last = "not checked"
+    for method in ("HEAD", "GET"):
+        try:
+            response = await client.request(
+                method,
+                url,
+                follow_redirects=True,
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            last = f"{method} {type(exc).__name__}: {exc}"
+            continue
+        last = f"{method} {response.status_code}"
+        if response.status_code < 400:
+            return True, last
+    return False, last
+
+
 def test_score_spread_at_least_30(triplet: _TripletRun) -> None:
     junior = _require_score(triplet.reports[JUNIOR], "junior")
     senior = _require_score(triplet.reports[SENIOR], "senior")
@@ -147,6 +169,38 @@ def test_salary_ranges_dont_overlap(triplet: _TripletRun) -> None:
     assert senior.low > junior.high, (
         f"salary overlap: senior.low={senior.low} not > junior.high={junior.high}"
     )
+
+
+@pytest.mark.skipif(
+    os.environ.get("GANDER_CHECK_SALARY_URLS") != "1",
+    reason="set GANDER_CHECK_SALARY_URLS=1 to hit reported salary source URLs",
+)
+@pytest.mark.skipif(
+    os.environ.get("GANDER_LIVE_DDG") != "1",
+    reason="requires GANDER_LIVE_DDG=1 so URLs come from fresh DDG, not cassettes",
+)
+async def test_salary_source_urls_reachable(triplet: _TripletRun) -> None:
+    """PRD §5(6): at least one top salary source per CV must be reachable.
+
+    Default live tests replay DDG cassettes to avoid transport flakes; this
+    check intentionally opts back into real DDG and external URL traffic.
+    """
+    failures: list[str] = []
+    async with httpx.AsyncClient(timeout=URL_REACHABILITY_TIMEOUT_S) as client:
+        for fname in TRIPLET:
+            salary = _require_salary(triplet.reports[fname], fname)
+            top_sources = salary.sources[:2] or salary.sources
+            checks = [
+                (str(source.url), await _source_url_reachable(client, str(source.url)))
+                for source in top_sources
+            ]
+            if any(ok for _, (ok, _) in checks):
+                continue
+            failures.append(
+                f"{fname}: none reachable among top salary sources "
+                + ", ".join(f"{url} ({detail})" for url, (_, detail) in checks)
+            )
+    assert not failures, "unreachable salary source URLs:\n" + "\n".join(failures)
 
 
 def test_senior_multiplier_at_least_2_5x(triplet: _TripletRun) -> None:
