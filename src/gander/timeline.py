@@ -46,14 +46,12 @@ def _is_date_range_line(line: str) -> bool:
         return False
     if not any(d in line for d in _DASH_CHARS):
         return False
-    norm = _normalize(line)
-    # Require an unambiguous date token (literal [YEAR] marker, bare year, or a
-    # present-token like "present"/"dosud") alongside the dash. A bare month
-    # name is too noisy on its own — headers like "ML Engineer — May Mobility"
-    # would otherwise be misread as a range.
-    return bool(
-        _YEAR_MARKER_RE.search(line) or _BARE_YEAR_RE.search(line) or _PRESENT_TOKEN_RE.search(norm)
-    )
+    # Require a year-shaped anchor (bare 4-digit year or the literal [YEAR]
+    # post-redaction marker). Bare month names are too noisy — headers like
+    # "ML Engineer — May Mobility" would otherwise be misread as a range.
+    # A bare present-token ("current"/"now") is also unsafe: titles like
+    # "Current Platform Lead — Stealth" carry the word but aren't dates.
+    return bool(_YEAR_MARKER_RE.search(line) or _BARE_YEAR_RE.search(line))
 
 
 def _split_on_last_dash(line: str) -> tuple[str, str]:
