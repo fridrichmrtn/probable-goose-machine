@@ -54,7 +54,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T32** — Synthetic Token Plan VLM spike passed (`tasks/minimax_token_plan_vlm_report.md`) — *MiniMax `API-vlm`, 100% synthetic anchor survival, usable*
 - [x] **T33** — Async ingest refactor (`tasks/T33_async_extract_text.md`)
 - [x] **T34** — PDF VLM + DOCX text-LLM ingest implementation (`tasks/T34_vision_ingest_tier.md`)
-- [ ] **T35** — Regression, live gating, and docs (`tasks/T35_corpus_regression_and_gating.md`) — *partial: mocked vision regressions + README/app privacy copy + OpenRouter vision CI exist; MiniMax API-vlm live gate/spend docs still pending*
+- [ ] **T35** — Regression, live gating, and docs (`tasks/T35_corpus_regression_and_gating.md`) — *opt-in synthetic MiniMax API-vlm smoke + spend docs added; live run still pending*
 
 ## Post-merge follow-ups (T30 phase 1 self-heal residue)
 - [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *unblocks reverting the partial-Score branch in `test_score_spread_at_least_30`*

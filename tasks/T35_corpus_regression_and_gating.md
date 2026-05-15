@@ -1,6 +1,6 @@
 # T35 — Regression, live gating, and docs for LLM ingest
 
-Status: pending
+Status: implemented — opt-in live smoke pending
 Owner: qa-engineer
 Depends on: T34 (LLM ingest implementation)
 Unblocks: —
@@ -44,4 +44,24 @@ uv run ruff check .
 
 ## Outcome
 
-(fill in when done)
+Implemented:
+- Mocked PDF VLM and DOCX text-LLM ingest regressions already cover the
+  no-network fast path.
+- Added an opt-in synthetic MiniMax `API-vlm` live smoke:
+  `GANDER_RUN_MINIMAX_VLM=1 MINIMAX_API_KEY=... uv run pytest tests/test_llm.py -m "live and slow" -k minimax_api_vlm`.
+  It uses a 1x1 synthetic PNG, not a real/private CV page.
+- The smoke asserts `usd_cost == 0.06` and
+  `token_plan_m2_requests == 3`, making expected spend visible.
+- README now documents that PDF page ingest sends one rendered page per VLM
+  request, at `$0.06` / 3 M2.7 token-plan requests, and that private real-CV
+  live testing is opt-in only.
+- App copy already states PDF page images and DOCX text may be sent to the
+  configured provider and that files are not retained.
+
+Verified fast:
+- `uv run pytest tests/test_llm.py -m fast -q`
+- `uv run ruff check README.md tests/test_llm.py`
+
+Still pending before checking T35 done in `tasks/todo.md`:
+- Run the opt-in MiniMax VLM smoke with a real `MINIMAX_API_KEY` and
+  `GANDER_RUN_MINIMAX_VLM=1`.

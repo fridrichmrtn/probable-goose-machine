@@ -131,6 +131,11 @@ processing. To use deterministic local text extraction only:
 GANDER_INGEST_MODE=text uv run python app.py
 ```
 
+MiniMax PDF-page ingest uses the `API-vlm` token-plan endpoint: each rendered
+page is one VLM request, currently treated as `$0.06` or 3 M2.7 token-plan
+requests in telemetry. Private real-CV live testing is opt-in only; the checked
+live smoke for this path uses a synthetic image.
+
 ## Evaluation
 
 Fast unit coverage is the normal local gate:

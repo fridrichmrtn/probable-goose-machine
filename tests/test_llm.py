@@ -688,6 +688,46 @@ async def test_complete_json_roundtrip_emits_telemetry() -> None:
 
 
 @pytest.mark.live
+@pytest.mark.slow
+@pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set")
+@pytest.mark.skipif(
+    os.environ.get("GANDER_RUN_MINIMAX_VLM") != "1",
+    reason="set GANDER_RUN_MINIMAX_VLM=1 to spend one synthetic API-vlm request ($0.06)",
+)
+async def test_minimax_api_vlm_synthetic_smoke_emits_spend() -> None:
+    """Opt-in MiniMax API-vlm smoke.
+
+    Uses a 1x1 synthetic PNG, not a real/private CV page. This pins the live
+    spend gate without making normal `pytest -m live` runs consume image-plan
+    quota accidentally.
+    """
+    tiny_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+        b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4"
+        b"\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05"
+        b"\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    client = LLMClient()
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append):
+        text = await client.complete_vision_text(
+            image_bytes=tiny_png,
+            prompt=(
+                "This is a synthetic endpoint smoke test, not a CV. "
+                "Reply with a short acknowledgement."
+            ),
+        )
+
+    assert text.strip()
+    llm_events = [e for e in events if e["event"] == "llm_call" and e["model"] == "api-vlm"]
+    assert len(llm_events) == 1
+    assert llm_events[0]["provider"] == "minimax"
+    assert llm_events[0]["usd_cost"] == 0.06
+    assert llm_events[0]["token_plan_m2_requests"] == 3
+
+
+@pytest.mark.live
 @pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="OPENROUTER_API_KEY not set")
 async def test_openrouter_complete_json_roundtrip_emits_telemetry(
     monkeypatch: pytest.MonkeyPatch,
