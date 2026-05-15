@@ -57,7 +57,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T35** — Regression, live gating, and docs (`tasks/T35_corpus_regression_and_gating.md`) — *opt-in synthetic MiniMax API-vlm smoke + spend docs added; live run still pending*
 
 ## Post-merge follow-ups (T30 phase 1 self-heal residue)
-- [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *unblocks reverting the partial-Score branch in `test_score_spread_at_least_30`*
+- [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *education-anchor salvage retry fast-verified; live EN-triplet acceptance + partial-Score branch removal pending*
 - [x] **T37** — Cassette/mock DDG for live tests (`tasks/T37_ddg_cassette.md`) — *DDG replay fixture added; `_optional_growth` and salary flaky rerun removed*
 - [x] **T38** — Low-evidence profile gate (`tasks/T38_low_evidence_gate.md`) — *PR #22; non-CV uploads now fail closed before downstream salary/score/growth*
 - [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`) — *verifier + role recovery fixes fast-verified; final private Profile.pdf rerun pending explicit approval*

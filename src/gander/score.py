@@ -27,7 +27,7 @@ _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 _GENERATION_FAILURE_MSG = "Could not generate this section reliably"
 _SCORE_LLM_MAX_RETRIES = 2
 _SCORE_LOGICAL_MAX_RETRIES = 1
-_SALVAGE_RETRY_COMPONENTS = {"skills", "soft_signals"}
+_SALVAGE_RETRY_COMPONENTS = {"skills", "education", "soft_signals"}
 
 
 class _ComponentList(BaseModel):
@@ -61,12 +61,17 @@ def _build_retry_user_message(user_message: str, missing: set[str], dropped: int
         + "role progression, or shipped impact. If the section header is uncertain, "
         + "set anchor.section to null rather than guessing."
     )
-    if missing & _SALVAGE_RETRY_COMPONENTS:
+    if missing & {"skills", "soft_signals"}:
         message += (
             " For skills and soft_signals, do not rely only on compact Skills/Soft "
             "sections; use longer literal lines from Experience, Projects, Profile, "
             "or Summary when they demonstrate named tools, leadership, mentorship, "
             "ownership, cross-team work, or stakeholder communication."
+        )
+    if "education" in missing:
+        message += (
+            " For education, choose an exact literal degree/institution line from the CV; "
+            "preserve punctuation, accents, and redaction markers exactly as shown."
         )
     return message
 
@@ -196,10 +201,15 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     debug_detail=f"missing_categories={sorted(missing)} dropped={dropped}",
                 )
             if missing & _SALVAGE_RETRY_COMPONENTS and attempt < _SCORE_LOGICAL_MAX_RETRIES:
+                reason = "missing_salvageable_components"
+                if missing <= {"skills", "soft_signals"}:
+                    reason = "missing_skills_or_soft_signals"
+                elif missing == {"education"}:
+                    reason = "missing_education"
                 emit(
                     "score",
                     "score_retry",
-                    reason="missing_skills_or_soft_signals",
+                    reason=reason,
                     missing=sorted(missing),
                     dropped=dropped,
                 )
