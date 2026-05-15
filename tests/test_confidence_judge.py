@@ -10,7 +10,7 @@ import pytest
 from gander.confidence import _STEP_B_PROMPT, _render_step_b, judge
 from gander.errors import StageFailure
 from gander.obs import subscribe
-from gander.schemas import Confidence, Source
+from gander.schemas import Confidence, CVQualitySignals, Source
 
 _LIVE_SKIPIF = pytest.mark.skipif(
     not os.environ.get("MINIMAX_API_KEY"),
@@ -68,13 +68,22 @@ def _sources_three_disagreeing() -> list[Source]:
     ]
 
 
+def _clean_cv_quality() -> CVQualitySignals:
+    return CVQualitySignals(
+        dropped_score_components=0,
+        canonical_role_resolved=True,
+        location_detected=True,
+    )
+
+
 @pytest.mark.fast
 def test_judge_signature_is_isolated() -> None:
     sig = inspect.signature(judge)
     params = set(sig.parameters.keys())
-    assert params == {"sources", "low", "high", "currency", "period"}, (
+    assert params == {"sources", "low", "high", "currency", "period", "cv_quality"}, (
         "judge() must not accept estimator reasoning, profile, or score — leakage channel"
     )
+    assert sig.parameters["cv_quality"].kind is inspect.Parameter.KEYWORD_ONLY
     for p in sig.parameters.values():
         assert p.kind not in (
             inspect.Parameter.VAR_KEYWORD,
@@ -105,6 +114,7 @@ async def test_step_a_high_with_three_agreeing_sources() -> None:
         high=110000,
         currency="CZK",
         period="month",
+        cv_quality=_clean_cv_quality(),
     )
     assert not isinstance(result, StageFailure), (
         f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"
@@ -122,6 +132,7 @@ async def test_step_a_low_with_one_source() -> None:
         high=110000,
         currency="CZK",
         period="month",
+        cv_quality=_clean_cv_quality(),
     )
     assert not isinstance(result, StageFailure), (
         f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"
@@ -139,6 +150,7 @@ async def test_step_a_low_with_disagreeing_sources() -> None:
         high=200000,
         currency="CZK",
         period="month",
+        cv_quality=_clean_cv_quality(),
     )
     assert not isinstance(result, StageFailure), (
         f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"
@@ -162,6 +174,7 @@ async def test_step_b_cannot_override_step_a_low() -> None:
             high=110000,
             currency="CZK",
             period="month",
+            cv_quality=_clean_cv_quality(),
         )
     assert not isinstance(result, StageFailure), (
         f"judge returned StageFailure: {getattr(result, 'user_message', result)!r}"

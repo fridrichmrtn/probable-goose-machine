@@ -39,6 +39,7 @@ from gander.salary import estimate_salary
 from gander.schemas import (
     REPORT_STAGE_NAMES,
     Confidence,
+    CVQualitySignals,
     GrowthAction,
     Profile,
     RedactedCV,
@@ -266,12 +267,22 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
         state.statuses["confidence"] = "running"
         yield state.snapshot()
         if isinstance(state.salary, SalaryEstimate):
+            cv_quality = CVQualitySignals(
+                dropped_score_components=len(state.score.dropped)
+                if isinstance(state.score, Score)
+                else 3,
+                canonical_role_resolved=isinstance(state.profile, Profile)
+                and state.profile.canonical_role is not None,
+                location_detected=isinstance(state.profile, Profile)
+                and state.profile.detected_location is not None,
+            )
             conf_result = await judge(
                 state.salary.sources,
                 state.salary.low,
                 state.salary.high,
                 state.salary.currency,
                 state.salary.period,
+                cv_quality=cv_quality,
             )
             state.confidence = conf_result
             state.statuses["confidence"] = (

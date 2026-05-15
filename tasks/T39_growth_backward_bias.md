@@ -1,6 +1,6 @@
 # T39 — Growth backward-bias + salary role-mismatch (Profile.pdf rerun)
 
-Status: open
+Status: implemented — pending live Profile.pdf rerun
 Owner: ai-ml-engineer
 Depends on: —
 Unblocks: T40 verification (Martin CV rerun)
@@ -92,3 +92,19 @@ Falsifiability gate: if step 3's growth output still shows past-employer anchori
 - Reordering `experience_titles` by seniority could affect other downstream consumers — audit reveals only `normalize_role` uses it; safe.
 - Re-baselining `growth_baseline.json` is required; current file is `[]` so cost is just one CI run.
 - T36 is in flight on adjacent code; this plan doesn't touch `verify_quote` or score-stage anchors, so no merge collision expected.
+
+## Outcome
+
+Implemented the fast-verifiable pieces:
+- `normalize.seniority_rank()` plus a narrow `experience_recovery` path so a valid-but-low side-entry role such as "Research Engineer" cannot beat a higher-seniority work title.
+- `extract_profile()` now sorts title candidates by seniority before role normalization.
+- Growth payload now includes `current_employer_hint` and `dropped_components`; prompt rules now distinguish evidence anchors from forward-looking action targets and forbid past-employer redo/scale actions.
+
+Verified:
+- `uv run pytest tests/test_normalize.py tests/test_extract.py -m fast -v`
+- `uv run pytest tests/test_growth_unit.py -m fast -v`
+- full fast suite: `350 passed, 57 deselected`
+
+Still pending before checking T39 done:
+- Live Profile.pdf rerun to confirm growth output has zero past-employer targets and salary resolves to the senior/management track.
+- T30 EN-triplet live acceptance / growth baseline refresh if the live output changes.

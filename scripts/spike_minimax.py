@@ -109,7 +109,17 @@ class SpikeScore(BaseModel):
 
 def _preflight() -> int | None:
     provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
-    required = "ANTHROPIC_API_KEY" if provider == "anthropic" else "MINIMAX_API_KEY"
+    required_by_provider = {
+        "minimax": "MINIMAX_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+    }
+    required = required_by_provider.get(provider)
+    if required is None:
+        print(
+            f"Set GANDER_LLM_PROVIDER to 'minimax' or 'openrouter' (got {provider!r})",
+            file=sys.stderr,
+        )
+        return 2
     if not os.environ.get(required):
         print(
             f"Set {required} in the environment before running "

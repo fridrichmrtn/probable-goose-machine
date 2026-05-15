@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
 import gander.growth as growth_mod
 from gander.errors import StageFailure
-from gander.growth import _GrowthList, _jaccard_4gram, plan_growth
+from gander.growth import _build_user_message, _GrowthList, _jaccard_4gram, plan_growth
 from gander.llm import LLMClient
 from gander.obs import subscribe
 from gander.schemas import (
@@ -142,6 +143,59 @@ def test_jaccard_4gram_below_threshold_for_short_inputs() -> None:
     assert _jaccard_4gram("alpha bravo charlie", "alpha bravo charlie") == 0.0
     assert _jaccard_4gram("alpha", "alpha") == 0.0
     assert _jaccard_4gram("", "") == 0.0
+
+
+@pytest.mark.fast
+def test_build_user_message_includes_current_employer_hint() -> None:
+    quote = (
+        "Senior Manager AI and Data Science at Stealth Startup led the model "
+        "evaluation program across product analytics"
+    )
+    redacted = RedactedCV(
+        text=(
+            "## Work Experience\n"
+            "Senior Manager AI and Data Science — Stealth Startup\n"
+            "January [YEAR] - Present\n"
+            f"{quote}.\n"
+            "\n"
+            "Research Engineer — Prior Lab\n"
+            "January [YEAR] - December [YEAR]\n"
+            "Built research prototypes for recommender systems.\n"
+        ),
+        audit_log=[],
+    )
+    profile = _profile().model_copy(
+        update={
+            "experience": [
+                ProfileItem(
+                    text="Senior Manager AI and Data Science — Stealth Startup",
+                    anchor=Anchor(quote=quote, section="Work Experience"),
+                )
+            ]
+        }
+    )
+
+    payload = json.loads(
+        _build_user_message(redacted, profile, _score(), salary_midpoint=150000, currency="CZK")
+    )
+
+    assert payload["current_employer_hint"] == [
+        "Senior Manager AI and Data Science — Stealth Startup"
+    ]
+
+
+@pytest.mark.fast
+def test_build_user_message_includes_dropped_components() -> None:
+    score = Score(
+        components=[c for c in _score().components if c.name != "education"],
+        dropped=["education"],
+    )
+
+    payload = json.loads(
+        _build_user_message(_redacted(), _profile(), score, salary_midpoint=120000, currency="CZK")
+    )
+
+    assert payload["dropped_components"] == ["education"]
 
 
 @pytest.mark.fast

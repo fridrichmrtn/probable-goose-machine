@@ -1,6 +1,6 @@
 # T41 — Wire OpenRouter; drop direct Anthropic provider
 
-Status: open
+Status: implemented — pending live OpenRouter roundtrip
 Owner: software-engineer
 Depends on: —
 Unblocks: cross-provider model evaluation (no follow-up task yet)
@@ -30,8 +30,8 @@ Full plan in [plan-wiring-open-router-wiggly-hopper.md](../../.claude/plans/plan
 
 ```python
 "openrouter": {
-    "reasoning": "anthropic/claude-sonnet-4.5",  # verify on https://openrouter.ai/models
-    "cheap":     "openai/gpt-4o-mini",           # verify on https://openrouter.ai/models
+    "reasoning": "anthropic/claude-haiku-4.5",  # verified on OpenRouter 2026-05-15
+    "cheap":     "google/gemini-2.5-flash",     # verified on OpenRouter 2026-05-15
 }
 ```
 
@@ -65,3 +65,24 @@ Strongly recommended: 4-CV spike harness against OpenRouter (real money). Eval s
 - Reasoning-trace models (DeepSeek-R1, Qwen-QwQ, OpenAI o-series) emit `<think>` blocks; `OPENROUTER_STRIP_THINK=1` covers them, off by default.
 - `usd_cost=0.0` for every OpenRouter row until `MODEL_PRICES` populated. Telemetry includes `provider` field so analyst can disambiguate from zeroed MiniMax rows.
 - Slug drift on OpenRouter model IDs — flagged inline in registry comments.
+
+## Outcome
+
+Implemented:
+- Removed the direct Anthropic provider branch from `src/gander/llm.py`.
+- Added `GANDER_LLM_PROVIDER=openrouter` via the OpenAI-compatible `AsyncOpenAI` client at `https://openrouter.ai/api/v1`.
+- Default OpenRouter models changed per user preference: `anthropic/claude-haiku-4.5` for `reasoning`, `google/gemini-2.5-flash` for `cheap`.
+- Added `OPENROUTER_MODEL_REASONING` / `OPENROUTER_MODEL_CHEAP` overrides, optional OpenRouter headers, and provider telemetry on `llm_call`.
+- Generalized `scripts/spike_minimax.py` preflight to `{minimax, openrouter}`.
+- Updated `.env.example`.
+
+Verified:
+- OpenRouter slugs checked against OpenRouter model pages on 2026-05-15.
+- `uv run pytest tests/test_llm.py -m fast -v`
+- full fast suite: `350 passed, 57 deselected`
+- `uv run ruff check .`
+- `uv run mypy src/`
+
+Still pending before checking T41 done:
+- Live OpenRouter JSON roundtrip with `OPENROUTER_API_KEY`.
+- Optional one-fixture end-to-end A/B run against Haiku/Gemini Flash.

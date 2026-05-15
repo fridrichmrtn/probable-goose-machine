@@ -18,6 +18,7 @@ behaviour as the discriminator against off-the-shelf CV tools.
 from __future__ import annotations
 
 import json
+import re
 import string
 import unicodedata
 from pathlib import Path
@@ -28,6 +29,7 @@ from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit
 from gander.schemas import GrowthAction, Profile, RedactedCV, Score
+from gander.tenure import _PRESENT_TOKENS, work_experience_slice
 from gander.verify import verify_quote
 
 _SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "growth.md").read_text(encoding="utf-8")
@@ -112,6 +114,35 @@ def _check_ban_phrase(action: GrowthAction) -> str | None:
     return None
 
 
+def _contains_present_token(text: str) -> bool:
+    normalized = "".join(
+        c for c in unicodedata.normalize("NFKD", text).lower() if not unicodedata.combining(c)
+    )
+    token_alt = "|".join(sorted((re.escape(t) for t in _PRESENT_TOKENS), key=len, reverse=True))
+    return re.search(rf"\b(?:{token_alt})\b", normalized) is not None
+
+
+def _extract_current_employer_hint(redacted: RedactedCV, profile: Profile) -> list[str]:
+    """Return experience item texts whose anchor sits near a present-tense date."""
+    scoped = work_experience_slice(redacted.text) or redacted.text
+    hints: list[str] = []
+    seen: set[str] = set()
+    for item in profile.experience:
+        quote = item.anchor.quote
+        idx = scoped.find(quote)
+        if idx < 0:
+            continue
+        context = scoped[max(0, idx - 200) : idx + len(quote) + 200]
+        if not _contains_present_token(context):
+            continue
+        key = " ".join(item.text.casefold().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        hints.append(item.text)
+    return hints
+
+
 def _build_user_message(
     redacted: RedactedCV,
     profile: Profile,
@@ -125,6 +156,8 @@ def _build_user_message(
         "detected_role": profile.detected_role,
         "detected_location": profile.detected_location,
         "detected_years_experience": profile.detected_years_experience,
+        "current_employer_hint": _extract_current_employer_hint(redacted, profile),
+        "dropped_components": list(score.dropped),
         "components": [
             {
                 "name": c.name,

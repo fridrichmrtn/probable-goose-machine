@@ -19,9 +19,22 @@ from pathlib import Path
 
 import pytest
 
-from gander import pipeline
+from gander import obs, pipeline
+from gander.confidence import _TierOnly
 from gander.errors import StageFailure
-from gander.schemas import Confidence, Profile, Report, SalaryEstimate, Score
+from gander.llm import LLMClient
+from gander.schemas import (
+    Anchor,
+    Component,
+    Confidence,
+    Profile,
+    ProfileItem,
+    RedactedCV,
+    Report,
+    SalaryEstimate,
+    Score,
+    Source,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # Mid-tier MLOps engineer fixture: realistic depth but not the hardest case.
@@ -76,3 +89,86 @@ async def test_pipeline_smoke_end_to_end_mid_fixture() -> None:
             block = getattr(final, name)
             assert block is not None, f"final yield left {name} as None"
             assert isinstance(block, StageFailure) or block is not None
+
+
+@pytest.mark.fast
+async def test_pipeline_confidence_reflects_dropped_score_components(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_extract_text(file_bytes: bytes, filename: str) -> str:
+        return "raw cv text"
+
+    def fake_redact(text: str) -> RedactedCV:
+        return RedactedCV(text="redacted cv text", audit_log=[])
+
+    async def fake_extract_profile(redacted: RedactedCV) -> Profile:
+        item = ProfileItem(text="experience", anchor=Anchor(quote="experience"))
+        return Profile(
+            skills=[],
+            experience=[item],
+            education=[],
+            soft_signals=[],
+            detected_role="Senior Data Scientist",
+            detected_location="Prague",
+            detected_years_experience=8,
+            canonical_role="senior data scientist",
+        )
+
+    async def fake_score_profile(redacted: RedactedCV, profile: Profile) -> Score:
+        return Score(
+            components=[
+                Component(
+                    name="experience",
+                    score_0_100=70,
+                    justification="verified experience",
+                    anchor=Anchor(quote="experience"),
+                )
+            ],
+            dropped=["skills", "education"],
+        )
+
+    async def fake_estimate_salary(profile: Profile) -> SalaryEstimate:
+        return SalaryEstimate(
+            low=100000,
+            high=120000,
+            currency="CZK",
+            period="month",
+            sources=[
+                Source(
+                    url="https://platy.cz/x",  # type: ignore[arg-type]
+                    snippet="Senior data roles are well paid.",
+                    domain="platy.cz",
+                )
+            ],
+            reasoning="test",
+        )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: object) -> _TierOnly:
+        return _TierOnly(tier="High", rationale_short="sources agree")
+
+    async def fake_complete_text(self: LLMClient, **kwargs: object) -> str:
+        return "Confidence in this estimate is Low because extraction is insufficient."
+
+    async def fake_plan_growth(*_args: object, **_kwargs: object) -> list[object]:
+        return []
+
+    monkeypatch.setattr(pipeline, "extract_text", fake_extract_text)
+    monkeypatch.setattr(pipeline, "redact", fake_redact)
+    monkeypatch.setattr(pipeline, "extract_profile", fake_extract_profile)
+    monkeypatch.setattr(pipeline, "score_profile", fake_score_profile)
+    monkeypatch.setattr(pipeline, "estimate_salary", fake_estimate_salary)
+    monkeypatch.setattr(pipeline, "plan_growth", fake_plan_growth)
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, object]] = []
+    with obs.subscribe(events.append):
+        reports = await _collect(pipeline.run(b"fixture", "fixture.txt"))
+
+    final = reports[-1]
+    assert isinstance(final.confidence, Confidence)
+    assert final.confidence.tier == "Low"
+    floor_evt = next(e for e in events if e["event"] == "confidence_cv_floor_applied")
+    assert floor_evt["salary_tier"] == "High"
+    assert floor_evt["cv_floor"] == "Low"

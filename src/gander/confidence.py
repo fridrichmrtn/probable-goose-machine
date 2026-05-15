@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit
-from gander.schemas import Confidence, Source
+from gander.schemas import Confidence, CVQualitySignals, Source
 
 _STEP_A_PROMPT = (Path(__file__).parent / "prompts" / "confidence_step_a.md").read_text(
     encoding="utf-8"
@@ -55,6 +55,33 @@ class _TierOnly(BaseModel):
     rationale_short: str
 
 
+_TIER_RANK: dict[str, int] = {"Low": 0, "Medium": 1, "High": 2}
+_RANK_TIER: dict[int, Literal["Low", "Medium", "High"]] = {
+    0: "Low",
+    1: "Medium",
+    2: "High",
+}
+
+
+def _cv_floor(cv_quality: CVQualitySignals) -> Literal["Low", "Medium", "High"]:
+    if cv_quality.dropped_score_components >= 2:
+        return "Low"
+    if cv_quality.dropped_score_components == 1 or not cv_quality.canonical_role_resolved:
+        return "Medium"
+    if not cv_quality.location_detected:
+        return "Medium"
+    return "High"
+
+
+def _apply_cv_floor(
+    salary_tier: Literal["Low", "Medium", "High"],
+    cv_quality: CVQualitySignals,
+) -> tuple[Literal["Low", "Medium", "High"], Literal["Low", "Medium", "High"]]:
+    floor = _cv_floor(cv_quality)
+    final_rank = min(_TIER_RANK[salary_tier], _TIER_RANK[floor])
+    return _RANK_TIER[final_rank], floor
+
+
 def _render_step_b(
     tier: str,
     low: int,
@@ -71,11 +98,18 @@ async def judge(
     high: int,
     currency: str,
     period: Literal["month", "year"],
+    *,
+    cv_quality: CVQualitySignals,
 ) -> Confidence | StageFailure:
     async with stage_boundary("confidence") as cm:
         client = LLMClient()
 
-        step_a_user = json.dumps([s.model_dump(mode="json") for s in sources])
+        step_a_user = json.dumps(
+            {
+                "sources": [s.model_dump(mode="json") for s in sources],
+                "cv_quality": cv_quality.model_dump(),
+            }
+        )
         try:
             tier_obj = await client.complete_json(
                 system=_STEP_A_PROMPT,
@@ -108,14 +142,30 @@ async def judge(
                 user_message=_FAILURE_MSG,
                 debug_detail=f"complete_json returned {type(tier_obj).__name__}",
             )
+        salary_tier = tier_obj.tier
+        final_tier, cv_floor = _apply_cv_floor(salary_tier, cv_quality)
+        if final_tier != salary_tier:
+            emit(
+                "confidence",
+                "confidence_cv_floor_applied",
+                salary_tier=salary_tier,
+                cv_floor=cv_floor,
+                final_tier=final_tier,
+                dropped_score_components=cv_quality.dropped_score_components,
+                canonical_role_resolved=cv_quality.canonical_role_resolved,
+                location_detected=cv_quality.location_detected,
+            )
+
         emit(
             "confidence",
             "confidence_step_a",
-            tier=tier_obj.tier,
+            tier=final_tier,
+            salary_tier=salary_tier,
+            cv_floor=cv_floor,
             sources_count=len(sources),
         )
 
-        step_b_user = _render_step_b(tier_obj.tier, low, high, currency, period)
+        step_b_user = _render_step_b(final_tier, low, high, currency, period)
         try:
             rationale = await client.complete_text(
                 system=_STEP_B_PROMPT,
@@ -124,7 +174,7 @@ async def judge(
                 temperature=0.0,
             )
             regenerated = False
-            if tier_obj.tier == "Low" and not _RATIONALE_LOW_REGEX.search(rationale):
+            if final_tier == "Low" and not _RATIONALE_LOW_REGEX.search(rationale):
                 emit(
                     "confidence",
                     "confidence_step_b_regenerated",
@@ -171,9 +221,9 @@ async def judge(
         emit(
             "confidence",
             "confidence_decision",
-            tier=tier_obj.tier,
+            tier=final_tier,
             rationale_len=len(rationale),
         )
-        return Confidence(tier=tier_obj.tier, rationale=rationale)
+        return Confidence(tier=final_tier, rationale=rationale)
 
     return cm.failure  # type: ignore[return-value]

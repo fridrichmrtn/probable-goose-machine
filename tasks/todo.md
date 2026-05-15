@@ -60,8 +60,8 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T36** — Senior fixture education-anchor verify miss (`tasks/T36_senior_edu_anchor.md`) — *unblocks reverting the partial-Score branch in `test_score_spread_at_least_30`*
 - [ ] **T37** — Cassette/mock DDG for live tests (`tasks/T37_ddg_cassette.md`) — *unblocks removing `_optional_growth` + `@flaky(reruns=2)`*
 - [x] **T38** — Low-evidence profile gate (`tasks/T38_low_evidence_gate.md`) — *PR #22; non-CV uploads now fail closed before downstream salary/score/growth*
-- [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`)
-- [ ] **T40** — CV-quality signals into confidence judge (`tasks/T40_confidence_cv_signals.md`) — *deps T39*
+- [ ] **T39** — Growth backward-bias + salary role-mismatch (Profile.pdf rerun) (`tasks/T39_growth_backward_bias.md`) — *implementation fast-verified; pending live Profile.pdf rerun*
+- [ ] **T40** — CV-quality signals into confidence judge (`tasks/T40_confidence_cv_signals.md`) — *implementation fast-verified; pending live Profile.pdf rerun*
 
 ## Provider plumbing
-- [ ] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *plan: `.claude/plans/plan-wiring-open-router-wiggly-hopper.md`*
+- [ ] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *implementation fast-verified; pending live OpenRouter roundtrip*

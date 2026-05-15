@@ -130,6 +130,18 @@ class Confidence(BaseModel):
     rationale: str
 
 
+class CVQualitySignals(BaseModel):
+    """CV-extraction quality signals fed into the confidence judge.
+
+    Built by pipeline.py from the verified Profile + Score so confidence can
+    reflect thin CV understanding, not only market-source agreement.
+    """
+
+    dropped_score_components: int = Field(ge=0, le=3)
+    canonical_role_resolved: bool
+    location_detected: bool
+
+
 class GrowthAction(BaseModel):
     what: str
     time_horizon_months: int = Field(ge=1, le=24)

@@ -113,6 +113,15 @@ def _classify(text: str) -> tuple[SeniorityBand, bool] | None:
     return None
 
 
+def seniority_rank(title: str) -> int:
+    """Comparable seniority rank for title ordering; 0 means unrecognized."""
+    classified = _classify(title)
+    if classified is None:
+        return 0
+    band, _ = classified
+    return _BAND_RANK[band] + 1
+
+
 def _is_tagline_shape(text: str) -> bool:
     return any(ch in text for ch in _TAGLINE_CHARS)
 
@@ -129,7 +138,7 @@ def _recover_from_titles(titles: list[str]) -> tuple[str, SeniorityBand, bool] |
         if r is None:
             continue
         band, mgmt = r
-        rank = _BAND_RANK[band]
+        rank = seniority_rank(t)
         if best is None or rank > best[0]:
             best = (rank, i, t, band, mgmt)
     if best is None:
@@ -168,6 +177,19 @@ def normalize_role(
 
     if direct is not None and not denylisted and not tagline:
         band, mgmt = direct
+        detected_rank = seniority_rank(detected)
+        recovered = _recover_from_titles(experience_titles)
+        if recovered is not None and detected_rank <= seniority_rank("data scientist"):
+            title, recovered_band, recovered_mgmt = recovered
+            if seniority_rank(title) > detected_rank:
+                result = NormalizedRole(
+                    canonical_role=title.lower(),
+                    seniority_band=recovered_band,
+                    is_management=recovered_mgmt,
+                    source="experience_recovery",
+                )
+                _emit_normalized(detected_role, result)
+                return result
         result = NormalizedRole(
             canonical_role=detected.lower(),
             seniority_band=band,

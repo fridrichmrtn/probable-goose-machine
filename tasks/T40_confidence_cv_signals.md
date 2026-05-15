@@ -1,6 +1,6 @@
 # T40 — CV-quality signals into confidence judge
 
-Status: open
+Status: implemented — pending live Profile.pdf rerun
 Owner: ai-ml-engineer
 Depends on: T39 (Martin CV rerun verifies both fixes in one pass)
 Unblocks: —
@@ -111,3 +111,21 @@ Note the `le=3` bound: `experience` is mandatory per [src/gander/schemas.py:147-
 - Step A runs on the `cheap` model (MiniMax-M2.7-highspeed via `_PROFILE_MODELS`); a more complex rubric raises the chance of regression on the simple "all signals clean" path. Mitigation: rubric is strictly two-step (compute salary tier as today, then apply cap), so the clean branch stays identical to today's behavior.
 - Backward compat: `judge()` signature change is keyword-only and internal — pipeline.py + the two test files are the only callers. No public API surface affected.
 - T36 (senior_edu_anchor) is in flight on `verify_quote` and Score anchors. T40 only reads `Score.dropped`/`Profile.canonical_role`/`Profile.detected_location` — no collision.
+
+## Outcome
+
+Implemented:
+- Added `CVQualitySignals` in `src/gander/schemas.py`.
+- Widened `confidence.judge(..., *, cv_quality=...)`.
+- Step A user payload now carries `{"sources": ..., "cv_quality": ...}` while remaining blind to produced salary range/reasoning.
+- Deterministic CV-floor cap applied after the salary-side tier: two dropped components -> Low; one dropped/missing canonical role/missing location -> Medium.
+- Pipeline builds CV-quality signals from `state.score` and `state.profile` before calling the judge.
+
+Verified:
+- `uv run pytest tests/test_confidence_unit.py tests/test_confidence_judge.py tests/test_pipeline_smoke.py -m fast -v`
+- full fast suite: `350 passed, 57 deselected`
+- `uv run ruff check .`
+- `uv run mypy src/`
+
+Still pending before checking T40 done:
+- Live Profile.pdf rerun after T39 to confirm any remaining dropped-score-components visibly cap confidence.
