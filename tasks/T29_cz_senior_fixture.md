@@ -87,10 +87,16 @@ Implemented the offline T29 surface:
   dropped-component limits, expected CZK/month salary windows, name-redaction
   observability, role-normalization source, and senior-vs-junior salary
   non-overlap for #11/#13.
+- The suite now skips cleanly when the selected provider's API key is absent
+  (`OPENROUTER_API_KEY` for `GANDER_LLM_PROVIDER=openrouter`, otherwise
+  `MINIMAX_API_KEY`) so local `-m live` probes do not fail before credentials
+  are configured.
 
 Verified offline:
 - `uv run pytest tests/test_acceptance_cz.py --collect-only -q`
-  → `20 tests collected`.
+  → `24 tests collected`.
+- `uv run pytest -m live tests/test_acceptance_cz.py -q` with no provider key
+  in this shell → `24 skipped`.
 - `uv run pytest tests/test_redact.py -m fast -q`
   → `44 passed, 15 deselected`.
 - `uv run ruff check scripts/build_cv_fixtures.py tests/test_acceptance_cz.py`

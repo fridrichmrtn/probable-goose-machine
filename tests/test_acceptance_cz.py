@@ -7,6 +7,7 @@ regression class that the English-only corpus missed.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,10 +47,26 @@ EXPECTED: dict[str, dict[str, object]] = {
 }
 
 
+def _missing_provider_key() -> bool:
+    provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
+    if provider == "openrouter":
+        return not bool(os.environ.get("OPENROUTER_API_KEY"))
+    if provider == "minimax":
+        return not bool(os.environ.get("MINIMAX_API_KEY"))
+    return False
+
+
 pytestmark = [
     pytest.mark.live,
     pytest.mark.slow,
     pytest.mark.xdist_group("acceptance-cz"),
+    pytest.mark.skipif(
+        _missing_provider_key(),
+        reason=(
+            "CZ acceptance requires OPENROUTER_API_KEY when "
+            "GANDER_LLM_PROVIDER=openrouter, otherwise MINIMAX_API_KEY"
+        ),
+    ),
 ]
 
 
