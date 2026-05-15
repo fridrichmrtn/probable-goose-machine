@@ -74,3 +74,8 @@ Still pending before checking T23 done in `tasks/todo.md`:
 - Fresh live corpus/cost numbers in `reports/SUMMARY.md`.
 - Fresh bias-smoke delta from `scripts/run_bias_smoke.py` or the live CI
   JUnit property.
+
+Follow-up during the sweep:
+- `reports/SUMMARY.md` placeholder now lists all 14 committed fixture pairs,
+  including the T29 CZ fixtures #11–#13, so the linked eval surface no longer
+  hides the multilingual corpus extension while live numbers are pending.

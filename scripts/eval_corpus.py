@@ -1,4 +1,4 @@
-"""T21 — 10-CV live corpus runner.
+"""T21 — live corpus runner.
 
 The user's manual gauging surface. Runs every fixture under
 `tests/fixtures/cvs/*.{pdf,docx}` through the live L1→L5 pipeline,
@@ -21,7 +21,7 @@ The `--profile` flag sets `GANDER_MODEL_PROFILE` for the run (see
 `gander.llm` for what it picks). Local profile uses the reasoning-heavy
 MiniMax model; CI uses the cheap one.
 
-Execution is serial — DDG queries are rate-sensitive and 10 parallel
+Execution is serial — DDG queries are rate-sensitive and many parallel
 pipelines from one IP would draw throttles.
 """
 
