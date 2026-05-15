@@ -1272,7 +1272,7 @@ def test_validator_does_not_match_inc_inside_increase() -> None:
 async def test_validator_drop_emits_observability_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     closed_what = "Rebuild the pricing engine you owned at TD SYNNEX over the next year"
     payload = _GrowthList(
@@ -1330,7 +1330,7 @@ async def test_validator_drop_emits_observability_event(
 async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remaining(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     payload = _GrowthList(
         actions=[
