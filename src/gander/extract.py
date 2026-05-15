@@ -77,7 +77,7 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             system=load_prompt("extract.md"),
             user=redacted.text,
             schema=Profile,
-            model="reasoning",
+            model="extract",
             max_retries=2,
         )
         if not isinstance(raw, Profile):

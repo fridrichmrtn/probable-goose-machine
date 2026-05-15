@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from gander import obs
 
-LogicalModel = Literal["reasoning", "cheap"]
+LogicalModel = Literal["reasoning", "cheap", "extract"]
 
 # MiniMax-M2.x models prepend a <think>...</think> reasoning block to chat output
 # regardless of response_format, and often wrap JSON-mode payloads in ```json fences.
@@ -77,14 +77,23 @@ MODEL_PRICES: dict[str, tuple[float, float]] = {
 }
 
 _PROFILE_MODELS: dict[str, dict[str, str]] = {
-    "local": {"reasoning": "MiniMax-M2.7-highspeed", "cheap": "MiniMax-M2.7-highspeed"},
-    "ci": {"reasoning": "MiniMax-M2.7-highspeed", "cheap": "MiniMax-M2.7-highspeed"},
+    "local": {
+        "reasoning": "MiniMax-M2.7-highspeed",
+        "cheap": "MiniMax-M2.7-highspeed",
+        "extract": "MiniMax-M2.7-highspeed",
+    },
+    "ci": {
+        "reasoning": "MiniMax-M2.7-highspeed",
+        "cheap": "MiniMax-M2.7-highspeed",
+        "extract": "MiniMax-M2.7-highspeed",
+    },
 }
 
 _OPENROUTER_MODELS: dict[LogicalModel, str] = {
     # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
-    "reasoning": "anthropic/claude-haiku-4.5",
+    "reasoning": "google/gemini-2.5-flash",
     "cheap": "google/gemini-2.5-flash",
+    "extract": "anthropic/claude-haiku-4.5",
 }
 _API_VLM_MODEL = "api-vlm"
 _API_VLM_ENDPOINT = "https://api.minimax.io/v1/coding_plan/vlm"

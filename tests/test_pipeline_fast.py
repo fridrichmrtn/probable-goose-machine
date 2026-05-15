@@ -437,6 +437,67 @@ async def test_score_and_salary_run_concurrently(
 
 
 @pytest.mark.fast
+async def test_confidence_and_growth_run_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+    confidence_done_at = 0.0
+    growth_done_at = 0.0
+    t0 = asyncio.get_event_loop().time()
+
+    async def _slow_judge(
+        sources: list[Source],
+        low: int,
+        high: int,
+        currency: str,
+        period: str,
+        *,
+        cv_quality: CVQualitySignals,
+    ) -> Confidence:
+        nonlocal confidence_done_at
+        await asyncio.sleep(0.05)
+        confidence_done_at = asyncio.get_event_loop().time() - t0
+        return _confidence()
+
+    async def _fast_growth(
+        redacted: RedactedCV,
+        profile: Profile,
+        score: Score,
+        salary_midpoint: int,
+        currency: str,
+    ) -> list[GrowthAction]:
+        nonlocal growth_done_at
+        await asyncio.sleep(0.001)
+        growth_done_at = asyncio.get_event_loop().time() - t0
+        return _growth()
+
+    monkeypatch.setattr(pipeline, "judge", _slow_judge)
+    monkeypatch.setattr(pipeline, "plan_growth", _fast_growth)
+
+    reports = await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    assert growth_done_at < confidence_done_at
+    growth_done_idx = next(i for i, r in enumerate(reports) if r.statuses["growth"] == "done")
+    assert reports[growth_done_idx].statuses["confidence"] == "running"
+
+
+@pytest.mark.fast
+async def test_pipeline_done_emits_once_at_terminal_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+    events: list[dict[str, Any]] = []
+
+    with obs.subscribe(events.append):
+        reports = await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    done_events = [e for e in events if e["event"] == "pipeline_done"]
+    assert len(done_events) == 1
+    assert done_events[0]["outcome"] == "ok"
+    assert all(v != "running" for v in reports[-1].statuses.values())
+
+
+@pytest.mark.fast
 async def test_every_yield_is_a_valid_report_with_all_status_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
