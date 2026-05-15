@@ -185,6 +185,12 @@ def _pill_html(label: str, status: StageStatus, tooltip: str | None) -> str:
     )
 
 
+def _label_for_stage(report: Report, stage: StageName) -> str:
+    if stage == "profile" and report.statuses[stage] == "running" and not report.raw_cv_text:
+        return "Ingest"
+    return _LABEL_BY_STAGE[stage]
+
+
 def render_tracker(report: Report) -> str:
     """Render the 5-stage tracker as a `<style>`+`<div>` HTML fragment.
 
@@ -205,7 +211,7 @@ def render_tracker(report: Report) -> str:
                 # status with a populated block is legal but uninformative.
                 # Surface the inconsistency rather than render a tooltip-less pill.
                 tooltip = "Stage marked failed but no failure message available."
-        pills.append(_pill_html(_LABEL_BY_STAGE[stage], status, tooltip))
+        pills.append(_pill_html(_label_for_stage(report, stage), status, tooltip))
     return f'{_CSS}\n<div class="tracker" role="status" aria-live="polite">{"".join(pills)}</div>'
 
 
@@ -328,9 +334,8 @@ def _footer(report: Report) -> str:
         f"- **{_COMPONENT_DISPLAY[name]}**: {int(weight * 100)}%"
         for name, weight in COMPONENT_WEIGHTS.items()
     )
-    # Format with 4 decimals on cost (covers the 1e-4 USD floor of cheap-model
-    # MiniMax calls); latency rendered in ms so the reviewer can compare to the
-    # 60s budget without unit conversion.
+    # Format with 4 decimals on cost; latency is rendered in ms so the reviewer
+    # can compare to the 60s budget without unit conversion.
     totals_line = (
         f"_Total cost: ${report.total_cost_usd:.4f} · "
         f"Total latency: {report.total_latency_ms:,} ms_"

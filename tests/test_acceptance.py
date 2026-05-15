@@ -12,7 +12,6 @@ every test queries the cached `Report` dict. CI live job picks these up via
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -285,21 +284,16 @@ def test_all_claims_substring_verified(triplet: _TripletRun) -> None:
 def test_per_run_cost_budget(triplet: _TripletRun) -> None:
     """Per-pipeline-run USD cost must stay under a smoke-test ceiling.
 
-    This is intentionally a broad guardrail, not a tight budget contract:
-    VLM-backed ingest can add token-plan request costs, while MiniMax stays
-    compatible with the zeroed pricing table. OpenRouter reports provider cost
-    directly and must not pass this gate vacuously.
+    This is intentionally a broad guardrail, not a tight budget contract.
+    OpenRouter reports provider cost directly and must not pass this gate
+    vacuously.
     """
-    provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
-    profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
     budget = 0.15
     for fname, cost in triplet.per_run_cost_usd.items():
-        if provider == "openrouter":
-            assert cost > 0.0, (
-                f"{fname} cost ${cost:.4f} is not positive "
-                "(expected OpenRouter usage.cost telemetry)"
-            )
-        assert cost < budget, f"{fname} cost ${cost:.4f} >= ${budget:.2f} (profile={profile})"
+        assert cost > 0.0, (
+            f"{fname} cost ${cost:.4f} is not positive (expected OpenRouter usage.cost telemetry)"
+        )
+        assert cost < budget, f"{fname} cost ${cost:.4f} >= ${budget:.2f}"
 
 
 def test_pipeline_emits_latency(triplet: _TripletRun) -> None:

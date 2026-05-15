@@ -12,7 +12,7 @@ from gander.obs import current_stage, subscribe
 
 @pytest.mark.fast
 def test_strip_think_handles_fences_and_thinkblocks() -> None:
-    # think block + json fence (the real M2.7 shape that broke the spike)
+    # think block + json fence
     assert _strip_think('<think>reasoning</think>\n\n```json\n{"a": 1}\n```') == '{"a": 1}'
     # fence only
     assert _strip_think('```json\n{"a": 1}\n```') == '{"a": 1}'
@@ -28,7 +28,7 @@ class Echo(BaseModel):
 
 class _RetryingLLMClient(LLMClient):
     def __init__(self) -> None:
-        self._provider = "test"
+        self._provider = "openrouter"
         self.calls = 0
 
     def _resolve_model(self, logical: str, provider: str | None = None) -> str:
@@ -53,63 +53,6 @@ class _RetryingLLMClient(LLMClient):
 
 
 @pytest.mark.fast
-async def test_complete_vision_text_posts_api_vlm_payload_and_telemetry(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, Any] = {}
-
-    class _FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict[str, Any]:
-            return {"content": "Summary\nSynthetic transcript", "base_resp": {"status_code": 0}}
-
-    class _FakeAsyncClient:
-        def __init__(self, *, timeout: float) -> None:
-            captured["timeout"] = timeout
-
-        async def __aenter__(self) -> _FakeAsyncClient:
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            return None
-
-        async def post(
-            self, endpoint: str, *, headers: dict[str, str], json: dict[str, str]
-        ) -> _FakeResponse:
-            captured["endpoint"] = endpoint
-            captured["headers"] = headers
-            captured["json"] = json
-            return _FakeResponse()
-
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
-    monkeypatch.setattr("gander.llm.httpx.AsyncClient", _FakeAsyncClient)
-    client = object.__new__(LLMClient)
-    client._provider = "minimax"
-    events: list[dict[str, Any]] = []
-
-    with subscribe(events.append):
-        text = await client.complete_vision_text(
-            image_bytes=b"\x89PNG\r\n\x1a\nfake", prompt="Transcribe this page."
-        )
-
-    assert text == "Summary\nSynthetic transcript"
-    assert captured["endpoint"] == "https://api.minimax.io/v1/coding_plan/vlm"
-    assert captured["timeout"] == 120.0
-    payload = captured["json"]
-    assert payload["prompt"] == "Transcribe this page."
-    assert payload["image_url"].startswith("data:image/png;base64,")
-    assert captured["headers"]["Authorization"] == "Bearer test-key"
-
-    llm_events = [e for e in events if e["event"] == "llm_call"]
-    assert len(llm_events) == 1
-    assert llm_events[0]["model"] == "api-vlm"
-    assert llm_events[0]["usd_cost"] == 0.06
-    assert llm_events[0]["token_plan_m2_requests"] == 3
-
-
-@pytest.mark.fast
 async def test_complete_json_retry_telemetry_accumulates_tokens() -> None:
     events: list[dict[str, Any]] = []
     client = _RetryingLLMClient()
@@ -130,7 +73,7 @@ async def test_complete_json_retry_telemetry_accumulates_tokens() -> None:
     assert llm_events[0]["prompt_tokens"] == 10
     assert llm_events[0]["completion_tokens"] == 16
     assert llm_events[0]["usd_cost"] == 26.0
-    assert llm_events[0]["provider"] == "test"
+    assert llm_events[0]["provider"] == "openrouter"
 
 
 @pytest.mark.fast
@@ -202,7 +145,7 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
 
 
 @pytest.mark.fast
-def test_openrouter_missing_key_and_removed_anthropic_provider(
+def test_openrouter_missing_key_and_removed_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
@@ -211,7 +154,11 @@ def test_openrouter_missing_key_and_removed_anthropic_provider(
         LLMClient()
 
     monkeypatch.setenv("GANDER_LLM_PROVIDER", "anthropic")
-    with pytest.raises(RuntimeError, match="'minimax' or 'openrouter'"):
+    with pytest.raises(RuntimeError, match="'openrouter'"):
+        LLMClient()
+
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "legacy")
+    with pytest.raises(RuntimeError, match="'openrouter'"):
         LLMClient()
 
 
@@ -261,50 +208,23 @@ def _client_with_fake_chat(provider: str) -> tuple[LLMClient, _FakeChatCompletio
 
 
 @pytest.mark.fast
-async def test_extract_provider_override_routes_only_extract_to_openrouter(
+def test_provider_overrides_accept_only_openrouter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_clients: list[dict[str, Any]] = []
-    fake_completions = _FakeChatCompletions()
-
-    class _FakeAsyncOpenAI:
-        def __init__(self, **kwargs: Any) -> None:
-            captured_clients.append(kwargs)
-            self.chat = type("Chat", (), {"completions": fake_completions})()
-
-    monkeypatch.setattr("gander.llm.AsyncOpenAI", _FakeAsyncOpenAI)
-    monkeypatch.setenv("GANDER_LLM_PROVIDER", "minimax")
     monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "openrouter")
-    monkeypatch.setenv("MINIMAX_API_KEY", "mm-test")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
-    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", raising=False)
+    client = object.__new__(LLMClient)
+    client._provider = "openrouter"
 
-    client = LLMClient()
-    events: list[dict[str, Any]] = []
-
-    with subscribe(events.append):
-        echo = await client.complete_json(
-            system='You echo. Return JSON {"message": "..."}.',
-            user="Echo back the word pong.",
-            schema=Echo,
-            model="extract",
-        )
-
-    assert echo == Echo(message="pong")
-    assert client._resolve_provider("cheap") == "minimax"
+    assert client._resolve_provider("cheap") == "openrouter"
     assert client._resolve_provider("extract") == "openrouter"
-    assert [call["api_key"] for call in captured_clients] == ["mm-test", "or-test"]
-    assert str(captured_clients[1]["base_url"]) == "https://openrouter.ai/api/v1"
-    assert fake_completions.kwargs is not None
-    assert fake_completions.kwargs["model"] == "google/gemini-2.5-flash"
-    llm_event = next(e for e in events if e["event"] == "llm_call")
-    assert llm_event["provider"] == "openrouter"
-    assert llm_event["model"] == "google/gemini-2.5-flash"
+
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "legacy")
+    with pytest.raises(RuntimeError, match="'openrouter'"):
+        client._resolve_provider("extract")
 
 
 @pytest.mark.fast
-async def test_openrouter_chat_json_omits_minimax_quirks(
+async def test_openrouter_chat_json_uses_openrouter_request_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("OPENROUTER_STRIP_THINK", raising=False)
@@ -423,7 +343,7 @@ async def test_openrouter_extract_falls_back_from_flash_to_lite(
 
 
 @pytest.mark.fast
-async def test_openrouter_chat_text_omits_minimax_quirks_and_handles_missing_usage(
+async def test_openrouter_chat_text_uses_openrouter_request_shape_and_handles_missing_usage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("OPENROUTER_STRIP_THINK", raising=False)
@@ -562,17 +482,6 @@ async def test_openrouter_complete_vision_text_falls_back_to_lite(
 
 
 @pytest.mark.fast
-async def test_minimax_chat_json_retains_reasoning_split_and_token_cap() -> None:
-    client, fake_completions = _client_with_fake_chat("minimax")
-
-    await client._chat_json("MiniMax-M2.7-highspeed", "System", "User", 0.0)
-
-    assert fake_completions.kwargs is not None
-    assert fake_completions.kwargs["extra_body"] == {"reasoning_split": True}
-    assert fake_completions.kwargs["max_tokens"] == 4096
-
-
-@pytest.mark.fast
 async def test_openrouter_complete_json_forwards_max_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -663,28 +572,6 @@ async def test_chat_json_emits_llm_truncated_when_finish_reason_length(
     assert truncation["max_tokens"] == 512
     assert truncation["prompt_tokens"] == 3
     assert truncation["completion_tokens"] == 4
-
-
-@pytest.mark.live
-@pytest.mark.skipif(not os.environ.get("MINIMAX_API_KEY"), reason="MINIMAX_API_KEY not set")
-async def test_complete_json_roundtrip_emits_telemetry() -> None:
-    events: list[dict[str, Any]] = []
-    client = LLMClient()
-    with subscribe(events.append):
-        echo = await client.complete_json(
-            system='You echo. Return JSON {"message": "..."}.',
-            user="Echo back the word pong.",
-            schema=Echo,
-            model="cheap",
-        )
-    assert isinstance(echo, Echo)
-    assert "pong" in echo.message.lower()
-
-    llm_events = [e for e in events if e["event"] == "llm_call"]
-    assert len(llm_events) == 1
-    e = llm_events[0]
-    assert e["prompt_tokens"] > 0
-    assert e["completion_tokens"] >= 0
 
 
 @pytest.mark.live

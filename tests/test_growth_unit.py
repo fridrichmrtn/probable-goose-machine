@@ -282,7 +282,7 @@ async def test_plan_growth_returns_stage_failure_when_complete_json_raises(
     # Pydantic rejection of out-of-range time_horizon_months at the LLM-client
     # boundary surfaces here as RuntimeError. We test the post-Pydantic failure
     # branch, not an in-growth filter.
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         raise RuntimeError("validation failure: time_horizon_months out of range")
@@ -309,7 +309,7 @@ async def test_plan_growth_returns_stage_failure_when_complete_json_raises(
 async def test_plan_growth_drops_ban_phrase_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     banned_what = "Complete a PhD in machine learning to qualify for senior research roles"
     payload = _GrowthList(
@@ -378,7 +378,7 @@ async def test_plan_growth_drops_ban_phrase_action(
 async def test_plan_growth_drops_unverified_anchor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     payload = _GrowthList(
         actions=[
@@ -431,7 +431,7 @@ async def test_plan_growth_drops_unverified_anchor(
 async def test_plan_growth_returns_stage_failure_when_fewer_than_three_verified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     payload = _GrowthList(
         actions=[
@@ -491,7 +491,7 @@ async def test_plan_growth_returns_stage_failure_when_fewer_than_three_verified(
 async def test_plan_growth_truncates_to_five_actions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     # Seven valid actions, all anchors verified, none banned. Quotes reused
     # across actions are fine — verify_quote accepts repeated >=8-word
@@ -555,7 +555,7 @@ async def test_plan_growth_truncates_to_five_actions(
 async def test_plan_growth_user_message_includes_salary_midpoint_and_components(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     captured: dict[str, str] = {}
 
@@ -588,7 +588,7 @@ async def test_plan_growth_drops_ban_phrase_phd_dotted(
 ) -> None:
     """`Ph.D.` lowercases to `ph.d.` which has no literal `phd` substring;
     only after punctuation-stripping normalization does the ban match."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     banned_what = "Complete a Ph.D. in ML"
     payload = _GrowthList(
@@ -640,7 +640,7 @@ async def test_plan_growth_drops_ban_phrase_split_by_newline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`learn\\nmore` must still match the `learn more` ban after whitespace collapse."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     banned_what = "Learn\nmore about distributed systems beyond the recommendation pipeline"
     payload = _GrowthList(
@@ -716,7 +716,7 @@ async def test_plan_growth_drops_each_ban_phrase(
 ) -> None:
     """Every ban phrase besides `phd` must drop the offending action and emit
     the structured `growth_action_dropped` event with the matched phrase."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     payload = _GrowthList(
         actions=[
@@ -798,7 +798,7 @@ def _five_verified_actions() -> list[GrowthAction]:
 async def test_plan_growth_returns_exactly_three_when_three_verify(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     payload = _GrowthList(actions=_five_verified_actions()[:3])
 
@@ -824,7 +824,7 @@ async def test_plan_growth_returns_exactly_three_when_three_verify(
 async def test_plan_growth_keeps_five_when_five_verify(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     payload = _GrowthList(actions=_five_verified_actions())
 
@@ -852,7 +852,7 @@ async def test_plan_growth_emits_truncated_event_when_more_than_five_verify(
 ) -> None:
     """The truncation path (7→5) must emit `growth_actions_truncated` once
     with the correct before/after/dropped counts."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     seven = _five_verified_actions() + [
         _action(
@@ -892,7 +892,7 @@ async def test_plan_growth_emits_baseline_missing_when_no_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Any,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     # Point baseline at a non-existent path so `_load_baseline` returns []
     # and the else branch fires.
     monkeypatch.setattr(growth_mod, "_BASELINE_PATH", tmp_path / "missing.json")
@@ -919,7 +919,7 @@ async def test_plan_growth_emits_possible_boilerplate_on_baseline_overlap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Any,
 ) -> None:
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     # Baseline phrase fully matches one survivor's `what` → Jaccard = 1.0 > 0.6.
     overlap = "Lead the on-prem to cloud migration of the recommendation pipeline"
     baseline_path = tmp_path / "growth_baseline.json"
@@ -950,7 +950,7 @@ async def test_plan_growth_returns_stage_failure_on_invalid_llm_output(
 ) -> None:
     """If `complete_json` returns the wrong type, the stage must surface PRD
     §4.6 user copy and emit `stage_failure` with `reason='invalid_llm_output'`."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
         return {"actions": []}  # plain dict, not a _GrowthList
@@ -976,7 +976,7 @@ async def test_plan_growth_returns_stage_failure_on_unexpected_error(
     """A failure outside the `complete_json` try/except (here: `verify_quote`
     raising) must still surface PRD §4.6 copy and emit `stage_failure` with
     `reason='unexpected_error'` rather than leak `str(exc)` to the user."""
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     payload = _GrowthList(actions=_five_verified_actions()[:3])
 

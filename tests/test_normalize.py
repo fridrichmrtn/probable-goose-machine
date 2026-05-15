@@ -335,7 +335,7 @@ async def test_llm_canonicalize_role_uses_extract_model(
             confidence=0.9,
         )
 
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr("gander.llm.LLMClient.complete_json", fake_complete_json)
 
     result = await _llm_canonicalize_role("Wizard of Bytes", ["Head of Data Science"], 12)
@@ -371,7 +371,7 @@ async def test_llm_canonicalize_forwards_max_tokens_cap(
     from gander.llm import LLMClient
     from gander.normalize import _LLMCanonicalRole
 
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     captured: dict[str, Any] = {}
 

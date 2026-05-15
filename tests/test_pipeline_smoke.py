@@ -72,13 +72,8 @@ async def test_pipeline_smoke_end_to_end_mid_fixture() -> None:
     if succeeded:
         assert all(v == "done" for v in final.statuses.values())
         # At least one LLM call must have fired. Latency is the reliable
-        # signal: every stage records its duration. `total_cost_usd` would
-        # be a stronger check, but it depends on the cost-per-token table
-        # in `gander.llm` covering whichever model the live env routes to
-        # (e.g. `MiniMax-M2.7-highspeed` currently has no pricing entry,
-        # so its events emit `usd_cost=0.0` and the accumulator sums to 0).
-        # Pricing-table coverage is a separate concern (T05/T17); the
-        # accumulator itself is exercised end-to-end by the fast tests.
+        # signal: every stage records its duration. `total_cost_usd` depends on
+        # provider usage telemetry, so pricing coverage stays in acceptance.
         assert final.total_cost_usd >= 0
         assert final.total_latency_ms > 0
     else:
@@ -160,7 +155,7 @@ async def test_pipeline_confidence_reflects_dropped_score_components(
     monkeypatch.setattr(pipeline, "plan_growth", fake_plan_growth)
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
     monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, object]] = []
     with obs.subscribe(events.append):
@@ -244,7 +239,7 @@ async def test_pipeline_confidence_reflects_unrecognized_role_source(
     monkeypatch.setattr(pipeline, "plan_growth", fake_plan_growth)
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
     monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     events: list[dict[str, object]] = []
     with obs.subscribe(events.append):

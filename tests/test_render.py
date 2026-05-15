@@ -151,6 +151,56 @@ def test_render_tracker_emits_five_pills_for_done_report() -> None:
 
 
 @pytest.mark.fast
+def test_render_tracker_running_first_pill_shows_ingest_before_text() -> None:
+    report = Report(
+        profile=None,
+        score=None,
+        salary=None,
+        confidence=None,
+        growth=None,
+        statuses=_statuses(
+            profile="running",
+            score="pending",
+            salary="pending",
+            confidence="pending",
+            growth="pending",
+        ),
+        raw_cv_text="",
+        redacted_cv_text="",
+    )
+
+    out = render_tracker(report)
+
+    assert out.count('<span class="pill ') == 5
+    assert ">Ingest</span>" in out
+
+
+@pytest.mark.fast
+def test_render_tracker_running_first_pill_shows_profile_after_text() -> None:
+    report = Report(
+        profile=None,
+        score=None,
+        salary=None,
+        confidence=None,
+        growth=None,
+        statuses=_statuses(
+            profile="running",
+            score="pending",
+            salary="pending",
+            confidence="pending",
+            growth="pending",
+        ),
+        raw_cv_text="raw cv text",
+        redacted_cv_text="redacted cv text",
+    )
+
+    out = render_tracker(report)
+
+    assert out.count('<span class="pill ') == 5
+    assert ">Profile</span>" in out
+
+
+@pytest.mark.fast
 @pytest.mark.parametrize("status", ["pending", "running", "done", "failed", "skipped"])
 def test_render_tracker_pill_class_matches_status(status: StageStatus) -> None:
     # Use score's status slot so we don't have to also coerce the data block

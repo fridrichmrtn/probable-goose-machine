@@ -212,6 +212,25 @@ async def test_happy_path_yields_in_expected_sequence(
 
 
 @pytest.mark.fast
+async def test_happy_path_yields_after_redaction_before_profile_extract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+
+    reports = await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    intermediate = [
+        r
+        for r in reports
+        if r.statuses["profile"] == "running"
+        and r.raw_cv_text == "raw text"
+        and r.redacted_cv_text == "raw text"
+        and r.profile is None
+    ]
+    assert intermediate
+
+
+@pytest.mark.fast
 async def test_ingest_failure_short_circuits_and_cascades(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

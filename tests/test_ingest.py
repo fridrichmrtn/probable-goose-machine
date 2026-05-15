@@ -169,8 +169,8 @@ def test_render_pdf_pages_returns_pngs() -> None:
 async def test_pdf_vlm_ingest_renders_pages_and_joins_transcripts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("GANDER_PDF_INGEST_MODE", "vision")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     pdf_bytes = _pdf_bytes(
         [
             ["Summary", "Data Scientist with 5 years building churn models."],
@@ -217,6 +217,40 @@ async def test_pdf_vlm_ingest_renders_pages_and_joins_transcripts(
 
 
 @pytest.mark.fast
+async def test_legacy_ingest_mode_still_enables_pdf_vision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+    pdf_bytes = _pdf_bytes(
+        [
+            [
+                "Summary",
+                "Data Scientist with Python SQL forecasting model monitoring dashboards.",
+                "Experience Led a churn model rollout for a synthetic retail team.",
+                "Education CVUT FIT Prague MSc Informatics.",
+            ]
+        ]
+    )
+    called = {"vision": False}
+
+    async def _fake_vlm(self: LLMClient, **_kwargs: object) -> str:
+        called["vision"] = True
+        return (
+            "Summary Data Scientist with Python SQL forecasting model monitoring dashboards. "
+            "Experience Led a churn model rollout for a synthetic retail team. "
+            "Education CVUT FIT Prague MSc Informatics."
+        )
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _fake_vlm)
+
+    result = await extract_text(pdf_bytes, "cv.pdf")
+
+    assert isinstance(result, str)
+    assert called["vision"] is True
+
+
+@pytest.mark.fast
 async def test_pdf_vlm_parallel_preserves_page_order_and_bounds_concurrency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -224,7 +258,7 @@ async def test_pdf_vlm_parallel_preserves_page_order_and_bounds_concurrency(
     transcript preserves original page order. Regression guard against silently
     re-serializing the gather loop."""
     monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     pdf_bytes = _pdf_bytes(
         [["Summary", f"Page {i} content text for parallel ingest test."] for i in range(6)]
     )
@@ -291,7 +325,7 @@ async def test_pdf_vlm_cancels_siblings_on_first_failure(
     Regression guard against re-introducing `asyncio.gather` (which lets siblings
     run to completion and burn provider budget after the first reject)."""
     monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     pdf_bytes = _pdf_bytes(
         [["Summary", f"Page {i} content for cancellation test."] for i in range(3)]
     )
@@ -339,7 +373,7 @@ async def test_pdf_vlm_failure_falls_back_to_deterministic_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     deterministic_phrase = "Deterministic fallback phrase for a text PDF with enough content"
     pdf_bytes = _pdf_bytes(
         [
@@ -367,8 +401,8 @@ async def test_pdf_vlm_failure_falls_back_to_deterministic_text(
 async def test_docx_text_llm_normalizes_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("GANDER_DOCX_INGEST_MODE", "llm")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     source = [
         "Summary Data Scientist with Python SQL LightGBM monitoring and dashboards.",
         "Pracovní zkušenosti Vedla model odchodu zákazníků pro Česko v října 2024.",
@@ -400,11 +434,58 @@ async def test_docx_text_llm_normalizes_transcript(
 
 
 @pytest.mark.fast
+async def test_docx_file_mode_text_skips_llm_normalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("GANDER_DOCX_INGEST_MODE", "text")
+    source = [
+        "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards.",
+        "Experience Owned fraud model lifecycle for synthetic finance platform.",
+        "Education CVUT FIT Prague MSc Informatics 2021.",
+    ]
+
+    async def _unexpected_llm(self: LLMClient, **_kwargs: object) -> str:
+        raise AssertionError("DOCX text mode should not call LLM normalization")
+
+    monkeypatch.setattr(LLMClient, "complete_text", _unexpected_llm)
+
+    result = await extract_text(_docx_bytes(source), "cv.docx")
+
+    assert isinstance(result, str)
+    assert "Owned fraud model lifecycle for synthetic finance platform" in result
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    ("env_name", "filename", "expected_modes"),
+    [
+        ("GANDER_PDF_INGEST_MODE", "cv.pdf", "text, vision"),
+        ("GANDER_DOCX_INGEST_MODE", "cv.docx", "llm, text"),
+    ],
+)
+async def test_file_specific_ingest_mode_validation_is_clear(
+    monkeypatch: pytest.MonkeyPatch,
+    env_name: str,
+    filename: str,
+    expected_modes: str,
+) -> None:
+    monkeypatch.setenv(env_name, "fast")
+
+    result = await extract_text(b"not-a-real-file", filename)
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "ingest"
+    assert f"Unknown {env_name}='fast'" in result.user_message
+    assert f"expected one of {expected_modes}" in result.user_message
+
+
+@pytest.mark.fast
 async def test_docx_text_llm_low_overlap_falls_back_to_deterministic_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     source = [
         "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards.",
         "Experience Owned fraud model lifecycle for synthetic finance platform.",
@@ -428,7 +509,7 @@ async def test_docx_text_llm_provider_error_falls_back_to_deterministic_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     source = [
         "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards.",
         "Experience Owned fraud model lifecycle for synthetic finance platform.",
@@ -461,7 +542,7 @@ async def test_docx_fixture_vision_mode_preserves_role_and_sections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     fixture = _FIXTURE_DIR / "01_junior_da_novotny.docx"
 
     async def _echo_source(self: LLMClient, *, user: str, **_kwargs: object) -> str:
