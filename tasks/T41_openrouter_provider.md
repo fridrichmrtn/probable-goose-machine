@@ -1,6 +1,6 @@
 # T41 — Wire OpenRouter; drop direct Anthropic provider
 
-Status: implemented — pending required `openrouter-live` CI pass
+Status: done — PR #25 required `openrouter-live` CI pass
 Owner: software-engineer
 Depends on: —
 Unblocks: cross-provider model evaluation (no follow-up task yet)
@@ -91,6 +91,6 @@ Verified:
 - `uv run mypy src/`
 - Local `openrouter-live` equivalent with `.env` key: `10 passed in 145.11s`
 
-Still pending before checking T41 done:
-- Required GitHub `openrouter-live` job pass with `OPENROUTER_API_KEY`.
-- Optional one-fixture end-to-end A/B run against Haiku/Gemini Flash.
+T41 is checked done after PR #25's `openrouter-live` job passed with the
+repository `OPENROUTER_API_KEY` secret. Optional follow-up: one-fixture
+end-to-end A/B run against Haiku/Gemini Flash.
