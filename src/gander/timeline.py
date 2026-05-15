@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from typing import Final
 
 from gander.tenure import (
-    _MONTHS,
     _NON_WORK_SECTION_ALIASES,
     _PRESENT_TOKENS,
     _WORK_SECTION_ALIASES,
@@ -29,11 +28,9 @@ _BARE_YEAR_RE: Final = re.compile(r"\b(?:19|20)\d{2}\b")
 _DASH_CHARS: Final = ("—", "–", "-")
 _BULLET_GLYPHS: Final = ("-", "*", "•", "–", "—")
 
-_MONTH_ALT: Final = "|".join(sorted(_MONTHS.keys(), key=len, reverse=True))
 _PRESENT_ALT: Final = "|".join(
     sorted((re.escape(t) for t in _PRESENT_TOKENS), key=len, reverse=True)
 )
-_MONTH_TOKEN_RE: Final = re.compile(rf"\b(?:{_MONTH_ALT})\b")
 _PRESENT_TOKEN_RE: Final = re.compile(rf"\b(?:{_PRESENT_ALT})\b")
 
 
@@ -50,11 +47,12 @@ def _is_date_range_line(line: str) -> bool:
     if not any(d in line for d in _DASH_CHARS):
         return False
     norm = _normalize(line)
-    # A date-range line MUST carry a year-shaped or month-shaped token. The
-    # "present" word alone is too loose — "Current Platform Lead — Stealth"
-    # would otherwise look like a range.
+    # Require an unambiguous date token (literal [YEAR] marker, bare year, or a
+    # present-token like "present"/"dosud") alongside the dash. A bare month
+    # name is too noisy on its own — headers like "ML Engineer — May Mobility"
+    # would otherwise be misread as a range.
     return bool(
-        _YEAR_MARKER_RE.search(line) or _BARE_YEAR_RE.search(line) or _MONTH_TOKEN_RE.search(norm)
+        _YEAR_MARKER_RE.search(line) or _BARE_YEAR_RE.search(line) or _PRESENT_TOKEN_RE.search(norm)
     )
 
 
