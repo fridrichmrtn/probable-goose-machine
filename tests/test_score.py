@@ -9,6 +9,7 @@ from gander.errors import StageFailure
 from gander.llm import LLMClient
 from gander.obs import subscribe
 from gander.schemas import (
+    COMPONENT_WEIGHTS,
     Anchor,
     Component,
     Profile,
@@ -271,6 +272,71 @@ async def test_score_experience_missing_still_fails(
     assert failure_evt["reason"] == "missing_categories"
     assert "experience" in failure_evt["missing"]
     assert not any(e["event"] == "score_partial" for e in events)
+
+
+@pytest.mark.fast
+async def test_score_retries_when_experience_anchor_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience",
+                score_0_100=65,
+                justification=".",
+                anchor=Anchor(
+                    quote="led a transformational programme across six business units",
+                    section="Work Experience",
+                ),
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    second_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    payloads = [first_payload, second_payload]
+    seen_users: list[str] = []
+    seen_max_retries: list[int | None] = []
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        seen_users.append(kwargs["user"])
+        seen_max_retries.append(kwargs.get("max_retries"))
+        return payloads.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(RedactedCV(text=_T25_CV, audit_log=[]), _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == []
+    assert {c.name for c in result.components} == set(COMPONENT_WEIGHTS.keys())
+    assert seen_max_retries == [2, 2]
+    assert len(seen_users) == 2
+    assert "previous score output failed downstream verification" in seen_users[1]
+    retry_evt = next(e for e in events if e["event"] == "score_retry")
+    assert retry_evt["reason"] == "missing_experience"
+    assert retry_evt["missing"] == ["experience"]
 
 
 @pytest.mark.fast

@@ -46,6 +46,7 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             user=redacted.text,
             schema=Profile,
             model="reasoning",
+            max_retries=2,
         )
         if not isinstance(raw, Profile):
             raise TypeError(f"complete_json returned {type(raw).__name__}, expected Profile")

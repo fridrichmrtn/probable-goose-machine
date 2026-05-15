@@ -25,6 +25,8 @@ _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 # The logical `missing_categories` path keeps its more specific message because it
 # describes a CV/model alignment problem, not a generation failure.
 _GENERATION_FAILURE_MSG = "Could not generate this section reliably"
+_SCORE_LLM_MAX_RETRIES = 2
+_SCORE_LOGICAL_MAX_RETRIES = 1
 
 
 class _ComponentList(BaseModel):
@@ -48,100 +50,135 @@ def _build_user_message(redacted: RedactedCV, profile: Profile) -> str:
     )
 
 
+def _build_retry_user_message(user_message: str, missing: set[str], dropped: int) -> str:
+    return (
+        user_message
+        + "\n\nYour previous score output failed downstream verification: "
+        + f"missing_categories={sorted(missing)} dropped={dropped}. "
+        + "Return corrected JSON only. The experience component is mandatory; "
+        + "choose an exact verbatim 8+ word quote from the CV that supports experience, "
+        + "role progression, or shipped impact. If the section header is uncertain, "
+        + "set anchor.section to null rather than guessing."
+    )
+
+
+def _verify_components(
+    raw: _ComponentList, redacted: RedactedCV
+) -> tuple[dict[str, Component], int, int]:
+    verified: dict[str, Component] = {}
+    dropped = 0
+    section_miss_count = 0
+
+    def _count_section_miss(record: dict[str, Any]) -> None:
+        nonlocal section_miss_count
+        if record.get("event") == "verify_section_miss":
+            section_miss_count += 1
+
+    with subscribe(_count_section_miss):
+        for comp in raw.components:
+            if comp.name in verified:
+                dropped += 1
+                continue
+            if verify_quote(comp.anchor.quote, redacted.text, section=comp.anchor.section):
+                verified[comp.name] = comp
+            else:
+                dropped += 1
+
+    return verified, dropped, section_miss_count
+
+
 async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | StageFailure:
     with stage_boundary("score") as cm:
         client = LLMClient()
         user_message = _build_user_message(redacted, profile)
 
-        try:
-            raw = await client.complete_json(
-                system=_SYSTEM_PROMPT,
-                user=user_message,
-                schema=_ComponentList,
-                model="reasoning",
-                temperature=0.0,
-            )
-        except Exception as exc:
-            emit(
-                "score",
-                "stage_failure",
-                reason="llm_error",
-                exc_type=type(exc).__name__,
-            )
-            return StageFailure(
-                stage="score",
-                user_message=_GENERATION_FAILURE_MSG,
-                debug_detail=f"{type(exc).__name__}: {exc}",
-            )
-        if not isinstance(raw, _ComponentList):
-            emit(
-                "score",
-                "stage_failure",
-                reason="invalid_llm_output",
-                got_type=type(raw).__name__,
-            )
-            return StageFailure(
-                stage="score",
-                user_message=_GENERATION_FAILURE_MSG,
-                debug_detail=f"complete_json returned {type(raw).__name__}",
-            )
-
-        verified: dict[str, Component] = {}
-        dropped = 0
-        section_miss_count = 0
-
-        def _count_section_miss(record: dict[str, Any]) -> None:
-            nonlocal section_miss_count
-            if record.get("event") == "verify_section_miss":
-                section_miss_count += 1
-
-        with subscribe(_count_section_miss):
-            for comp in raw.components:
-                if comp.name in verified:
-                    dropped += 1
-                    continue
-                if verify_quote(comp.anchor.quote, redacted.text, section=comp.anchor.section):
-                    verified[comp.name] = comp
-                else:
-                    dropped += 1
-
-        emit(
-            "score",
-            "score_components",
-            returned=len(raw.components),
-            verified=len(verified),
-            dropped=dropped,
-        )
-
-        if section_miss_count > _SECTION_MISS_CAP:
-            emit("score", "section_blind_fail", miss_count=section_miss_count)
-            return StageFailure(
-                stage="score",
-                user_message=(
-                    "Section anchors unavailable on this CV — could not verify "
-                    "scoring components against named sections."
-                ),
-                debug_detail=(f"section_miss_count={section_miss_count} cap={_SECTION_MISS_CAP}"),
-            )
-
         required = set(COMPONENT_WEIGHTS.keys())
-        missing = required - verified.keys()
-        if "experience" in missing:
-            # T25: experience is the only mandatory component. Losing it means
-            # the score has nothing to anchor against — fail closed. Other
-            # categories take the partial-score branch below.
+        for attempt in range(_SCORE_LOGICAL_MAX_RETRIES + 1):
+            try:
+                raw = await client.complete_json(
+                    system=_SYSTEM_PROMPT,
+                    user=user_message,
+                    schema=_ComponentList,
+                    model="reasoning",
+                    temperature=0.0,
+                    max_retries=_SCORE_LLM_MAX_RETRIES,
+                )
+            except Exception as exc:
+                emit(
+                    "score",
+                    "stage_failure",
+                    reason="llm_error",
+                    exc_type=type(exc).__name__,
+                )
+                return StageFailure(
+                    stage="score",
+                    user_message=_GENERATION_FAILURE_MSG,
+                    debug_detail=f"{type(exc).__name__}: {exc}",
+                )
+            if not isinstance(raw, _ComponentList):
+                emit(
+                    "score",
+                    "stage_failure",
+                    reason="invalid_llm_output",
+                    got_type=type(raw).__name__,
+                )
+                return StageFailure(
+                    stage="score",
+                    user_message=_GENERATION_FAILURE_MSG,
+                    debug_detail=f"complete_json returned {type(raw).__name__}",
+                )
+
+            verified, dropped, section_miss_count = _verify_components(raw, redacted)
             emit(
                 "score",
-                "stage_failure",
-                reason="missing_categories",
-                missing=sorted(missing),
+                "score_components",
+                returned=len(raw.components),
+                verified=len(verified),
                 dropped=dropped,
             )
-            return StageFailure(
-                stage="score",
-                user_message="Could not verify enough scoring components from CV.",
-                debug_detail=f"missing_categories={sorted(missing)} dropped={dropped}",
-            )
+
+            if section_miss_count > _SECTION_MISS_CAP:
+                emit("score", "section_blind_fail", miss_count=section_miss_count)
+                return StageFailure(
+                    stage="score",
+                    user_message=(
+                        "Section anchors unavailable on this CV — could not verify "
+                        "scoring components against named sections."
+                    ),
+                    debug_detail=(
+                        f"section_miss_count={section_miss_count} cap={_SECTION_MISS_CAP}"
+                    ),
+                )
+
+            missing = required - verified.keys()
+            if "experience" in missing:
+                # T25: experience is the only mandatory component. Losing it means
+                # the score has nothing to anchor against — fail closed after one
+                # targeted retry, because live models sometimes pick a paraphrased
+                # experience anchor despite otherwise valid scoring output.
+                if attempt < _SCORE_LOGICAL_MAX_RETRIES:
+                    emit(
+                        "score",
+                        "score_retry",
+                        reason="missing_experience",
+                        missing=sorted(missing),
+                        dropped=dropped,
+                    )
+                    user_message = _build_retry_user_message(user_message, missing, dropped)
+                    continue
+                emit(
+                    "score",
+                    "stage_failure",
+                    reason="missing_categories",
+                    missing=sorted(missing),
+                    dropped=dropped,
+                )
+                return StageFailure(
+                    stage="score",
+                    user_message="Could not verify enough scoring components from CV.",
+                    debug_detail=f"missing_categories={sorted(missing)} dropped={dropped}",
+                )
+            break
 
         # Partial-score path: experience verified, but ≥1 of {skills, education,
         # soft_signals} dropped. Build Score over surviving components; the
