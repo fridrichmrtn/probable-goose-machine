@@ -1,6 +1,6 @@
 # T46 — Salary stage: country-agnostic, live-search-first
 
-Status: pending
+Status: done
 Owner: ai-ml-engineer
 Depends on: none (touches salary stage + extraction prompt + Profile schema)
 Unblocks: usable salary output for non-CZ CVs (DE / JP / US / GB / …)
@@ -134,3 +134,23 @@ the salary prompt, and stop *rejecting* non-{CZK,EUR,USD} outputs.
   detected_location="Berlin", …)`, pass to `estimate_salary` with mocked
   DDG returns including a `.de` source, assert currency `EUR` and at least
   one source. Repeat for `JP`/`Tokyo`/`JPY` and `US`/`San Francisco`/`USD`.
+
+## Outcome
+
+Implemented on branch `t46-salary-multi-market`:
+- `Profile.detected_country` with ISO-3166 alpha-2 normalization.
+- Country/currency/period helpers and country-aware non-CZ search queries.
+- ISO-4217-shaped salary currency acceptance instead of the old
+  `{CZK, EUR, USD}` whitelist.
+- CZ-only domain priority and CZ-only sanity cap behavior preserved.
+- Salary telemetry now includes `country`, `currency_hint`, and
+  `sources_per_tld`.
+- Existing text fixtures #02, #04, and #05 were relocated in-place to US,
+  Germany, and Japan respectively, with `SOURCES.md` annotations.
+
+Verified during the sweep:
+- `uv run pytest tests/test_salary.py tests/test_confidence_unit.py tests/test_growth_unit.py tests/test_extract.py tests/test_normalize.py -m fast -q`
+  → `125 passed, 13 deselected`.
+
+Live non-CZ salary checks remain a future telemetry exercise; this task's
+contract was fast/mockable and is complete.

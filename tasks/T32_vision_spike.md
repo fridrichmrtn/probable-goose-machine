@@ -1,6 +1,6 @@
 # T32 — Vision capability spike (MiniMax, with Anthropic mini-spike fallback)
 
-Status: wip
+Status: superseded
 Owner: ai-ml-engineer
 Depends on: —
 Unblocks: T34 (vision tier implementation)
@@ -61,4 +61,12 @@ echo $?    # 0 == all gates passed
 
 ## Outcome
 
-(fill in when done — gates table + recommendation)
+Superseded by the later MiniMax Token Plan VLM path:
+
+- Original native MiniMax vision spike found the account's documented vision
+  model path was plan-gated; details live in `tasks/T32_dev-report.md`.
+- The project then adopted the Token Plan VLM route documented in
+  `tasks/minimax_token_plan_vlm_report.md`, and production implementation
+  continued through T33/T34/T35.
+- `tasks/todo.md` tracks T32 as complete via the Token Plan VLM spike, not
+  this earlier native-vision spike contract.
