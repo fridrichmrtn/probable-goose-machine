@@ -21,6 +21,7 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[must-fix]` PRD §5(3) arbitrary-CV path | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_arbitrary_cv_smoke.py` reads `GANDER_SMOKE_CV`, runs the live pipeline, and asserts every final block is populated or a reviewer-facing `StageFailure` |
 | `[should-fix]` generic boundary raw exception leaks | PR #35 sweep (`t46-salary-multi-market`) | `stage_boundary` now uses curated stage messages for `StageFailure.user_message` and emits obs `error` events with `exc_type` only, not raw `exc_message` |
 | `[should-fix]` rendered failure copy | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_render.py::test_render_body_renders_failure_copy_for_each_stage` pins reviewer-facing failure copy for profile, score, salary, confidence, and growth |
+| `[should-fix]` T27 corpus role-map coverage | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_normalize.py::test_bundled_corpus_headlines_normalize_deterministically` pins the committed fixture headline strings, including CZ manager/research titles and the tagline senior case |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -125,7 +126,7 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 
 **Findings**
 
-- `[should-fix] T27` add one parametrised unit test asserting the role-normalization map covers the role strings actually present in the bundled corpus. Without it, T27 can ship and silently miss the strings T17's session fixture exercises.
+- `[resolved] T27` role-normalization coverage now includes a parametrized test for the headline strings present in the bundled corpus.
 - `[should-fix] T30 Phase 2` once T29 lands, T30 Phase 2 must assert the same §5(4a)/(4b)/(4c)/(5) invariants on the CS/SK triplet. Currently only English. Without it, the multilingual claim is unverified.
 - `[nit]` T24/T26/T28 are all on open PRs in the merge queue — re-audit after merge in case the deliverables drift during review.
 
@@ -136,15 +137,15 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 | Severity | Count |
 |---|---|
 | `[must-fix]` | 0 |
-| `[should-fix]` | 6 |
+| `[should-fix]` | 5 |
 | `[nit]` | 4 |
 
-Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, T23 fresh-clone smoke, T22 secret rebind, T27 role-map test, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
+Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, T23 fresh-clone smoke, T22 secret rebind, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
 **Top actionable follow-ups**:
 
 1. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
-2. `[should-fix]` Add a corpus role-normalization map test for the bundled fixture headlines.
-3. `[should-fix]` Document the HF Space secret rebind / redeploy path.
+2. `[should-fix]` Document the HF Space secret rebind / redeploy path.
+3. `[should-fix]` Tighten T23's README verification from checklist wording to reproducible commands.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak and rendered-copy should-fixes are also closed. 0 `[must-fix]` findings remain open in this audit.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak, rendered-copy, and corpus role-map should-fixes are also closed. 0 `[must-fix]` findings remain open in this audit.
