@@ -582,12 +582,12 @@ async def test_extract_normalizes_valid_but_wrong_side_entry_role(
         skills=[],
         experience=[
             ProfileItem(
-                text="Senior Manager AI and Data Science",
-                anchor=Anchor(quote=senior_quote, section="Work Experience"),
-            ),
-            ProfileItem(
                 text="Research Engineer",
                 anchor=Anchor(quote=research_quote, section="Work Experience"),
+            ),
+            ProfileItem(
+                text="Senior Manager AI and Data Science",
+                anchor=Anchor(quote=senior_quote, section="Work Experience"),
             ),
         ],
         education=[],

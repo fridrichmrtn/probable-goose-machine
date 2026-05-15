@@ -107,6 +107,9 @@ Implemented the fast-verifiable pieces:
   summaries such as `Senior Manager AI at TD SYNNEX, ...` and rejects
   duration-shaped candidates such as `Research Engineer, 10 years ...` as the
   salary canonical role.
+- `extract_profile()` now sorts verified experience-title candidates by
+  deterministic seniority rank before role normalization, so a lower-seniority
+  side entry cannot win simply because the LLM emitted it first.
 
 Verified:
 - `uv run pytest tests/test_normalize.py tests/test_extract.py -m fast -v`

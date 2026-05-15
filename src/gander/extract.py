@@ -16,7 +16,7 @@ from gander import obs
 from gander.errors import StageFailure, stage_boundary
 from gander.ingest import LOW_EVIDENCE_MSG
 from gander.llm import LLMClient
-from gander.normalize import normalize_role_with_llm_fallback
+from gander.normalize import normalize_role_with_llm_fallback, seniority_rank
 from gander.schemas import Anchor, Profile, ProfileItem, RedactedCV
 from gander.verify import drop_unverified, verify_quote
 
@@ -320,6 +320,13 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
         experience_titles: list[str] = []
         for item in kept_lists["experience"]:
             experience_titles.append(item.text)
+        experience_titles = [
+            title
+            for _, title in sorted(
+                enumerate(experience_titles),
+                key=lambda row: (-seniority_rank(row[1]), row[0]),
+            )
+        ]
         normalized = await normalize_role_with_llm_fallback(
             profile.detected_role, years_for_normalize, experience_titles
         )
