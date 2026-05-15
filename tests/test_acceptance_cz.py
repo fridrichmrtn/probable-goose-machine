@@ -16,7 +16,9 @@ import pytest
 import pytest_asyncio
 
 from gander import obs, pipeline
-from gander.schemas import Profile, Report, SalaryEstimate, Score
+from gander.growth import _jaccard_4gram
+from gander.schemas import GrowthAction, Profile, ProfileItem, Report, SalaryEstimate, Score
+from gander.verify import verify_quote
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
@@ -130,6 +132,28 @@ def _require_profile(report: Report, label: str) -> Profile:
     return report.profile
 
 
+def _require_growth(report: Report, label: str) -> list[GrowthAction]:
+    assert isinstance(report.growth, list), (
+        f"{label}: expected list[GrowthAction], got {type(report.growth).__name__}"
+    )
+    return report.growth
+
+
+def _iter_anchored(
+    profile: Profile, score: Score, growth: list[GrowthAction]
+) -> list[tuple[str, str, str | None]]:
+    out: list[tuple[str, str, str | None]] = []
+    for fname in ("skills", "experience", "education", "soft_signals"):
+        items: list[ProfileItem] = getattr(profile, fname)
+        for item in items:
+            out.append((f"profile.{fname}", item.anchor.quote, item.anchor.section))
+    for comp in score.components:
+        out.append((f"score.{comp.name}", comp.anchor.quote, comp.anchor.section))
+    for action in growth:
+        out.append(("growth", action.anchor.quote, action.anchor.section))
+    return out
+
+
 @pytest.mark.parametrize("fname", CZ_FIXTURES, ids=lambda value: Path(value).stem)
 def test_pipeline_all_done_on_cz_fixtures(cz_run: _CZRun, fname: str) -> None:
     report = cz_run.reports[fname]
@@ -223,3 +247,51 @@ def test_senior_salary_multiplier_cz(cz_run: _CZRun, fname: str) -> None:
     assert senior_salary.high >= threshold, (
         f"{fname}: senior high {senior_salary.high} < 2.5 * junior high {threshold:.0f}"
     )
+
+
+def test_no_verbatim_growth_plan_repeats_cz(cz_run: _CZRun) -> None:
+    seen: dict[str, str] = {}
+    for fname in CZ_FIXTURES:
+        growth = _require_growth(cz_run.reports[fname], fname)
+        for action in growth:
+            prior = seen.get(action.what)
+            assert prior is None or prior == fname, (
+                f"verbatim repeat across {prior} and {fname}: {action.what!r}"
+            )
+            seen[action.what] = fname
+
+
+def test_no_near_duplicate_growth_plans_cz(cz_run: _CZRun) -> None:
+    items: list[tuple[str, str]] = []
+    for fname in CZ_FIXTURES:
+        growth = _require_growth(cz_run.reports[fname], fname)
+        for action in growth:
+            items.append((fname, action.what))
+
+    threshold = 0.4
+    for i, (fname_a, what_a) in enumerate(items):
+        for fname_b, what_b in items[i + 1 :]:
+            if fname_a == fname_b:
+                continue
+            score = _jaccard_4gram(what_a, what_b)
+            assert score < threshold, (
+                f"near-duplicate growth-plan across {fname_a} / {fname_b}: "
+                f"jaccard_4gram={score:.3f} >= {threshold} — {what_a!r} vs {what_b!r}"
+            )
+
+
+def test_all_claims_substring_verified_cz(cz_run: _CZRun) -> None:
+    failures: list[str] = []
+    for fname in CZ_FIXTURES:
+        report = cz_run.reports[fname]
+        profile = _require_profile(report, fname)
+        score = _require_score(report, fname)
+        growth = _require_growth(report, fname)
+        source = report.redacted_cv_text
+        assert source, f"{fname}: redacted_cv_text empty — pipeline did not run L2 redact"
+        for origin, quote, section in _iter_anchored(profile, score, growth):
+            if not verify_quote(quote, source, section=section):
+                failures.append(
+                    f"{fname}::{origin} unverified — section={section!r} quote={quote!r}"
+                )
+    assert not failures, "unverified CZ anchors:\n" + "\n".join(failures)

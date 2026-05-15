@@ -1,6 +1,6 @@
 # T30 — §5.4 differentiation eval wired into CI (close T17)
 
-Status: phase 1 done (PR #10, `dea3dcf`); phase 2 implemented in CZ suite, live run pending
+Status: phase 1 done (PR #10, `dea3dcf`); phase 2 assertion coverage implemented in CZ suite, live run pending
 Owner: ai-ml-engineer
 Depends on: — (CZ extension deps T29)
 Unblocks: T17
@@ -55,7 +55,7 @@ uv run pytest -m live tests/test_acceptance.py -v
 uv run pytest tests/test_report.py::test_stage_failure_does_not_block_other_sections -v
 
 # Phase 2 (after T29 lands)
-uv run pytest -m live tests/test_acceptance.py::test_score_spread_at_least_30_cz tests/test_acceptance.py::test_salary_non_overlap_cz tests/test_acceptance.py::test_senior_salary_multiplier_cz -v
+uv run pytest -m live tests/test_acceptance_cz.py -v
 ```
 
 Expected: Phase 1 — 8 EN tests + 1 unit test pass on `main`, T17 marked `done`. Phase 2 — CZ extension tests pass after T29's three fixtures + T24/T25/T26/T27/T28 land.
@@ -86,6 +86,9 @@ salary-band checks and the T30 cross-fixture invariants for #11 and #13:
 - `test_score_spread_at_least_30_cz`
 - `test_salary_non_overlap_with_junior_for_cz_seniors`
 - `test_senior_salary_multiplier_cz`
+- `test_no_verbatim_growth_plan_repeats_cz`
+- `test_no_near_duplicate_growth_plans_cz`
+- `test_all_claims_substring_verified_cz`
 
 This keeps the live cost to one CZ session fixture while still asserting the
 same §5.4 shape as the EN triplet. Live provider run still pending:

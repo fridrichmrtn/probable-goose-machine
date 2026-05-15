@@ -131,13 +131,13 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 | T27 role normalization | weak — names "canonical role map" but no test of the mapping itself | suggest one parametrised test with 6–10 raw → canonical pairs |
 | T28 redact tagline+tenure | concrete | currently on PR #11 |
 | T29 CZ senior fixture | fixture only — verification is "fixture loads + redacts cleanly" | acceptance-tier assertion belongs to T30 Phase 2 |
-| T30 acceptance CI | Phase 1 done on PR #10; Phase 2 (CS/SK triplet) still owed | tie Phase 2 to T29 landing |
+| T30 acceptance CI | Phase 1 done on PR #10; Phase 2 assertion coverage implemented | live provider run still pending |
 | T31 multimodal spike | deferred — no action |
 
 **Findings**
 
 - `[resolved] T27` role-normalization coverage now includes a parametrized test for the headline strings present in the bundled corpus.
-- `[should-fix] T30 Phase 2` once T29 lands, T30 Phase 2 must assert the same §5(4a)/(4b)/(4c)/(5) invariants on the CS/SK triplet. Currently only English. Without it, the multilingual claim is unverified.
+- `[should-fix] T30 Phase 2 live gate` CZ assertion coverage now mirrors the EN §5 shape in `tests/test_acceptance_cz.py` (score spread, salary non-overlap, senior multiplier, growth dedup, and substring anchors). It still needs the provider-key live run before the task can close.
 - `[nit]` T24/T26/T28 are all on open PRs in the merge queue — re-audit after merge in case the deliverables drift during review.
 
 ---
