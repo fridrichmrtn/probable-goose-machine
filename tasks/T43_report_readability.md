@@ -1,6 +1,6 @@
 # T43 — Report readability: visual breaks, Plan typography, Score component grid
 
-Status: implemented — browser smoke pending
+Status: implemented — synthetic browser smoke passed; Profile.pdf/PR screenshot attachment pending
 Owner: ux-engineer (impl) + software-engineer (test updates)
 Depends on: none (purely renderer + CSS; pipeline + schemas untouched)
 Unblocks: better first-impression UX for live `app.py` demos and Profile.pdf reruns
@@ -212,6 +212,7 @@ The literal glyph `[!] / [~] / [?]` from `_CONFIDENCE_BADGE` carries the meaning
 
 - [x] All four deliverables shipped; CSS + renderer changes contained to `src/gander/report.py`.
 - [x] `tests/test_render.py` + `tests/test_report.py` updated; targeted render/report suite green.
+- [x] Local browser smoke run on a synthetic senior report in forced light, dark, desktop, and mobile viewports.
 - [ ] UI smoke run on Profile.pdf in light + dark mode; before/after screenshots attached.
 - [x] No new dependencies; no schema changes; no pipeline changes.
 - [x] PRD §8 cold-start ack still intact (handler's first yield in `app.py` unchanged).
@@ -232,6 +233,11 @@ Implemented the renderer half of T43:
 Verified:
 - `uv run pytest tests/test_render.py tests/test_report.py tests/test_partial_failure_streaming.py -q`
   → `49 passed`.
+- Local T43 browser smoke with headless Chrome:
+  - `/tmp/gander-report-light-forced.png` — 900×900 forced-light desktop.
+  - `/tmp/gander-report-dark.png` — 900×900 dark desktop.
+  - `/tmp/gander-report-mobile-light.png` — 390×900 forced-light mobile.
+  - `/tmp/gander-report-mobile-dark.png` — 390×900 dark mobile.
 
 Still pending before checking T43 done in `tasks/todo.md`:
-- Browser/UI smoke in light + dark mode and PR screenshot attachment.
+- Private `Profile.pdf` UI smoke, if explicitly approved, and PR screenshot attachment.
