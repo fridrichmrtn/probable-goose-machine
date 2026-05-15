@@ -1,7 +1,7 @@
 # T23 — L9 README finalize (Decisions section is load-bearing)
 
-Status: todo
-Owner: (decided at write time — needs author voice)
+Status: implemented — live numbers pending
+Owner: codex
 Depends on: T17, T20, T21, T22
 Unblocks: SUBMIT
 Estimate: ~90 min
@@ -63,4 +63,14 @@ Replace the bootstrap stub at `README.md` with:
 
 ## Outcome
 
-(fill in when done — link to the rendered README on GitHub + HF Space)
+README stub replaced with reviewer-facing content:
+- Public HF Space URL and local run one-liner are above the fold.
+- Pipeline, grounding, confidence isolation, observability, provider setup,
+  privacy, decisions, limitations, and reviewer cheat sheet are documented.
+- Stale direct-Anthropic provider wording was removed; current provider values
+  are `minimax` and `openrouter`.
+
+Still pending before checking T23 done in `tasks/todo.md`:
+- Fresh live corpus/cost numbers in `reports/SUMMARY.md`.
+- Fresh bias-smoke delta from `scripts/run_bias_smoke.py` or the live CI
+  JUnit property.

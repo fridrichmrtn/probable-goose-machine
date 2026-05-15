@@ -37,7 +37,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 
 ## Ship
 - [x] **T22** — HF Space deploy (`tasks/T22_deploy.md`)
-- [ ] **T23** — README finalize (`tasks/T23_readme.md`) — *README is still a bootstrap stub; provider/privacy copy is stale after T41 (`openrouter`, not direct `anthropic`)*
+- [ ] **T23** — README finalize (`tasks/T23_readme.md`) — *README replaced and provider/privacy copy fixed; live corpus/bias numbers still pending*
 
 ## Post-ship hardening (Profile.pdf bilingual-senior regression — see plan; revised after multi-agent review 2026-05-14)
 - [x] **T24** — Multilingual section vocabulary, R1 (`tasks/T24_section_vocab.md`) — *PR #16, 1897bd8*
