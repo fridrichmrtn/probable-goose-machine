@@ -1,6 +1,6 @@
 # T29 — Acceptance eval: bilingual senior fixture + assertions (eval A)
 
-Status: implemented — fixtures + live scaffold collected; live provider run pending
+Status: done — fixtures, live scaffold, and OpenRouter CI run verified
 Owner: ai-ml-engineer
 Depends on: T24, T25, T26, T27, T28
 Unblocks: T30 (CZ extension only — EN-triplet baseline ships independently)
@@ -92,7 +92,7 @@ Implemented the offline T29 surface:
   `MINIMAX_API_KEY`) so local `-m live` probes do not fail before credentials
   are configured.
 
-Verified offline:
+Verified:
 - `uv run pytest tests/test_acceptance_cz.py --collect-only -q`
   → `24 tests collected`.
 - `uv run pytest -m live tests/test_acceptance_cz.py -q` with no provider key
@@ -101,9 +101,14 @@ Verified offline:
   → `44 passed, 15 deselected`.
 - `uv run ruff check scripts/build_cv_fixtures.py tests/test_acceptance_cz.py`
   → passed.
+- PR #35 OpenRouter live CI run
+  `25930418885` / job `76222685954` → passed. This run exercised the
+  full live marker suite, including the CZ acceptance session fixture and the
+  T29 score/salary/redaction/role-normalization checks.
+- Current local collection with the additional T30 cross-fixture checks:
+  `uv --cache-dir /tmp/uv-cache run pytest tests/test_acceptance_cz.py --collect-only --strict-markers -q`
+  → `27 tests collected`.
 
-Still pending before checking T29 done in `tasks/todo.md`:
-- Live provider run:
-  `uv run pytest -m live tests/test_acceptance_cz.py -v`.
-- Capture observed scores and salary bands for README/T23 once the live run
-  succeeds.
+Follow-up owned by T23:
+- Capture fresh corpus-level scores, salary bands, costs, and bias numbers in
+  `reports/SUMMARY.md` / README.

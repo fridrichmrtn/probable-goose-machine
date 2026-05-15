@@ -45,9 +45,9 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T26** — verify_quote: section-fallback + per-stage cap, R3 (`tasks/T26_verify_fallback.md`) — *PR #9, 212aff5*
 - [x] **T27** — Role normalization (polarity-flipped + LLM fallback) + salary 3-shot, R4+R5 (`tasks/T27_role_normalize.md`) — *PR #17, 3cc0092*
 - [x] **T28** — Redact: tagline-headline name fix + deterministic tenure, R6+R7 (`tasks/T28_redact_tagline_tenure.md`) — *PR #11, 3602324*
-- [ ] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *fixtures + live CZ acceptance scaffold implemented; live provider run pending*
+- [x] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *PR #35 `openrouter-live` passed on run 25930418885*
 - [x] **T30 phase 1** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *PR #10, dea3dcf*
-- [ ] **T30 phase 2** — CZ-triplet extension — *CZ cross-fixture invariants implemented in `test_acceptance_cz.py`; live provider run pending*
+- [x] **T30 phase 2** — CZ-triplet extension — *CZ cross-fixture invariants implemented in `test_acceptance_cz.py`; PR #35 `openrouter-live` passed*
 - [x] ~~**T31** — SPIKE: multimodal vision ingest~~ — *superseded by T32–T35 Token Plan VLM chain; no longer an active pickup* (`tasks/T31_multimodal_spike.md`)
 
 ## MiniMax Token Plan LLM ingest
@@ -66,7 +66,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T43** — Report readability: visual breaks, Plan typography, Score component grid (`tasks/T43_report_readability.md`) — *renderer/CSS + render tests implemented; synthetic light/dark desktop+mobile browser smoke passed; Profile.pdf/PR screenshot attachment pending*
 - [x] **T44** — Skills/soft-signal evidence salvage (`tasks/T44_skills_soft_salvage.md`) — *keeps 6-word quote floor; rescues verifier-passing evidence from longer CV lines*
 - [x] **T45** — Vision parallelization + per-stage max_tokens caps (`tasks/T45_vision_parallel_and_token_caps.md`) — *implemented on branch `dev/parallelize-vision-cap-max-tokens`; fast suite green*
-- [x] **T46** — Salary stage: country-agnostic, live-search-first (`tasks/T46_salary_multi_market.md`) — *implemented on branch `t46-salary-multi-market`; fast salary/country coverage green*
+- [x] **T46** — Salary stage: country-agnostic, live-search-first (`tasks/T46_salary_multi_market.md`) — *implemented on branch `t46-salary-multi-market`; fast salary/country coverage and PR #35 live CI green*
 - [ ] **T47** — Education scoring rubric: degree-band calibration (`tasks/T47_education_calibration.md`) — *prompt + fast guard implemented; live PhD/bias regression pending*
 
 ## Provider plumbing

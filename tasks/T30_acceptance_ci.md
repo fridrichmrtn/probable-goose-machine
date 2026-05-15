@@ -1,6 +1,6 @@
 # T30 — §5.4 differentiation eval wired into CI (close T17)
 
-Status: phase 1 done (PR #10, `dea3dcf`); phase 2 assertion coverage implemented in CZ suite, live run pending
+Status: done — phase 1 shipped in PR #10; phase 2 CZ suite verified in PR #35
 Owner: ai-ml-engineer
 Depends on: — (CZ extension deps T29)
 Unblocks: T17
@@ -91,5 +91,13 @@ salary-band checks and the T30 cross-fixture invariants for #11 and #13:
 - `test_all_claims_substring_verified_cz`
 
 This keeps the live cost to one CZ session fixture while still asserting the
-same §5.4 shape as the EN triplet. Live provider run still pending:
-`uv run pytest -m live tests/test_acceptance_cz.py -v`.
+same §5.4 shape as the EN triplet.
+
+Verified:
+- PR #35 OpenRouter live CI run
+  `25930418885` / job `76222685954` → passed. This run exercised the
+  EN triplet, the CZ triplet session fixture, and the T30 phase 2
+  cross-fixture invariants in `tests/test_acceptance_cz.py`.
+- Current CZ suite collection:
+  `uv --cache-dir /tmp/uv-cache run pytest tests/test_acceptance_cz.py --collect-only --strict-markers -q`
+  → `27 tests collected`.
