@@ -50,6 +50,29 @@ def _usage_tokens(usage: Any) -> tuple[int, int]:
     return int(prompt), int(completion)
 
 
+def _emit_truncation(
+    *,
+    finish_reason: str,
+    max_tokens: int | None,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> None:
+    # Silent quality regression: the cap clipped the response (finish_reason
+    # "length") but JSON parsing may still succeed downstream. Surface a
+    # dedicated obs signal so operators can see cap hits and raise the cap.
+    if finish_reason != "length" or max_tokens is None:
+        return
+    obs.emit(
+        obs.current_stage.get(),
+        "llm_truncated",
+        model=model,
+        max_tokens=max_tokens,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+
+
 def _usage_cost_usd(usage: Any) -> float | None:
     """Return provider-reported USD cost when the response includes it."""
     if usage is None:
@@ -563,11 +586,19 @@ class LLMClient:
             text_o = _strip_json_fence(text_o)
         usage_o = response_o.usage
         prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
+        finish_reason_o = choice_o.finish_reason or ""
+        _emit_truncation(
+            finish_reason=finish_reason_o,
+            max_tokens=max_tokens,
+            model=model,
+            prompt_tokens=prompt_tokens_o,
+            completion_tokens=completion_tokens_o,
+        )
         return (
             text_o,
             prompt_tokens_o,
             completion_tokens_o,
-            choice_o.finish_reason or "",
+            finish_reason_o,
             _usage_cost_usd(usage_o),
         )
 
@@ -620,11 +651,19 @@ class LLMClient:
             text_o = _strip_think(text_o)
         usage_o = response_o.usage
         prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
+        finish_reason_o = choice_o.finish_reason or ""
+        _emit_truncation(
+            finish_reason=finish_reason_o,
+            max_tokens=max_tokens,
+            model=model,
+            prompt_tokens=prompt_tokens_o,
+            completion_tokens=completion_tokens_o,
+        )
         return (
             text_o,
             prompt_tokens_o,
             completion_tokens_o,
-            choice_o.finish_reason or "",
+            finish_reason_o,
             _usage_cost_usd(usage_o),
         )
 
@@ -665,10 +704,18 @@ class LLMClient:
             text_o = _strip_think(text_o)
         usage_o = response_o.usage
         prompt_tokens_o, completion_tokens_o = _usage_tokens(usage_o)
+        finish_reason_o = choice_o.finish_reason or ""
+        _emit_truncation(
+            finish_reason=finish_reason_o,
+            max_tokens=max_tokens,
+            model=model,
+            prompt_tokens=prompt_tokens_o,
+            completion_tokens=completion_tokens_o,
+        )
         return (
             text_o,
             prompt_tokens_o,
             completion_tokens_o,
-            choice_o.finish_reason or "",
+            finish_reason_o,
             _usage_cost_usd(usage_o),
         )
