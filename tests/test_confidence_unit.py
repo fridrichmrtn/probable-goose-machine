@@ -61,13 +61,15 @@ async def test_step_a_user_payload_does_not_leak_range(
 ) -> None:
     monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
-    captured: dict[str, str] = {}
+    captured: dict[str, Any] = {}
+    text_kwargs: dict[str, Any] = {}
 
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
-        captured["user"] = kwargs["user"]
+        captured.update(kwargs)
         return _TierOnly(tier="Medium", rationale_short="two distinct domains overlap")
 
     async def fake_complete_text(self: LLMClient, **kwargs: Any) -> str:
+        text_kwargs.update(kwargs)
         return (
             "Confidence in this estimate is Medium. "
             "The 100000-200000 CZK/month band is well-supported."
@@ -89,6 +91,8 @@ async def test_step_a_user_payload_does_not_leak_range(
 
     assert isinstance(result, Confidence)
     assert result.tier == "Medium"
+    assert captured["max_tokens"] == 128
+    assert text_kwargs["max_tokens"] == 256
 
     payload = captured["user"]
     lowered = payload.lower()

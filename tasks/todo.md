@@ -65,6 +65,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T42** — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, OpenRouter Flash defaults) (`tasks/T42_pipeline_wallclock_wins.md`) — *implemented + fast/live/UI-smoke verified; OpenRouter vision path now covered by live CI*
 - [ ] **T43** — Report readability: visual breaks, Plan typography, Score component grid (`tasks/T43_report_readability.md`) — *task spec drafted; renderer/CSS implementation not started*
 - [x] **T44** — Skills/soft-signal evidence salvage (`tasks/T44_skills_soft_salvage.md`) — *keeps 6-word quote floor; rescues verifier-passing evidence from longer CV lines*
+- [x] **T45** — Vision parallelization + per-stage max_tokens caps (`tasks/T45_vision_parallel_and_token_caps.md`) — *implemented on branch `dev/parallelize-vision-cap-max-tokens`; fast suite green*
 
 ## Provider plumbing
 - [x] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *PR #25, required `openrouter-live` CI pass*

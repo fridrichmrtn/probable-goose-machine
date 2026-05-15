@@ -284,7 +284,10 @@ async def test_estimate_salary_survives_single_query_failure(
         reasoning="based on two cz market snippets",
     )
 
+    captured: dict[str, Any] = {}
+
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        captured.update(kwargs)
         return salary
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
@@ -297,6 +300,7 @@ async def test_estimate_salary_survives_single_query_failure(
         f"expected SalaryEstimate, got {type(result).__name__}: {result}"
     )
     assert result.currency == "CZK"
+    assert captured["max_tokens"] == 768
 
     # Obs contract: search_event reports the one failed query; the dedicated
     # `query_failures` event carries the type detail.

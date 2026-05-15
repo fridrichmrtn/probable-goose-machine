@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from gander.llm import LLMClient, _strip_think
-from gander.obs import subscribe
+from gander.obs import current_stage, subscribe
 
 
 @pytest.mark.fast
@@ -38,7 +38,12 @@ class _RetryingLLMClient(LLMClient):
         return float(prompt_tokens + completion_tokens)
 
     async def _chat_json(
-        self, model: str, system: str, user: str, temperature: float
+        self,
+        model: str,
+        system: str,
+        user: str,
+        temperature: float,
+        max_tokens: int | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         self.calls += 1
         if self.calls == 1:
@@ -213,6 +218,7 @@ class _FakeChatCompletions:
         self.kwargs: dict[str, Any] | None = None
         self.all_kwargs: list[dict[str, Any]] = []
         self.content = '{"message": "pong"}'
+        self.finish_reason = "stop"
         self.usage: Any = type(
             "Usage", (), {"prompt_tokens": 3, "completion_tokens": 4, "cost": 0.00042}
         )()
@@ -233,7 +239,7 @@ class _FakeChatCompletions:
                         (),
                         {
                             "message": type("Message", (), {"content": self.content})(),
-                            "finish_reason": "stop",
+                            "finish_reason": self.finish_reason,
                         },
                     )()
                 ],
@@ -519,6 +525,99 @@ async def test_minimax_chat_json_retains_reasoning_split_and_token_cap() -> None
     assert fake_completions.kwargs is not None
     assert fake_completions.kwargs["extra_body"] == {"reasoning_split": True}
     assert fake_completions.kwargs["max_tokens"] == 4096
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_json_forwards_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+
+    await client.complete_json(
+        system='You echo. Return JSON {"message": "..."}.',
+        user="Echo back the word pong.",
+        schema=Echo,
+        model="cheap",
+        max_tokens=512,
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["max_tokens"] == 512
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_text_forwards_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Plain rationale."
+
+    await client.complete_text(
+        system="Be concise.",
+        user="Summarize the year.",
+        model="cheap",
+        max_tokens=200,
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["max_tokens"] == 200
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_vision_text_forwards_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Page transcript"
+
+    await client.complete_vision_text(
+        image_bytes=b"\x89PNG\r\n\x1a\nfake",
+        prompt="Transcribe this page.",
+        max_tokens=1500,
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["max_tokens"] == 1500
+
+
+@pytest.mark.fast
+async def test_chat_json_emits_llm_truncated_when_finish_reason_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.finish_reason = "length"
+    events: list[dict[str, Any]] = []
+
+    token = current_stage.set("test_stage")
+    try:
+        with subscribe(events.append):
+            echo = await client.complete_json(
+                system='You echo. Return JSON {"message": "..."}.',
+                user="Echo back the word pong.",
+                schema=Echo,
+                model="cheap",
+                max_tokens=512,
+            )
+    finally:
+        current_stage.reset(token)
+
+    assert echo == Echo(message="pong")
+    truncations = [e for e in events if e["event"] == "llm_truncated"]
+    assert len(truncations) == 1
+    truncation = truncations[0]
+    assert truncation["stage"] == "test_stage"
+    assert truncation["model"] == "google/gemini-2.5-flash"
+    assert truncation["max_tokens"] == 512
+    assert truncation["prompt_tokens"] == 3
+    assert truncation["completion_tokens"] == 4
 
 
 @pytest.mark.live

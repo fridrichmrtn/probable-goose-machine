@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import time
@@ -315,7 +316,6 @@ async def _extract_pdf_vlm(file_bytes: bytes) -> str:
 
     prompt = _load_prompt("ingest_vlm.md")
     client = LLMClient()
-    transcripts: list[str] = []
     obs.emit(
         "ingest",
         "ingest_vlm_start",
@@ -323,13 +323,18 @@ async def _extract_pdf_vlm(file_bytes: bytes) -> str:
         dpi=dpi,
         size_bytes=len(file_bytes),
     )
-    for i, png in enumerate(pages):
+
+    sem = asyncio.Semaphore(4)
+
+    async def _transcribe(i: int, png: bytes) -> str:
         page_t0 = time.perf_counter()
-        page_text = await client.complete_vision_text(image_bytes=png, prompt=prompt)
+        async with sem:
+            page_text = await client.complete_vision_text(
+                image_bytes=png, prompt=prompt, max_tokens=1500
+            )
         page_text = _strip_transcript_fences(page_text)
         if not page_text.strip():
             raise _IngestLLMReject("empty_output")
-        transcripts.append(page_text.strip())
         obs.emit(
             "ingest",
             "ingest_vlm_page_done",
@@ -337,6 +342,20 @@ async def _extract_pdf_vlm(file_bytes: bytes) -> str:
             chars=len(page_text),
             duration_ms=int((time.perf_counter() - page_t0) * 1000),
         )
+        return page_text.strip()
+
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(_transcribe(i, png)) for i, png in enumerate(pages)]
+    except* (_IngestLLMReject, httpx.HTTPError, RuntimeError, TimeoutError, ValueError) as eg:
+        # TaskGroup cancels still-running siblings before re-raising; surface the
+        # first leaf exception so callers see the same single-exception contract
+        # the pre-parallel serial loop used to deliver.
+        leaf: BaseException = eg.exceptions[0]
+        while isinstance(leaf, BaseExceptionGroup):
+            leaf = leaf.exceptions[0]
+        raise leaf from eg
+    transcripts = [t.result() for t in tasks]
 
     transcript = "\n[PAGE_BREAK]\n".join(transcripts)
     transcript = _repair_inline_section_breaks(transcript)

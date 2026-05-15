@@ -109,7 +109,10 @@ async def test_score_no_partial_when_all_verify(
         ]
     )
 
+    captured: dict[str, Any] = {}
+
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        captured.update(kwargs)
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
@@ -126,6 +129,7 @@ async def test_score_no_partial_when_all_verify(
         ("skills", "experience", "education", "soft_signals")
     )
     assert not any(e["event"] == "score_partial" for e in events)
+    assert captured["max_tokens"] == 1024
     components_evt = next(e for e in events if e["event"] == "score_components")
     assert components_evt["verified"] == 4
     assert components_evt["dropped"] == 0

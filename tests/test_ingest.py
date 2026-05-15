@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unicodedata
 from io import BytesIO
 from pathlib import Path
@@ -185,10 +186,12 @@ async def test_pdf_vlm_ingest_renders_pages_and_joins_transcripts(
         prompt: str,
         mime_type: str = "image/png",
         timeout_s: float = 120.0,
+        max_tokens: int | None = None,
     ) -> str:
         assert "Transcribe this CV page verbatim" in prompt
         assert mime_type == "image/png"
         assert timeout_s == 120.0
+        assert max_tokens == 1500
         seen_images.append(image_bytes)
         if len(seen_images) == 1:
             return (
@@ -211,6 +214,124 @@ async def test_pdf_vlm_ingest_renders_pages_and_joins_transcripts(
     assert "Data Scientist with 5 years building churn models" in result
     assert "Led customer churn model" in result
     assert "## Summary" in result
+
+
+@pytest.mark.fast
+async def test_pdf_vlm_parallel_preserves_page_order_and_bounds_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """VLM page transcription runs concurrently (≤4 in flight) and the joined
+    transcript preserves original page order. Regression guard against silently
+    re-serializing the gather loop."""
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    pdf_bytes = _pdf_bytes(
+        [["Summary", f"Page {i} content text for parallel ingest test."] for i in range(6)]
+    )
+
+    page_pngs = ingest._render_pdf_pages(pdf_bytes)
+    png_to_index = {png: i for i, png in enumerate(page_pngs)}
+    peak: dict[str, int] = {"in_flight": 0, "max": 0}
+    captured_kwargs: list[dict[str, Any]] = []
+
+    async def _fake_vlm(
+        self: LLMClient,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+        timeout_s: float = 120.0,
+        max_tokens: int | None = None,
+    ) -> str:
+        captured_kwargs.append({"max_tokens": max_tokens})
+        peak["in_flight"] += 1
+        peak["max"] = max(peak["max"], peak["in_flight"])
+        try:
+            await asyncio.sleep(0.02)
+            idx = png_to_index[image_bytes]
+            return (
+                f"Summary Page {idx} parallel transcript with enough chars to pass "
+                "the minimum text gate for ingest."
+            )
+        finally:
+            peak["in_flight"] -= 1
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _fake_vlm)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_text(pdf_bytes, "cv.pdf")
+
+    assert isinstance(result, str)
+    pages = result.split("[PAGE_BREAK]")
+    assert len(pages) == 6
+    for i, page in enumerate(pages):
+        assert f"Page {i} parallel transcript" in page, (
+            f"page {i} out of order or missing: {page!r}"
+        )
+
+    assert peak["max"] <= 4, f"semaphore bound violated: {peak['max']}"
+    assert peak["max"] >= 2, (
+        f"expected concurrent overlap; got max in-flight {peak['max']} — "
+        "did someone re-serialize the gather?"
+    )
+
+    assert all(c["max_tokens"] == 1500 for c in captured_kwargs)
+
+    page_done = [e for e in events if e["event"] == "ingest_vlm_page_done"]
+    assert len(page_done) == 6
+    assert {e["page_index"] for e in page_done} == set(range(6))
+
+
+@pytest.mark.fast
+async def test_pdf_vlm_cancels_siblings_on_first_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """First per-page failure cancels in-flight siblings before they complete.
+    Regression guard against re-introducing `asyncio.gather` (which lets siblings
+    run to completion and burn provider budget after the first reject)."""
+    monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    pdf_bytes = _pdf_bytes(
+        [["Summary", f"Page {i} content for cancellation test."] for i in range(3)]
+    )
+
+    page_pngs = ingest._render_pdf_pages(pdf_bytes)
+    png_to_index = {png: i for i, png in enumerate(page_pngs)}
+    sibling_completions = {"count": 0}
+
+    async def _fake_vlm(
+        self: LLMClient,
+        *,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+        timeout_s: float = 120.0,
+        max_tokens: int | None = None,
+    ) -> str:
+        idx = png_to_index[image_bytes]
+        if idx == 0:
+            await asyncio.sleep(0.01)
+            return ""  # triggers _IngestLLMReject("empty_output")
+        await asyncio.sleep(5.0)
+        sibling_completions["count"] += 1
+        return f"Page {idx} should never reach here"
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _fake_vlm)
+
+    loop_t0 = asyncio.get_event_loop().time()
+    with pytest.raises(ingest._IngestLLMReject):
+        await ingest._extract_pdf_vlm(pdf_bytes)
+    elapsed = asyncio.get_event_loop().time() - loop_t0
+
+    assert sibling_completions["count"] == 0, (
+        f"siblings ran to completion after first reject: "
+        f"{sibling_completions['count']} of 2 — TaskGroup cancellation broken"
+    )
+    assert elapsed < 1.0, (
+        f"cancellation did not short-circuit; elapsed={elapsed:.2f}s "
+        "(siblings were sleeping 5s each)"
+    )
 
 
 @pytest.mark.fast

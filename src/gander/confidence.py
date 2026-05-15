@@ -153,6 +153,7 @@ async def judge(
                 schema=_TierOnly,
                 model="cheap",
                 temperature=0.0,
+                max_tokens=128,
             )
         except Exception as exc:
             emit(
@@ -210,6 +211,7 @@ async def judge(
                 user=step_b_user,
                 model="cheap",
                 temperature=0.0,
+                max_tokens=256,
             )
             regenerated = False
             low_regex = _RATIONALE_LOW_REGEX if salary_tier == "Low" else _CV_FLOOR_LOW_REGEX
@@ -234,6 +236,7 @@ async def judge(
                     user=retry_user,
                     model="cheap",
                     temperature=0.0,
+                    max_tokens=256,
                 )
                 regenerated = True
                 if not low_regex.search(rationale):

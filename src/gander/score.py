@@ -116,6 +116,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     model="reasoning",
                     temperature=0.0,
                     max_retries=_SCORE_LLM_MAX_RETRIES,
+                    max_tokens=1024,
                 )
             except Exception as exc:
                 emit(

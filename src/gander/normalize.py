@@ -345,6 +345,7 @@ async def _llm_canonicalize_role(
             schema=_LLMCanonicalRole,
             model="cheap",
             temperature=0.0,
+            max_tokens=256,
         )
     except Exception:
         return None

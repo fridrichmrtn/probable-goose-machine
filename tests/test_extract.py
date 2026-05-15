@@ -78,6 +78,8 @@ async def test_paraphrased_anchor_is_dropped(monkeypatch: pytest.MonkeyPatch) ->
         detected_years_experience=1,
     )
 
+    captured: dict[str, Any] = {}
+
     async def _fake_complete_json(
         self: LLMClient,
         *,
@@ -87,6 +89,7 @@ async def test_paraphrased_anchor_is_dropped(monkeypatch: pytest.MonkeyPatch) ->
         model: str = "reasoning",
         **kwargs: Any,
     ) -> BaseModel:
+        captured.update(kwargs)
         return synthetic
 
     monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
@@ -102,6 +105,7 @@ async def test_paraphrased_anchor_is_dropped(monkeypatch: pytest.MonkeyPatch) ->
     assert result.detected_role == "Junior Data Analyst"
     assert result.detected_location == "Prague"
     assert result.detected_years_experience == 1
+    assert captured["max_tokens"] == 3000
 
     verify_events = [e for e in events if e["event"] == "verify" and e["stage"] == "extract"]
     assert len(verify_events) == 1
