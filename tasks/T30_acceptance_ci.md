@@ -1,6 +1,6 @@
 # T30 — §5.4 differentiation eval wired into CI (close T17)
 
-Status: phase 1 done (PR #10, `dea3dcf`); phase 2 todo (CZ extension, deps T29)
+Status: done — phase 1 shipped in PR #10; phase 2 CZ suite verified in PR #35
 Owner: ai-ml-engineer
 Depends on: — (CZ extension deps T29)
 Unblocks: T17
@@ -55,7 +55,7 @@ uv run pytest -m live tests/test_acceptance.py -v
 uv run pytest tests/test_report.py::test_stage_failure_does_not_block_other_sections -v
 
 # Phase 2 (after T29 lands)
-uv run pytest -m live tests/test_acceptance.py::test_score_spread_at_least_30_cz tests/test_acceptance.py::test_salary_non_overlap_cz tests/test_acceptance.py::test_senior_salary_multiplier_cz -v
+uv run pytest -m live tests/test_acceptance_cz.py -v
 ```
 
 Expected: Phase 1 — 8 EN tests + 1 unit test pass on `main`, T17 marked `done`. Phase 2 — CZ extension tests pass after T29's three fixtures + T24/T25/T26/T27/T28 land.
@@ -74,8 +74,32 @@ Failure-mode mapping:
 
 ## Outcome
 
-**Phase 1 (EN triplet)** shipped in PR #10 (`dea3dcf`). Closed T17. Self-heal during the PR added two known-debt absorbers that survive merge:
-- inline `if senior.dropped:` branch in `test_score_spread_at_least_30` (owned by T36)
-- `_optional_growth` + `@flaky(reruns=2)` for DDG flakes (owned by T37)
+**Phase 1 (EN triplet)** shipped in PR #10 (`dea3dcf`). Closed T17. Self-heal during the PR added two known-debt absorbers:
+- inline `if senior.dropped:` branch in `test_score_spread_at_least_30`
+  (owned by T36; removed in PR #35 after strict live gate passed)
+- `_optional_growth` + `@flaky(reruns=2)` for DDG flakes (owned by T37;
+  removed by T37)
 
-**Phase 2 (CZ extension)** pending — fans in T29's three CZ fixtures.
+**Phase 2 (CZ extension)** implemented in the T29 CZ suite rather than adding
+duplicate pipeline runs to `tests/test_acceptance.py`. `tests/test_acceptance_cz.py`
+runs the junior baseline plus #11/#12/#13 once, then owns the CZ-specific
+salary-band checks and the T30 cross-fixture invariants for #11 and #13:
+
+- `test_score_spread_at_least_30_cz`
+- `test_salary_non_overlap_with_junior_for_cz_seniors`
+- `test_senior_salary_multiplier_cz`
+- `test_no_verbatim_growth_plan_repeats_cz`
+- `test_no_near_duplicate_growth_plans_cz`
+- `test_all_claims_substring_verified_cz`
+
+This keeps the live cost to one CZ session fixture while still asserting the
+same §5.4 shape as the EN triplet.
+
+Verified:
+- PR #35 OpenRouter live CI run
+  `25932192588` / job `76228665081` → passed. This run exercised the
+  EN triplet, the CZ triplet session fixture, and the T30 phase 2
+  cross-fixture invariants in `tests/test_acceptance_cz.py`.
+- Current CZ suite collection:
+  `uv --cache-dir /tmp/uv-cache run pytest tests/test_acceptance_cz.py --collect-only --strict-markers -q`
+  → `27 tests collected`.

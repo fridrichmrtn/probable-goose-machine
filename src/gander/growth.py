@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import string
+import time
 import unicodedata
 from pathlib import Path
 
@@ -38,6 +39,7 @@ _SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "growth.md").read_text(enc
 # PRD §4.6:62 verbatim user-facing copy. Every failure branch surfaces this
 # exact string; debug_detail carries the structured reason.
 _FAILURE_MSG = "Could not generate this section reliably"
+_GROWTH_LOGICAL_MAX_RETRIES = 1
 
 # Case-insensitive substring match on (what + " " + mechanism).lower().
 # "phd" catches "PhD", "Ph.D.", "complete a PhD"; the others are direct.
@@ -389,6 +391,26 @@ def _build_user_message(
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _build_retry_user_message(
+    user_message: str,
+    *,
+    returned: int,
+    survived: int,
+    drop_reasons: dict[str, int],
+) -> str:
+    return (
+        user_message
+        + "\n\nYour previous growth-plan output failed downstream verification: "
+        + f"returned={returned} verified={survived} drop_reasons={drop_reasons}. "
+        + "Return corrected JSON only. Emit 3 to 5 actions that survive all checks: "
+        + "copy each anchor.quote as a literal 8+ word substring from redacted_cv; "
+        + "copy the visible CV section header without translating it, or set section "
+        + "to null if uncertain; make each action concrete and forward-looking; and "
+        + "do not make a closed employer from closed_employer_hint the setting of the "
+        + "action unless the action explicitly targets a next/future role."
+    )
+
+
 async def plan_growth(
     redacted: RedactedCV,
     profile: Profile,
@@ -397,6 +419,11 @@ async def plan_growth(
     currency: str,
 ) -> list[GrowthAction] | StageFailure:
     async with stage_boundary("growth"):
+        t0 = time.perf_counter()
+
+        def _ms() -> int:
+            return int((time.perf_counter() - t0) * 1000)
+
         try:
             client = LLMClient()
             current_hint, closed_hint = _compute_employer_hints(redacted, profile)
@@ -410,94 +437,125 @@ async def plan_growth(
                 closed_hint,
             )
 
-            try:
-                # temperature=0.0 for determinism — matches T10/T11/T12 stages.
-                raw = await client.complete_json(
-                    system=_SYSTEM_PROMPT,
-                    user=user_message,
-                    schema=_GrowthList,
-                    model="reasoning",
-                    temperature=0.0,
-                    max_tokens=1536,
-                )
-            except Exception as exc:
-                emit(
-                    "growth",
-                    "stage_failure",
-                    reason="llm_error",
-                    exc_type=type(exc).__name__,
-                )
-                return StageFailure(
-                    stage="growth",
-                    user_message=_FAILURE_MSG,
-                    debug_detail=f"{type(exc).__name__}: {exc}",
-                )
-
-            if not isinstance(raw, _GrowthList):
-                emit(
-                    "growth",
-                    "stage_failure",
-                    reason="invalid_llm_output",
-                    got_type=type(raw).__name__,
-                )
-                return StageFailure(
-                    stage="growth",
-                    user_message=_FAILURE_MSG,
-                    debug_detail=f"complete_json returned {type(raw).__name__}",
-                )
-
             survivors: list[GrowthAction] = []
-            dropped = 0
-            for action in raw.actions:
-                banned = _check_ban_phrase(action)
-                if banned is not None:
+            for attempt in range(_GROWTH_LOGICAL_MAX_RETRIES + 1):
+                try:
+                    # temperature=0.0 for determinism — matches T10/T11/T12 stages.
+                    raw = await client.complete_json(
+                        system=_SYSTEM_PROMPT,
+                        user=user_message,
+                        schema=_GrowthList,
+                        model="reasoning",
+                        temperature=0.0,
+                        max_tokens=1536,
+                    )
+                except Exception as exc:
                     emit(
                         "growth",
-                        "growth_action_dropped",
-                        reason="ban_phrase",
-                        phrase=banned,
-                        what=action.what[:80],
+                        "stage_failure",
+                        reason="llm_error",
+                        exc_type=type(exc).__name__,
+                        duration_ms=_ms(),
                     )
-                    dropped += 1
-                    continue
-                if not verify_quote(
-                    action.anchor.quote, redacted.text, section=action.anchor.section
-                ):
-                    emit(
-                        "growth",
-                        "growth_action_dropped",
-                        reason="unverified_anchor",
-                        what=action.what[:80],
+                    return StageFailure(
+                        stage="growth",
+                        user_message=_FAILURE_MSG,
+                        debug_detail=f"{type(exc).__name__}: {exc}",
                     )
-                    dropped += 1
-                    continue
-                forward_violation = _violates_forward_setting(action, current_hint, closed_hint)
-                if forward_violation is not None:
-                    emit(
-                        "growth",
-                        "growth_action_dropped",
-                        reason="closed_employer_setting",
-                        what=action.what[:80],
-                        detail=forward_violation,
-                    )
-                    dropped += 1
-                    continue
-                survivors.append(action)
 
-            emit(
-                "growth",
-                "growth_anti_slop_check",
-                returned=len(raw.actions),
-                dropped=dropped,
-                survived=len(survivors),
-            )
+                if not isinstance(raw, _GrowthList):
+                    emit(
+                        "growth",
+                        "stage_failure",
+                        reason="invalid_llm_output",
+                        got_type=type(raw).__name__,
+                        duration_ms=_ms(),
+                    )
+                    return StageFailure(
+                        stage="growth",
+                        user_message=_FAILURE_MSG,
+                        debug_detail=f"complete_json returned {type(raw).__name__}",
+                    )
 
-            if len(survivors) < 3:
+                survivors = []
+                dropped = 0
+                drop_reasons: dict[str, int] = {}
+                for action in raw.actions:
+                    banned = _check_ban_phrase(action)
+                    if banned is not None:
+                        reason = "ban_phrase"
+                        emit(
+                            "growth",
+                            "growth_action_dropped",
+                            reason=reason,
+                            phrase=banned,
+                            what=action.what[:80],
+                        )
+                        dropped += 1
+                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
+                        continue
+                    if not verify_quote(
+                        action.anchor.quote, redacted.text, section=action.anchor.section
+                    ):
+                        reason = "unverified_anchor"
+                        emit(
+                            "growth",
+                            "growth_action_dropped",
+                            reason=reason,
+                            what=action.what[:80],
+                        )
+                        dropped += 1
+                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
+                        continue
+                    forward_violation = _violates_forward_setting(action, current_hint, closed_hint)
+                    if forward_violation is not None:
+                        reason = "closed_employer_setting"
+                        emit(
+                            "growth",
+                            "growth_action_dropped",
+                            reason=reason,
+                            what=action.what[:80],
+                            detail=forward_violation,
+                        )
+                        dropped += 1
+                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
+                        continue
+                    survivors.append(action)
+
+                emit(
+                    "growth",
+                    "growth_anti_slop_check",
+                    returned=len(raw.actions),
+                    dropped=dropped,
+                    survived=len(survivors),
+                    attempt=attempt,
+                )
+
+                if len(survivors) >= 3:
+                    break
+                if attempt < _GROWTH_LOGICAL_MAX_RETRIES:
+                    emit(
+                        "growth",
+                        "growth_retry",
+                        reason="insufficient_verified_actions",
+                        returned=len(raw.actions),
+                        survived=len(survivors),
+                        dropped=dropped,
+                        drop_reasons=drop_reasons,
+                    )
+                    user_message = _build_retry_user_message(
+                        user_message,
+                        returned=len(raw.actions),
+                        survived=len(survivors),
+                        drop_reasons=drop_reasons,
+                    )
+                    continue
                 emit(
                     "growth",
                     "stage_failure",
                     reason="insufficient_verified_actions",
                     survived=len(survivors),
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="growth",
@@ -534,6 +592,7 @@ async def plan_growth(
                 emit("growth", "growth_baseline_missing")
 
             emit("growth", "growth_actions_returned", count=len(survivors))
+            emit("growth", "done", duration_ms=_ms(), count=len(survivors))
             return survivors
         except Exception as exc:
             emit(
@@ -541,6 +600,7 @@ async def plan_growth(
                 "stage_failure",
                 reason="unexpected_error",
                 exc_type=type(exc).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="growth",

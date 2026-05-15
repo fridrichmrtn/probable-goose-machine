@@ -124,6 +124,11 @@ async def test_step_a_user_payload_does_not_leak_range(
     assert decision_evt["tier"] == "Medium"
     assert decision_evt["rationale_len"] == len(result.rationale)
 
+    done_evt = next(e for e in events if e["event"] == "done" and e["stage"] == "confidence")
+    assert isinstance(done_evt["duration_ms"], int)
+    assert done_evt["duration_ms"] >= 0
+    assert done_evt["tier"] == "Medium"
+
 
 @pytest.mark.fast
 async def test_step_b_cannot_override_step_a_and_regenerates_on_low(

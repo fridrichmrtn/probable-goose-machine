@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +11,7 @@ from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit, subscribe
 from gander.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
-from gander.verify import verify_quote
+from gander.verify import _section_text, verify_quote
 
 # Per-stage cap on `verify_section_miss` events tolerated before declaring the
 # stage section-blind. Half-plus-one of the 4 components — a CV that loses
@@ -27,7 +29,22 @@ _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 _GENERATION_FAILURE_MSG = "Could not generate this section reliably"
 _SCORE_LLM_MAX_RETRIES = 2
 _SCORE_LOGICAL_MAX_RETRIES = 1
-_SALVAGE_RETRY_COMPONENTS = {"skills", "soft_signals"}
+_SALVAGE_RETRY_COMPONENTS = {"skills", "education", "soft_signals"}
+_DOCTORATE_PATTERNS = (
+    re.compile(r"(?<!\w)ph\.?\s*d\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"\bdoctorate\b", flags=re.IGNORECASE),
+    re.compile(r"\bdphil\b", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)csc\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)drsc\.?(?!\w)", flags=re.IGNORECASE),
+)
+_MASTERS_PATTERNS = (
+    re.compile(r"(?<!\w)m\.?\s*sc\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)m\.?\s*eng\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"\bmaster(?:['’]s|s)?\b", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)mgr\.?(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"(?<!\w)ing\.(?!\w)", flags=re.IGNORECASE),
+    re.compile(r"\bmba\b", flags=re.IGNORECASE),
+)
 
 
 class _ComponentList(BaseModel):
@@ -61,14 +78,41 @@ def _build_retry_user_message(user_message: str, missing: set[str], dropped: int
         + "role progression, or shipped impact. If the section header is uncertain, "
         + "set anchor.section to null rather than guessing."
     )
-    if missing & _SALVAGE_RETRY_COMPONENTS:
+    if missing & {"skills", "soft_signals"}:
         message += (
             " For skills and soft_signals, do not rely only on compact Skills/Soft "
             "sections; use longer literal lines from Experience, Projects, Profile, "
             "or Summary when they demonstrate named tools, leadership, mentorship, "
             "ownership, cross-team work, or stakeholder communication."
         )
+    if "education" in missing:
+        message += (
+            " For education, choose an exact literal degree/institution line from the CV; "
+            "preserve punctuation, accents, and redaction markers exactly as shown."
+        )
     return message
+
+
+def _build_education_floor_retry_message(user_message: str, floor: int, actual: int) -> str:
+    return (
+        user_message
+        + "\n\nYour previous score output failed the education credential rubric: "
+        + f"education_score={actual} but the CV contains a formal credential that "
+        + f"requires education >= {floor}. Return corrected JSON only. For education, "
+        + "choose an exact literal highest-credential degree/institution line from "
+        + "the CV and score it according to the credential bands."
+    )
+
+
+def _education_credential_floor(source: str) -> int | None:
+    education_text = _section_text(source, "education")
+    if education_text is None:
+        return None
+    if any(pattern.search(education_text) for pattern in _DOCTORATE_PATTERNS):
+        return 86
+    if any(pattern.search(education_text) for pattern in _MASTERS_PATTERNS):
+        return 66
+    return None
 
 
 def _verify_components(
@@ -98,6 +142,11 @@ def _verify_components(
 
 async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | StageFailure:
     with stage_boundary("score") as cm:
+        t0 = time.perf_counter()
+
+        def _ms() -> int:
+            return int((time.perf_counter() - t0) * 1000)
+
         client = LLMClient()
         user_message = _build_user_message(redacted, profile)
 
@@ -124,6 +173,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     "stage_failure",
                     reason="llm_error",
                     exc_type=type(exc).__name__,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="score",
@@ -136,6 +186,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     "stage_failure",
                     reason="invalid_llm_output",
                     got_type=type(raw).__name__,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="score",
@@ -145,7 +196,14 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
 
             verified, dropped, section_miss_count = _verify_components(raw, redacted)
             for name, comp in verified.items():
-                best_verified.setdefault(name, comp)
+                previous = best_verified.get(name)
+                if previous is None or (
+                    # Education can move upward on retry because the credential
+                    # floor is deterministic and section-local; other components
+                    # keep first-verified anchors to avoid retry score drift.
+                    name == "education" and comp.score_0_100 > previous.score_0_100
+                ):
+                    best_verified[name] = comp
             emit(
                 "score",
                 "score_components",
@@ -155,7 +213,15 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
             )
 
             if section_miss_count > _SECTION_MISS_CAP:
+                duration_ms = _ms()
                 emit("score", "section_blind_fail", miss_count=section_miss_count)
+                emit(
+                    "score",
+                    "stage_failure",
+                    reason="section_blind",
+                    miss_count=section_miss_count,
+                    duration_ms=duration_ms,
+                )
                 return StageFailure(
                     stage="score",
                     user_message=(
@@ -189,6 +255,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     reason="missing_categories",
                     missing=sorted(missing),
                     dropped=dropped,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="score",
@@ -196,14 +263,40 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     debug_detail=f"missing_categories={sorted(missing)} dropped={dropped}",
                 )
             if missing & _SALVAGE_RETRY_COMPONENTS and attempt < _SCORE_LOGICAL_MAX_RETRIES:
+                reason = "missing_salvageable_components"
+                if missing <= {"skills", "soft_signals"}:
+                    reason = "missing_skills_or_soft_signals"
+                elif missing == {"education"}:
+                    reason = "missing_education"
                 emit(
                     "score",
                     "score_retry",
-                    reason="missing_skills_or_soft_signals",
+                    reason=reason,
                     missing=sorted(missing),
                     dropped=dropped,
                 )
                 user_message = _build_retry_user_message(user_message, missing, dropped)
+                continue
+            education_floor = _education_credential_floor(redacted.text)
+            education = best_verified.get("education")
+            if (
+                education_floor is not None
+                and education is not None
+                and education.score_0_100 < education_floor
+                and attempt < _SCORE_LOGICAL_MAX_RETRIES
+            ):
+                emit(
+                    "score",
+                    "score_retry",
+                    reason="education_below_credential_floor",
+                    score=education.score_0_100,
+                    floor=education_floor,
+                )
+                user_message = _build_education_floor_retry_message(
+                    user_message,
+                    floor=education_floor,
+                    actual=education.score_0_100,
+                )
                 continue
             break
 
@@ -216,6 +309,18 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
             components=[best_verified[name] for name in COMPONENT_WEIGHTS if name in best_verified],
             dropped=sorted(missing),  # type: ignore[arg-type]
         )
+        education_floor = _education_credential_floor(redacted.text)
+        education = best_verified.get("education")
+        if education_floor is not None and (
+            education is None or education.score_0_100 < education_floor
+        ):
+            emit(
+                "score",
+                "education_credential_unmet",
+                floor=education_floor,
+                score=None if education is None else education.score_0_100,
+                dropped=sorted(missing),
+            )
         if missing:
             emit(
                 "score",
@@ -224,6 +329,14 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                 surviving=sorted(best_verified.keys()),
             )
         emit("score", "score_total", total=score.total)
+        emit(
+            "score",
+            "done",
+            duration_ms=_ms(),
+            total=score.total,
+            components=len(score.components),
+            dropped=len(score.dropped),
+        )
         return score
 
     return cm.failure  # type: ignore[return-value]

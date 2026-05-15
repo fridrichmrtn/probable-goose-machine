@@ -1,6 +1,6 @@
 # T29 — Acceptance eval: bilingual senior fixture + assertions (eval A)
 
-Status: todo
+Status: done — fixtures, live scaffold, and OpenRouter CI run verified
 Owner: ai-ml-engineer
 Depends on: T24, T25, T26, T27, T28
 Unblocks: T30 (CZ extension only — EN-triplet baseline ships independently)
@@ -69,4 +69,46 @@ Expected: all per-fixture tests pass after T24 + T25 + T26 + T27 + T28 land. Fai
 
 ## Outcome
 
-(fill in when done — observed score, observed salary band, any cached numbers for the README)
+Implemented the offline T29 surface:
+- Added three fully synthetic CZ fixtures:
+  - `11_cz_bilingual_member_of_staff_strelcova.pdf/.txt` — bilingual
+    tagline-shaped senior/management CV in the two-column PDF template.
+  - `12_cz_academic_simek.pdf/.txt` — CZ-only academic research-lead CV in
+    the clean PDF template.
+  - `13_cz_corporate_manazer_havelka.pdf/.txt` — CZ-only corporate data
+    manager CV in the clean PDF template.
+- Updated `scripts/build_cv_fixtures.py` with the source builders, while the
+  generated commit only adds #11–#13 so the pre-existing T46 fixture drift is
+  not overwritten.
+- Updated `tests/fixtures/cvs/SOURCES.md` with provenance, anchors, and CZK
+  salary calibration bands for all three personas.
+- Added `tests/test_acceptance_cz.py`, a live+slow suite that runs the three
+  CZ fixtures plus the junior baseline once, then checks score success,
+  dropped-component limits, expected CZK/month salary windows, name-redaction
+  observability, role-normalization source, and senior-vs-junior salary
+  non-overlap for #11/#13.
+- The suite now skips cleanly when the selected provider's API key is absent
+  (`OPENROUTER_API_KEY` for `GANDER_LLM_PROVIDER=openrouter`, otherwise
+  `MINIMAX_API_KEY`) so local `-m live` probes do not fail before credentials
+  are configured.
+
+Verified:
+- `uv run pytest tests/test_acceptance_cz.py --collect-only -q`
+  → `24 tests collected`.
+- `uv run pytest -m live tests/test_acceptance_cz.py -q` with no provider key
+  in this shell → `24 skipped`.
+- `uv run pytest tests/test_redact.py -m fast -q`
+  → `44 passed, 15 deselected`.
+- `uv run ruff check scripts/build_cv_fixtures.py tests/test_acceptance_cz.py`
+  → passed.
+- PR #35 OpenRouter live CI run
+  `25932192588` / job `76228665081` → passed. This run exercised the
+  full live marker suite, including the CZ acceptance session fixture and the
+  T29 score/salary/redaction/role-normalization checks.
+- Current local collection with the additional T30 cross-fixture checks:
+  `uv --cache-dir /tmp/uv-cache run pytest tests/test_acceptance_cz.py --collect-only --strict-markers -q`
+  → `27 tests collected`.
+
+Follow-up owned by T23:
+- Capture fresh corpus-level scores, salary bands, costs, and bias numbers in
+  `reports/SUMMARY.md` / README.

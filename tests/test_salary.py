@@ -404,6 +404,11 @@ async def test_estimate_salary_caps_inflated_junior_czk_month_range(
     cap_evt = next(e for e in events if e["event"] == "salary_sanity_cap")
     assert cap_evt["original_high"] == 130000
     assert cap_evt["capped_high"] == 90000
+    done_evt = next(e for e in events if e["event"] == "done" and e["stage"] == "salary")
+    assert isinstance(done_evt["duration_ms"], int)
+    assert done_evt["duration_ms"] >= 0
+    assert done_evt["currency"] == "CZK"
+    assert done_evt["period"] == "month"
 
 
 @pytest.mark.fast
@@ -1070,7 +1075,6 @@ async def test_salary_search_event_includes_country_and_tld_histogram(
 @pytest.mark.live
 @pytest.mark.slow
 @pytest.mark.xdist_group("ddg")
-@pytest.mark.flaky(reruns=2)
 @pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="needs OPENROUTER_API_KEY")
 async def test_senior_fixture_estimate_returns_czk_range() -> None:
     # Ensures the live path actually calls DDG + OpenRouter. Skips elsewhere.

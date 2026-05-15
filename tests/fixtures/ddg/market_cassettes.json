@@ -1,0 +1,72 @@
+{
+  "junior_data_analyst_prague": [
+    {
+      "href": "https://www.platy.cz/platy/it/data-analyst-junior-prague",
+      "body": "Junior Data Analyst in Prague typically earns 45 000 to 70 000 CZK gross per month."
+    },
+    {
+      "href": "https://www.profesia.cz/salary/junior-data-analyst-praha",
+      "body": "Prague junior data analyst salary range is commonly 50 000 to 75 000 CZK per month."
+    },
+    {
+      "href": "https://www.paylab.com/cz/salary/junior-data-analyst",
+      "body": "Entry data analyst roles in Czechia cluster around 48 000 to 72 000 CZK monthly."
+    }
+  ],
+  "data_scientist_prague": [
+    {
+      "href": "https://www.platy.cz/platy/it/data-scientist-prague",
+      "body": "Data Scientist in Prague commonly ranges from 95 000 to 145 000 CZK gross per month."
+    },
+    {
+      "href": "https://www.profesia.cz/salary/data-scientist-praha",
+      "body": "Mid-level data scientist salaries in Prague are usually 90 000 to 140 000 CZK monthly."
+    },
+    {
+      "href": "https://www.paylab.com/cz/salary/data-scientist",
+      "body": "Czech data scientist compensation often falls between 85 000 and 135 000 CZK per month."
+    }
+  ],
+  "staff_mle_prague": [
+    {
+      "href": "https://www.platy.cz/platy/it/staff-machine-learning-engineer-prague",
+      "body": "Staff Machine Learning Engineer in Prague senior roles often pay 180 000 to 260 000 CZK gross monthly."
+    },
+    {
+      "href": "https://www.profesia.cz/salary/staff-machine-learning-engineer-praha",
+      "body": "Senior staff ML engineering compensation in Prague is typically 170 000 to 250 000 CZK per month."
+    },
+    {
+      "href": "https://www.levels.fyi/t/software-engineer/locations/prague-czechia",
+      "body": "Principal and staff software or ML engineers in Prague can exceed 200 000 CZK monthly total pay."
+    }
+  ],
+  "senior_manager_prague": [
+    {
+      "href": "https://www.platy.cz/platy/management/head-of-data-prague",
+      "body": "Head of Data and senior data management roles in Prague often range 180 000 to 280 000 CZK monthly."
+    },
+    {
+      "href": "https://www.profesia.cz/salary/data-science-manager-praha",
+      "body": "Data science manager salaries in Prague commonly land between 160 000 and 240 000 CZK per month."
+    },
+    {
+      "href": "https://www.paylab.com/cz/salary/data-manager",
+      "body": "Senior data managers in Czechia are benchmarked around 150 000 to 230 000 CZK gross per month."
+    }
+  ],
+  "generic_cz_data": [
+    {
+      "href": "https://www.platy.cz/platy/it/data-prague",
+      "body": "Data roles in Prague vary from 70 000 to 180 000 CZK gross per month by seniority."
+    },
+    {
+      "href": "https://www.profesia.cz/salary/data-praha",
+      "body": "Czech data salaries rise with seniority, with senior profiles often above 140 000 CZK monthly."
+    },
+    {
+      "href": "https://www.paylab.com/cz/salary/data",
+      "body": "Market data for Czech data roles shows broad monthly bands across analyst and senior tracks."
+    }
+  ]
+}

@@ -126,6 +126,112 @@ def test_normalize_role_deterministic_cases(
 
 
 @pytest.mark.fast
+@pytest.mark.parametrize(
+    "detected, years, titles, expected_canonical, expected_band, expected_mgmt, expected_source",
+    [
+        (
+            "Junior Data Analyst",
+            1,
+            [],
+            "junior data analyst",
+            "junior",
+            False,
+            "market_token",
+        ),
+        ("Data Analyst", 3, [], "data analyst", "mid", False, "market_token"),
+        (
+            "Machine Learning Engineer",
+            6,
+            [],
+            "machine learning engineer",
+            "mid",
+            False,
+            "market_token",
+        ),
+        (
+            "MLOps / Platform Engineer",
+            7,
+            [],
+            "mlops / platform engineer",
+            "mid",
+            False,
+            "market_token",
+        ),
+        (
+            "Senior Data Scientist",
+            10,
+            [],
+            "senior data scientist",
+            "senior",
+            False,
+            "market_token",
+        ),
+        (
+            "Staff Machine Learning Engineer",
+            12,
+            [],
+            "staff machine learning engineer",
+            "staff",
+            False,
+            "market_token",
+        ),
+        ("Research Scientist", 12, [], "research scientist", "mid", False, "market_token"),
+        ("Head of Data", 15, [], "head of data", "head", True, "market_token"),
+        (
+            "Data Gardener | AI, Data Science & Engineering @Stealth",
+            12,
+            [
+                "Member of Staff at Stealth AI",
+                "Senior Manager, AI & Data at Czech Enterprise",
+                "Head of Data Science at Košík",
+            ],
+            "head of data science",
+            "head",
+            True,
+            "tagline_shape",
+        ),
+        (
+            "Vedoucí výzkumného týmu",
+            15,
+            [],
+            "vedoucí výzkumného týmu",
+            "head",
+            True,
+            "market_token",
+        ),
+        (
+            "Manažer datového oddělení",
+            10,
+            [],
+            "manažer datového oddělení",
+            "senior",
+            True,
+            "market_token",
+        ),
+    ],
+)
+def test_bundled_corpus_headlines_normalize_deterministically(
+    detected: str,
+    years: int,
+    titles: list[str],
+    expected_canonical: str,
+    expected_band: str,
+    expected_mgmt: bool,
+    expected_source: str,
+) -> None:
+    """Pin the role strings present in tests/fixtures/cvs/*.txt.
+
+    This catches allowlist drift that generic unit cases can miss: the fixture
+    corpus is what acceptance tests actually exercise.
+    """
+    result = normalize_role(detected, years, titles)
+    assert result.canonical_role == expected_canonical
+    assert result.seniority_band == expected_band
+    assert result.is_management == expected_mgmt
+    assert result.source == expected_source
+
+
+@pytest.mark.fast
 def test_role_normalized_event_emitted() -> None:
     """When normalization rewrites detected_role, `role_normalized` must fire."""
     events: list[dict[str, Any]] = []

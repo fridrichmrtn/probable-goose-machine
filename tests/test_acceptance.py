@@ -12,10 +12,12 @@ every test queries the cached `Report` dict. CI live job picks these up via
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import pytest_asyncio
 
@@ -38,6 +40,7 @@ JUNIOR = "01_junior_da_novotny.docx"
 MID = "03_ds_horak.pdf"
 SENIOR = "08_staff_ml_engineer_dvorak.pdf"
 TRIPLET: tuple[str, ...] = (JUNIOR, MID, SENIOR)
+URL_REACHABILITY_TIMEOUT_S = 5.0
 
 
 pytestmark = [
@@ -107,20 +110,6 @@ def _require_growth(report: Report, label: str) -> list[GrowthAction]:
     return report.growth
 
 
-def _optional_growth(report: Report, label: str) -> list[GrowthAction] | None:
-    """Return growth list, or None if the stage surfaced a StageFailure.
-
-    Growth depends on a salary baseline (PRD §4.7). When salary's DDG search
-    flakes and returns <2 valid sources, salary surfaces StageFailure, and
-    growth follows with `Cannot generate growth plan without salary baseline`.
-    The cross-CV invariants below need ≥2 CVs with usable growth, but a
-    single missing fixture shouldn't take the whole acceptance suite down —
-    the remaining CVs still cross-check against each other. T37 follow-up
-    eliminates this class of CI flake at source by cassette-mocking DDG.
-    """
-    return report.growth if isinstance(report.growth, list) else None
-
-
 def _require_profile(report: Report, label: str) -> Profile:
     assert isinstance(report.profile, Profile), (
         f"{label}: expected Profile, got {type(report.profile).__name__}"
@@ -128,29 +117,30 @@ def _require_profile(report: Report, label: str) -> Profile:
     return report.profile
 
 
+async def _source_url_reachable(client: httpx.AsyncClient, url: str) -> tuple[bool, str]:
+    headers = {"User-Agent": "Gander acceptance URL check"}
+    last = "not checked"
+    for method in ("HEAD", "GET"):
+        try:
+            response = await client.request(
+                method,
+                url,
+                follow_redirects=True,
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            last = f"{method} {type(exc).__name__}: {exc}"
+            continue
+        last = f"{method} {response.status_code}"
+        if response.status_code < 400:
+            return True, last
+    return False, last
+
+
 def test_score_spread_at_least_30(triplet: _TripletRun) -> None:
     junior = _require_score(triplet.reports[JUNIOR], "junior")
     senior = _require_score(triplet.reports[SENIOR], "senior")
     delta = senior.total - junior.total
-    if senior.dropped:
-        # T25 second-order: senior fixture 08 stochastically lands on the
-        # partial-Score path when an anchor fails verify_quote (most often
-        # `education`, tracked in tasks/T36_senior_edu_anchor.md). With the
-        # dropped component contributing 0 (T25 "drop=0, don't re-normalize",
-        # PRD §4.5), the spread compresses below the full-Score gate. Preserve
-        # PRD §5.4 differentiation with a relaxed delta floor AND an absolute
-        # senior floor so a real "senior collapsed to mid band" regression
-        # still trips. When T36 lands and senior returns to full 4-of-4, the
-        # full-Score branch below resumes enforcing >=30.
-        assert senior.total >= 65, (
-            f"partial-Score senior must clear absolute floor: "
-            f"senior.total={senior.total}, dropped={senior.dropped}"
-        )
-        assert delta >= 20, (
-            f"partial-Score spread {senior.total} - {junior.total} = {delta}, "
-            f"dropped={senior.dropped}, expected delta >= 20"
-        )
-        return
     assert delta >= 30, f"score spread {senior.total} - {junior.total} = {delta}, expected >= 30"
 
 
@@ -160,6 +150,38 @@ def test_salary_ranges_dont_overlap(triplet: _TripletRun) -> None:
     assert senior.low > junior.high, (
         f"salary overlap: senior.low={senior.low} not > junior.high={junior.high}"
     )
+
+
+@pytest.mark.skipif(
+    os.environ.get("GANDER_CHECK_SALARY_URLS") != "1",
+    reason="set GANDER_CHECK_SALARY_URLS=1 to hit reported salary source URLs",
+)
+@pytest.mark.skipif(
+    os.environ.get("GANDER_LIVE_DDG") != "1",
+    reason="requires GANDER_LIVE_DDG=1 so URLs come from fresh DDG, not cassettes",
+)
+async def test_salary_source_urls_reachable(triplet: _TripletRun) -> None:
+    """PRD §5(6): at least one top salary source per CV must be reachable.
+
+    Default live tests replay DDG cassettes to avoid transport flakes; this
+    check intentionally opts back into real DDG and external URL traffic.
+    """
+    failures: list[str] = []
+    async with httpx.AsyncClient(timeout=URL_REACHABILITY_TIMEOUT_S) as client:
+        for fname in TRIPLET:
+            salary = _require_salary(triplet.reports[fname], fname)
+            top_sources = salary.sources[:2] or salary.sources
+            checks = [
+                (str(source.url), await _source_url_reachable(client, str(source.url)))
+                for source in top_sources
+            ]
+            if any(ok for _, (ok, _) in checks):
+                continue
+            failures.append(
+                f"{fname}: none reachable among top salary sources "
+                + ", ".join(f"{url} ({detail})" for url, (_, detail) in checks)
+            )
+    assert not failures, "unreachable salary source URLs:\n" + "\n".join(failures)
 
 
 def test_senior_multiplier_at_least_2_5x(triplet: _TripletRun) -> None:
@@ -174,37 +196,23 @@ def test_senior_multiplier_at_least_2_5x(triplet: _TripletRun) -> None:
 
 def test_no_verbatim_growth_plan_repeats(triplet: _TripletRun) -> None:
     seen: dict[str, str] = {}
-    survivors = 0
     for fname in TRIPLET:
-        growth = _optional_growth(triplet.reports[fname], fname)
-        if growth is None:
-            continue
-        survivors += 1
+        growth = _require_growth(triplet.reports[fname], fname)
         for action in growth:
             prior = seen.get(action.what)
             assert prior is None or prior == fname, (
                 f"verbatim repeat across {prior} and {fname}: {action.what!r}"
             )
             seen[action.what] = fname
-    assert survivors >= 2, (
-        f"need >=2 CVs with usable growth for cross-CV invariant; got {survivors}"
-    )
 
 
 def test_no_near_duplicate_growth_plans(triplet: _TripletRun) -> None:
     """Cross-CV 4-gram Jaccard guard against paraphrased boilerplate."""
     items: list[tuple[str, str]] = []
-    survivors = 0
     for fname in TRIPLET:
-        growth = _optional_growth(triplet.reports[fname], fname)
-        if growth is None:
-            continue
-        survivors += 1
+        growth = _require_growth(triplet.reports[fname], fname)
         for action in growth:
             items.append((fname, action.what))
-    assert survivors >= 2, (
-        f"need >=2 CVs with usable growth for cross-CV invariant; got {survivors}"
-    )
     threshold = 0.4
     for i, (fname_a, what_a) in enumerate(items):
         for fname_b, what_b in items[i + 1 :]:
@@ -220,12 +228,8 @@ def test_no_near_duplicate_growth_plans(triplet: _TripletRun) -> None:
 def test_no_cross_anchor_repeats(triplet: _TripletRun) -> None:
     """No growth-plan anchor quote appears in more than one CV's plan."""
     anchor_to_cv: dict[str, str] = {}
-    survivors = 0
     for fname in TRIPLET:
-        growth = _optional_growth(triplet.reports[fname], fname)
-        if growth is None:
-            continue
-        survivors += 1
+        growth = _require_growth(triplet.reports[fname], fname)
         for action in growth:
             quote = action.anchor.quote
             prior = anchor_to_cv.get(quote)
@@ -233,9 +237,6 @@ def test_no_cross_anchor_repeats(triplet: _TripletRun) -> None:
                 f"growth-plan anchor quote shared between {prior} and {fname}: {quote!r}"
             )
             anchor_to_cv[quote] = fname
-    assert survivors >= 2, (
-        f"need >=2 CVs with usable growth for cross-CV invariant; got {survivors}"
-    )
 
 
 def _iter_anchored(
@@ -266,11 +267,7 @@ def test_all_claims_substring_verified(triplet: _TripletRun) -> None:
         report = triplet.reports[fname]
         profile = _require_profile(report, fname)
         score = _require_score(report, fname)
-        # Growth may be StageFailure when an upstream stage (e.g. salary)
-        # failed; skip its anchors here but still verify profile+score on
-        # this fixture. The cross-CV growth tests above enforce the >=2
-        # survivors floor — this per-CV verification has no minimum.
-        growth = _optional_growth(report, fname) or []
+        growth = _require_growth(report, fname)
         source = report.redacted_cv_text
         assert source, f"{fname}: redacted_cv_text empty — pipeline did not run L2 redact"
         for origin, quote, section in _iter_anchored(profile, score, growth):

@@ -168,11 +168,14 @@ def _title_prefix_candidates(text: str) -> list[str]:
         if candidate and candidate not in candidates:
             candidates.append(candidate)
 
-    _add(stripped)
+    def _add_title_then_full(candidate: str) -> None:
+        title_prefix = _AT_EMPLOYER_RE.split(candidate, maxsplit=1)[0]
+        _add(title_prefix)
+        _add(candidate)
+
+    _add_title_then_full(stripped)
     comma_prefix = stripped.split(",", 1)[0]
-    _add(comma_prefix)
-    for candidate in tuple(candidates):
-        _add(_AT_EMPLOYER_RE.split(candidate, maxsplit=1)[0])
+    _add_title_then_full(comma_prefix)
     return candidates
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -142,6 +143,11 @@ async def judge(
     cv_quality: CVQualitySignals,
 ) -> Confidence | StageFailure:
     async with stage_boundary("confidence") as cm:
+        t0 = time.perf_counter()
+
+        def _ms() -> int:
+            return int((time.perf_counter() - t0) * 1000)
+
         client = LLMClient()
 
         step_a_user = json.dumps({"sources": [s.model_dump(mode="json") for s in sources]})
@@ -160,6 +166,7 @@ async def judge(
                 "stage_failure",
                 reason="step_a_llm_error",
                 exc_type=type(exc).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="confidence",
@@ -172,6 +179,7 @@ async def judge(
                 "stage_failure",
                 reason="invalid_step_a_output",
                 got_type=type(tier_obj).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="confidence",
@@ -258,6 +266,7 @@ async def judge(
                 "stage_failure",
                 reason="step_b_llm_error",
                 exc_type=type(exc).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="confidence",
@@ -276,6 +285,14 @@ async def judge(
             "confidence_decision",
             tier=final_tier,
             rationale_len=len(rationale),
+        )
+        emit(
+            "confidence",
+            "done",
+            duration_ms=_ms(),
+            tier=final_tier,
+            salary_tier=salary_tier,
+            cv_floor=cv_floor,
         )
         return Confidence(tier=final_tier, rationale=rationale)
 

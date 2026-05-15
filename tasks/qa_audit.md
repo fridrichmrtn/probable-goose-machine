@@ -17,6 +17,16 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[should-fix]` T18 failure-path tests | PR #12 (`stream-c/T18-failure-tests`) | 10 fast tests in `test_failures.py` + `test_partial_failure_streaming.py` |
 | `[should-fix]` T22 HF Space deploy | `Status: done` in `tasks/T22_*.md` | hosted run reachable |
 | `[nit]` T05 spike artifact | resolved at plan-review time; downstream T07–T13 unblocked | T05 status no longer gating |
+| `[must-fix]` §4.8 per-stage duration | PR #35 sweep (`t46-salary-multi-market`) | `score`, `salary`, `confidence`, and `growth` now emit terminal `done` events with `duration_ms`; explicit `stage_failure` events on those stages also carry `duration_ms` |
+| `[must-fix]` PRD §5(3) arbitrary-CV path | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_arbitrary_cv_smoke.py` reads `GANDER_SMOKE_CV`, runs the live pipeline, and asserts every final block is populated or a reviewer-facing `StageFailure` |
+| `[should-fix]` generic boundary raw exception leaks | PR #35 sweep (`t46-salary-multi-market`) | `stage_boundary` now uses curated stage messages for `StageFailure.user_message` and emits obs `error` events with `exc_type` only, not raw `exc_message` |
+| `[should-fix]` rendered failure copy | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_render.py::test_render_body_renders_failure_copy_for_each_stage` pins reviewer-facing failure copy for profile, score, salary, confidence, and growth |
+| `[should-fix]` T27 corpus role-map coverage | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_normalize.py::test_bundled_corpus_headlines_normalize_deterministically` pins the committed fixture headline strings, including CZ manager/research titles and the tagline senior case |
+| `[should-fix]` T23 README falsifiability + fresh-clone smoke | PR #35 sweep (`t46-salary-multi-market`) | `README.md` now has a clean-clone runbook, the expected healthy-run signal, corpus regeneration, and opt-in arbitrary-CV smoke commands; `tasks/T23_readme.md` mirrors the verification |
+| `[should-fix]` T22 secret rebind | PR #35 sweep (`t46-salary-multi-market`) | `README.md` and `tasks/T22_deploy.md` now list the HF Space secrets/env, GitHub secrets/vars, and `hf`/`gh` recovery commands |
+| `[should-fix]` PRD §5(6) salary source URL reachability | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_acceptance.py::test_salary_source_urls_reachable` opt-in gates on `GANDER_LIVE_DDG=1` + `GANDER_CHECK_SALARY_URLS=1`, then HEAD/GET-checks the top two salary sources per EN acceptance CV |
+| `[nit]` T18 cascade contract | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_pipeline_fast.py::test_profile_failure_cascade_contract_covers_downstream_stages` pins `_CASCADE_PROFILE_FAILED` to `score`, `salary`, `confidence`, and `growth` |
+| `[nit]` PRD obs-counter golden path | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_pipeline_fast.py::test_prd_observability_counters_visible_on_golden_run` asserts `verify`, `salary_search`, and `confidence_decision` events are visible through one orchestrated run |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -27,19 +37,19 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 | # | Criterion | Owning task → test | Status |
 |---|---|---|---|
 | 1 | Zero-setup hosted run | T22 (done) | covered |
-| 2 | Local one-or-two-command run | T23 (todo) | partial — README owns the doc, no runnable fresh-clone check named |
-| 3 | Works on arbitrary CVs | (none) | **still missing** — T17 fixture pins the EN triplet |
+| 2 | Local one-or-two-command run | T23 (todo) | covered by README fresh-clone runbook; live corpus/bias numbers still pending before T23 closes |
+| 3 | Works on arbitrary CVs | `tests/test_arbitrary_cv_smoke.py` | covered opt-in via `GANDER_SMOKE_CV` |
 | 4a | Score spread ≥ 30 | T17 `test_score_spread_at_least_30` (PR #10) | covered (pending merge) |
 | 4b | Salary ranges don't overlap | T17 `test_salary_ranges_dont_overlap` (PR #10) | covered (pending merge) |
 | 4c | No verbatim / near-dup growth | T17 verbatim + Jaccard 4-gram (PR #10) | covered (pending merge) |
 | 5 | Substring-grounded explanations | T17 `test_all_claims_substring_verified` (PR #10) | covered (pending merge) |
-| 6 | Working salary source URLs | T11 + T17 (PR #10) | partial — URL shape asserted, reachability (`HEAD` 2xx) not |
+| 6 | Working salary source URLs | `test_salary_source_urls_reachable` | covered opt-in against fresh DDG via `GANDER_CHECK_SALARY_URLS=1` |
 
 **Findings**
 
-- `[must-fix] PRD §5(3)` arbitrary-CV path still has zero coverage. Suggested fix: a `@pytest.mark.live` `test_arbitrary_cv_smoke` that loads a path from `GANDER_SMOKE_CV` (skipped when unset); assert every block in the final `Report` is either populated or a `StageFailure` with a user-facing message — no exceptions, no `running` status. Owner: T17 follow-up or new T32.
-- `[should-fix] PRD §5(6)` reachability gap. Add `test_salary_source_urls_reachable` under `@pytest.mark.live` that does `httpx.head(url, follow_redirects=True, timeout=3)` per source and asserts `< 400` for at least 1 of the top-2 sources per CV. Without this, T17 passes on hallucinated-but-well-shaped URLs.
-- `[should-fix] T23` verification block names "README updated", which is checklist-style and unfalsifiable. Concrete fix is captured below in §5.
+- `[resolved] PRD §5(3)` arbitrary-CV path has opt-in coverage via `GANDER_SMOKE_CV`; the test skips when unset so private reviewer CVs stay out of the repo.
+- `[resolved] PRD §5(6)` reachability now has an opt-in live gate. The test intentionally requires `GANDER_LIVE_DDG=1` so it checks URLs from fresh DDG, not deterministic cassettes, and uses HEAD with GET fallback for the top two salary sources per EN acceptance CV.
+- `[resolved] T23` README verification is now falsifiable: fresh clone, dependency sync, app launch, expected report signal, corpus regeneration, and arbitrary-CV smoke commands are named explicitly.
 
 ---
 
@@ -57,9 +67,9 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 
 **Findings**
 
-- `[should-fix] PRD §4.6 rendered-copy` no test asserts that **`render_body` output** contains the user-facing failure copy for each mode. T18 asserts the strings on the `Report` dataclass; the renderer could regress without breaking T18. Suggested fix: extend `tests/test_render.py` with one parametrised test that builds a `Report` containing a `StageFailure` per stage and asserts the failure copy appears in the rendered HTML. Owner: T14 or T18 follow-up.
+- `[resolved] PRD §4.6 rendered-copy` `tests/test_render.py` now has a parametrized `StageFailure` render test covering profile, score, salary, confidence, and growth copy.
 - `[resolved-pending-merge] Multi-failure renderer` PR #10's `tests/test_report.py::test_stage_failure_does_not_block_other_stages` asserts the renderer emits every section's failure callout (Score, Salary, Confidence, Plan) when all four downstream stages fail simultaneously. Single-stage-fails-alone permutations are owned by `tests/test_render.py`. No remaining gap on this axis; re-verify on merge.
-- `[nit] T18 cascade contract ↔ T15` the "extract fails → score/salary/growth get cascade message" assertion depends on T15's `_CASCADE_PROFILE_FAILED` dict shape. T15 has no contract-level test for the cascade keys; if a stage name changes, only T18 catches it. Suggested fix: a 5-line unit test in `tests/test_pipeline_fast.py` asserting `_CASCADE_PROFILE_FAILED` covers `{"score", "salary", "growth"}`.
+- `[resolved] T18 cascade contract ↔ T15` `tests/test_pipeline_fast.py` now pins the downstream profile-failure cascade keys.
 
 ---
 
@@ -67,40 +77,45 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 
 PRD §4.8 names four counters: **claims verified**, **claims dropped**, **search results returned**, **confidence tier assigned**. Plus per-stage **duration**, plus error events with **stage + input fingerprint (file size + type, not CV content)**.
 
-`stage_boundary` (`src/gander/errors.py:18-92`) only enters/exits the obs `current_stage` contextvar and, on exception, emits a single `error` event carrying `exc_type` + `exc_message`. It does **not** emit a `duration_ms` on the success path and does **not** emit one on the error path either. Per-stage duration is therefore only present where the stage body explicitly times itself and emits a terminal `done`/`rejected` event with `duration_ms=_ms()`.
+`stage_boundary` (`src/gander/errors.py:18-92`) only enters/exits the obs `current_stage` contextvar and, on exception, emits a single `error` event carrying `exc_type`. It does **not** emit a `duration_ms` on the success path and does **not** emit one on the error path either. Per-stage duration is therefore present where the stage body explicitly times itself and emits a terminal `done`/`rejected` event with `duration_ms=_ms()`.
 
 | Stage | Counters required by §4.8 | Plumbed? |
 |---|---|---|
 | L1 ingest | duration, fingerprint, error | covered — `ingest.py:46` (start: `filename_suffix`, `size_bytes`), `ingest.py:53/60/67/73/80/83/92` (`rejected`/`done` carry `duration_ms=_ms()`), `stage_boundary` error |
 | L2 redact | duration | covered — `redact.py:418-422` (`obs.emit("redact", "done", duration_ms=_ms(), …)`) |
 | L3 extract | **claims verified, claims dropped**, duration | covered — `extract.py:64` (`verify` event with `dropped`/`kept`), `extract.py:65` (`done` with `duration_ms=_ms()`) |
-| L4a score | duration | **missing** — `score.py` has no `_ms()` helper and no `duration_ms` on a success event; relies on the per-LLM-call `duration_ms` recorded by `gander.llm` |
-| L4b salary | **search results returned**, duration | counter covered (`salary.py:120-127`); **duration missing** — `salary.py` emits `salary_search` but no stage-level `done` event with `duration_ms` |
-| L4c confidence | **confidence tier assigned**, duration | counter covered (`confidence.py:111`/`171`); **duration missing** — no stage-level `done`/`duration_ms` emit |
-| L5 growth | duration; runtime n-gram smoke | **duration missing** — `growth.py` has no stage-level `done`/`duration_ms` emit |
+| L4a score | duration | covered — `score.py` emits `done` with `duration_ms`, total, component count, and dropped count |
+| L4b salary | **search results returned**, duration | covered — `salary_search` carries search counters; `salary.py` emits `done` with `duration_ms`, source count, country, currency, and period |
+| L4c confidence | **confidence tier assigned**, duration | covered — `confidence_decision` carries tier; `confidence.py` emits `done` with `duration_ms`, salary tier, final tier, and CV floor |
+| L5 growth | duration; runtime n-gram smoke | covered — `growth_anti_slop_check` carries returned/dropped/survived; `growth.py` emits `done` with `duration_ms` and action count |
 
-`src/gander/pipeline.py:145` does aggregate `duration_ms` off `llm_call` records to populate `Report.total_latency_ms`, but that's a coarse per-LLM-call sum, not a stage-boundary duration. PRD §4.8 phrasing ("per-stage duration") is therefore satisfied only for ingest/redact/extract today.
+`src/gander/pipeline.py:145` aggregates `duration_ms` off `llm_call` records to populate `Report.total_latency_ms`; the stage-level `done`/`rejected` events now provide the per-stage timing view separately.
 
 **Findings**
 
-- `[must-fix] §4.8 per-stage duration` `score`, `salary`, `confidence`, and `growth` do not emit a stage-level `duration_ms`. PRD §4.8 names per-stage duration as a required signal; today it exists for ingest/redact/extract only. Suggested fix: each stage body times itself (`t0 = time.perf_counter()`) and emits `obs.emit(<stage>, "done", duration_ms=…)` (plus counters where applicable) on the success path before returning. Cheap and uniform.
-- `[should-fix] errors.py:82,89` two CV-content leak points share the same `str(exc)` source. (1) Line 89 emits an obs `error` event with `exc_message=str(exc)`. (2) Line 82 assigns the same `str(exc)` to `StageFailure.user_message`, which the tracker and `report.render_body` render directly into user-facing markdown (`src/gander/report.py:163, 184, 191`). PRD §4.8 excludes CV content from logs **and** PRD §4.6 promises a curated user-facing message, not a raw exception string. If a parser raises with a snippet of the document (pypdf surfaces document strings in some `ValueError`s; `pydantic.ValidationError` includes the offending value), CV-derived text reaches both obs sinks **and** the rendered report. Suggested fix: in `_handle`, replace the `user_message=str(exc) or type(exc).__name__` fallback with a curated stage-specific default (or sanitized truncation), and replace `exc_message=str(exc)` in the obs emit with `exc_class=type(exc).__name__, exc_code=getattr(exc, "code", None)`, **or** truncate to 200 chars and strip any chars outside `[A-Za-z0-9 .,:;()/_-]`. Both call sites must be fixed together — fixing only the obs emit still leaks CV content to the rendered report.
-- `[nit] tests/test_obs.py` no test asserts the four PRD-named counters are emitted on a single golden run end-to-end. Useful as a regression net if obs sink names ever drift. Cheap to add: a session-scoped `obs.subscribe` callback that collects events, then assert every name in `{"verify", "salary_search", "confidence_decision"}` appears at least once.
+- `[resolved] §4.8 per-stage duration` `score`, `salary`, `confidence`, and `growth` now time themselves and emit `obs.emit(<stage>, "done", duration_ms=…)` on success. The explicit `stage_failure` events in those stages also include `duration_ms`.
+- `[resolved] errors.py:82,89` the generic boundary no longer uses `str(exc)` for reviewer-facing copy or obs error messages. Raw exception text remains only in `StageFailure.debug_detail`, which is not rendered in the report.
+- `[resolved] PRD obs counters` `tests/test_pipeline_fast.py` now collects obs events from one golden pipeline run and asserts `{"verify", "salary_search", "confidence_decision"}` appears.
 - `[nit]` `ingest.py:46` uses `filename_suffix` + `size_bytes` rather than a single `fingerprint` field — semantically equivalent to PRD §4.8's "file size and type, not CV content". Leave as-is; flagged here only so future readers don't grep for the literal word.
 
 ---
 
 ## 4. Reproducibility blockers
 
-- `[should-fix] T23` no clean-environment reproducibility check is wired. PRD §5(2) demands a one-or-two-command local run. Concrete fix: T23 verification must include literal commands a reviewer can copy-paste, e.g.
+- `[resolved] T23` clean-environment reproducibility is now documented with literal commands a reviewer can copy-paste:
 
   ```bash
   cd "$(mktemp -d)" && git clone <repo> gander && cd gander \
     && uv sync && MINIMAX_API_KEY=… uv run python app.py
   ```
 
-  with expected non-empty `score.total > 0` once a CV is uploaded through the Gradio UI. (`pyproject.toml` defines no `[project.scripts]` entry; the documented invocation is `uv run python app.py` — there is no `uv run gander` console-script.) Without this, T23 is unfalsifiable.
-- `[should-fix] T22 secret rebind` HF Space deploy is done, but the redeploy path (`MINIMAX_API_KEY` binding in Space settings, push to the Space remote) is not documented in any task. If the Space is torn down, the path back is tribal knowledge. T23 README should enumerate the secrets and push target explicitly.
+  The README also states the expected non-empty `score.total > 0` after a CV
+  upload, notes the LFS fixture caveat, and names `scripts/eval_corpus.py` plus
+  the opt-in `GANDER_SMOKE_CV` live smoke.
+- `[resolved] T22 secret rebind` HF Space deploy recovery is documented in
+  README and T22: active-provider secret, `GANDER_MODEL_PROFILE`,
+  `PYTHONPATH`, `HF_TOKEN`, `HF_SPACE_URL`, and the sync workflow target are
+  all named.
 
 ---
 
@@ -116,13 +131,13 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 | T27 role normalization | weak — names "canonical role map" but no test of the mapping itself | suggest one parametrised test with 6–10 raw → canonical pairs |
 | T28 redact tagline+tenure | concrete | currently on PR #11 |
 | T29 CZ senior fixture | fixture only — verification is "fixture loads + redacts cleanly" | acceptance-tier assertion belongs to T30 Phase 2 |
-| T30 acceptance CI | Phase 1 done on PR #10; Phase 2 (CS/SK triplet) still owed | tie Phase 2 to T29 landing |
+| T30 acceptance CI | Phase 1 done on PR #10; Phase 2 assertion coverage implemented | live provider run still pending |
 | T31 multimodal spike | deferred — no action |
 
 **Findings**
 
-- `[should-fix] T27` add one parametrised unit test asserting the role-normalization map covers the role strings actually present in the bundled corpus. Without it, T27 can ship and silently miss the strings T17's session fixture exercises.
-- `[should-fix] T30 Phase 2` once T29 lands, T30 Phase 2 must assert the same §5(4a)/(4b)/(4c)/(5) invariants on the CS/SK triplet. Currently only English. Without it, the multilingual claim is unverified.
+- `[resolved] T27` role-normalization coverage now includes a parametrized test for the headline strings present in the bundled corpus.
+- `[should-fix] T30 Phase 2 live gate` CZ assertion coverage now mirrors the EN §5 shape in `tests/test_acceptance_cz.py` (score spread, salary non-overlap, senior multiplier, growth dedup, and substring anchors). It still needs the provider-key live run before the task can close.
 - `[nit]` T24/T26/T28 are all on open PRs in the merge queue — re-audit after merge in case the deliverables drift during review.
 
 ---
@@ -131,16 +146,14 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 
 | Severity | Count |
 |---|---|
-| `[must-fix]` | 2 |
-| `[should-fix]` | 8 |
-| `[nit]` | 4 |
+| `[must-fix]` | 0 |
+| `[should-fix]` | 1 |
+| `[nit]` | 2 |
 
-Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability, PRD §4.6 rendered-copy, `errors.py:82,89` dual leak, T23 fresh-clone smoke, T22 secret rebind, T27 role-map test, T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
+Open `[should-fix]` bullets: T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
-**Top three actionable items** (do before declaring stages done):
+**Top actionable follow-ups**:
 
-1. `[must-fix]` Cover PRD §5(3) — arbitrary-reviewer-supplied CV. Add `test_arbitrary_cv_smoke` reading a path from `GANDER_SMOKE_CV`.
-2. `[must-fix]` Plumb per-stage `duration_ms` on `score`, `salary`, `confidence`, `growth` — PRD §4.8 names duration as a required per-stage signal and four of seven stages are silent.
-3. `[should-fix]` Sanitize both leak points off `str(exc)` in `errors.py:82,89` — the same string reaches obs logs **and** the rendered user-facing report; fixing only the obs emit still leaks CV content downstream.
+1. `[should-fix]` Run the CZ triplet live and close T30 Phase 2 once the provider-key gate is satisfied.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint). 2 `[must-fix]` outstanding: PRD §5(3) arbitrary-CV gap (carried forward) and the newly-surfaced §4.8 per-stage-duration gap on score/salary/confidence/growth. Net: 2 `[must-fix]` outstanding.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak, rendered-copy, corpus role-map, README reproducibility, deploy recovery, and salary URL reachability should-fixes are also closed; the cascade-contract and obs-counter nits are pinned. 0 `[must-fix]` findings remain open in this audit.

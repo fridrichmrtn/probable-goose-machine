@@ -327,19 +327,18 @@ async def test_stage_failure_returned_when_llm_raises(
     with subscribe(events.append):
         result = await extract_profile(redacted)
 
-    # T18 owns the curated-message contract; T09 only pins that stage_boundary captures
-    # stage+message+debug_detail.
+    # Generic boundary copy must stay curated; raw exception text belongs only
+    # in debug_detail and must not reach user-facing report copy or obs logs.
     assert isinstance(result, StageFailure)
     assert result.stage == "extract"
-    assert result.user_message == "synthetic extract failure"
+    assert result.user_message == "Could not generate this section reliably"
     assert result.debug_detail is not None
     assert result.debug_detail.startswith("RuntimeError(")
 
     errors = [e for e in events if e["event"] == "error" and e["stage"] == "extract"]
     assert errors, f"expected error event for extract stage, got {events!r}"
     assert errors[0]["exc_type"] == "RuntimeError"
-    assert pii_email not in errors[0]["exc_message"]
-    assert pii_name not in errors[0]["exc_message"]
+    assert "exc_message" not in errors[0]
 
     verify_events = [e for e in events if e["event"] == "verify" and e["stage"] == "extract"]
     assert not verify_events, "verify event must not fire on the failure path"
@@ -582,12 +581,12 @@ async def test_extract_normalizes_valid_but_wrong_side_entry_role(
         skills=[],
         experience=[
             ProfileItem(
-                text="Senior Manager AI and Data Science",
-                anchor=Anchor(quote=senior_quote, section="Work Experience"),
-            ),
-            ProfileItem(
                 text="Research Engineer",
                 anchor=Anchor(quote=research_quote, section="Work Experience"),
+            ),
+            ProfileItem(
+                text="Senior Manager AI and Data Science",
+                anchor=Anchor(quote=senior_quote, section="Work Experience"),
             ),
         ],
         education=[],
@@ -621,6 +620,65 @@ async def test_extract_normalizes_valid_but_wrong_side_entry_role(
     assert result.role_normalization_source == "experience_recovery"
     normalized = [e for e in events if e["event"] == "role_normalized"]
     assert normalized[0]["source"] == "experience_recovery"
+
+
+@pytest.mark.fast
+async def test_extract_role_recovery_preserves_cv_order_over_peak_seniority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    current_quote = (
+        "Data Scientist built retention models for the product analytics team "
+        "and owned weekly experimentation readouts"
+    )
+    prior_quote = (
+        "Head of Data Science led a historical analytics group before returning "
+        "to individual contributor delivery"
+    )
+    redacted = RedactedCV(
+        text=(f"## Work Experience\n{current_quote}.\n{prior_quote}.\n"),
+        audit_log=[],
+    )
+    llm_profile = Profile(
+        skills=[],
+        experience=[
+            ProfileItem(
+                text="Head of Data Science",
+                anchor=Anchor(quote=prior_quote, section="Work Experience"),
+            ),
+            ProfileItem(
+                text="Data Scientist",
+                anchor=Anchor(quote=current_quote, section="Work Experience"),
+            ),
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Data Scientist",
+        detected_location="Prague",
+        detected_years_experience=8,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert result.canonical_role == "data scientist"
+    assert result.seniority_band == "mid"
+    assert result.is_management is False
+    assert result.role_normalization_source == "market_token"
 
 
 # ---------- T38 low-evidence gate -------------------------------------------

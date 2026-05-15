@@ -1,6 +1,6 @@
 # T37 — Cassette/mock DDG for live acceptance + senior salary tests
 
-Status: open
+Status: done
 Owner: software-engineer (follow-up from T30 phase 1)
 Depends on: T30 phase 1 (PR #10, merged at TBD)
 Unblocks: removing defensive `_optional_growth` guard in
@@ -114,3 +114,21 @@ After landing T37:
 - `src/gander/salary.py::search` (the <2-sources StageFailure path)
 - Existing `_patch_ddgs` fixture in `tests/test_salary.py` (template for
   the patching approach)
+
+## Outcome
+
+Implemented Option A:
+- Added `tests/fixtures/ddg/market_cassettes.json` plus README regeneration
+  notes.
+- Added `tests/conftest.py` hook that replays deterministic DDG salary
+  snippets for `live` tests by default. Set `GANDER_LIVE_DDG=1` to opt back
+  into real DDG traffic for manual drift/debug runs.
+- Removed `_optional_growth` from `tests/test_acceptance.py`; acceptance now
+  requires growth on every triplet fixture again.
+- Removed `@pytest.mark.flaky(reruns=2)` from
+  `tests/test_salary.py::test_senior_fixture_estimate_returns_czk_range`.
+
+Verification:
+- Fast verification remains in the final sweep run. Live verification still
+  requires `OPENROUTER_API_KEY`; the replay hook removes DDG transport as the
+  expected flake source.

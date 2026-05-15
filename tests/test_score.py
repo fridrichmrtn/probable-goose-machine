@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from gander.errors import StageFailure
+from gander.ingest import _annotate_sections
 from gander.llm import LLMClient
 from gander.obs import subscribe
 from gander.schemas import (
@@ -17,12 +19,20 @@ from gander.schemas import (
     RedactedCV,
     Score,
 )
-from gander.score import _ComponentList, score_profile
+from gander.score import _ComponentList, _education_credential_floor, score_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
 JUNIOR_FIXTURE = FIXTURE_DIR / "01_junior_da_novotny.txt"
 SENIOR_FIXTURE = FIXTURE_DIR / "08_staff_ml_engineer_dvorak.txt"
+PHD_FIXTURE = FIXTURE_DIR / "09_research_phd_marek.txt"
+
+
+def _missing_provider_key() -> bool:
+    provider = os.environ.get("GANDER_LLM_PROVIDER", "openrouter")
+    if provider == "openrouter":
+        return not bool(os.environ.get("OPENROUTER_API_KEY"))
+    return False
 
 
 @pytest.mark.fast
@@ -43,6 +53,56 @@ def test_score_total_is_deterministic_weighted_sum() -> None:
     )
     # 80*0.35 + 60*0.30 + 40*0.20 + 100*0.15 = 28 + 18 + 8 + 15 = 69
     assert score.total == 69
+
+
+@pytest.mark.fast
+def test_score_prompt_pins_education_credential_bands() -> None:
+    body = (REPO_ROOT / "src" / "gander" / "prompts" / "score.md").read_text(encoding="utf-8")
+
+    assert "86–100 Doctorate completed" in body
+    assert "Multiple advanced degrees" in body
+    assert "Score on the HIGHEST credential" in body
+    assert "Do not score this component on prestige" in body
+
+
+@pytest.mark.fast
+def test_education_credential_floor_scans_only_education_section() -> None:
+    source = (
+        "## Work Experience\n"
+        "Supervised PhD students and managed the MBA program for a university lab.\n"
+        "## Education\n"
+        "Bachelor of Science in Statistics, Charles University, two thousand eighteen.\n"
+    )
+
+    assert _education_credential_floor(source) is None
+
+
+@pytest.mark.fast
+def test_education_credential_floor_ignores_substring_false_positives() -> None:
+    source = (
+        "## Education\n"
+        "Bachelor of Engineering, accredited university, two thousand eighteen.\n"
+        "## Skills\n"
+        "Marketing analytics, Scrum Master facilitation, and CSCP certification.\n"
+    )
+
+    assert _education_credential_floor(source) is None
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("Ph.D. in Machine Learning, Czech Technical University.", 86),
+        ("M.Sc. in Computer Science, Charles University.", 66),
+        ("Ing. in Applied Informatics, VUT Brno.", 66),
+    ],
+)
+def test_education_credential_floor_matches_section_local_degree_tokens(
+    line: str,
+    expected: int,
+) -> None:
+    assert _education_credential_floor(f"## Vzdělání\n{line}\n") == expected
 
 
 # Shared CV body for the T25 partial-score scenarios. Each section header is
@@ -133,6 +193,10 @@ async def test_score_no_partial_when_all_verify(
     components_evt = next(e for e in events if e["event"] == "score_components")
     assert components_evt["verified"] == 4
     assert components_evt["dropped"] == 0
+    done_evt = next(e for e in events if e["event"] == "done" and e["stage"] == "score")
+    assert isinstance(done_evt["duration_ms"], int)
+    assert done_evt["duration_ms"] >= 0
+    assert done_evt["total"] == result.total
 
 
 @pytest.mark.fast
@@ -228,6 +292,39 @@ async def test_score_partial_missing_two(
     assert isinstance(result, Score)
     assert result.dropped == ["education", "skills"]
     assert {c.name for c in result.components} == {"experience", "soft_signals"}
+
+
+@pytest.mark.fast
+async def test_score_emits_unmet_education_floor_when_degree_anchor_never_verifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(RedactedCV(text=_T25_CV, audit_log=[]), _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == ["education"]
+    unmet = [e for e in events if e["event"] == "education_credential_unmet"]
+    assert unmet[-1]["floor"] == 66
+    assert unmet[-1]["score"] is None
 
 
 @pytest.mark.fast
@@ -411,6 +508,140 @@ async def test_score_retries_when_skills_or_soft_signals_drop(
     retry_evt = next(e for e in events if e["event"] == "score_retry")
     assert retry_evt["reason"] == "missing_skills_or_soft_signals"
     assert retry_evt["missing"] == ["skills", "soft_signals"]
+
+
+@pytest.mark.fast
+async def test_score_retries_when_education_anchor_drops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education",
+                score_0_100=55,
+                justification=".",
+                anchor=Anchor(
+                    quote="masters degree from an elite technical university overseas",
+                    section="Education",
+                ),
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    second_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    payloads = [first_payload, second_payload]
+    seen_users: list[str] = []
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        seen_users.append(kwargs["user"])
+        return payloads.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(RedactedCV(text=_T25_CV, audit_log=[]), _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == []
+    assert {c.name for c in result.components} == set(COMPONENT_WEIGHTS.keys())
+    assert len(seen_users) == 2
+    assert "exact literal degree/institution line" in seen_users[1]
+    assert "compact Skills/Soft sections" not in seen_users[1]
+    retry_evt = next(e for e in events if e["event"] == "score_retry")
+    assert retry_evt["reason"] == "missing_education"
+    assert retry_evt["missing"] == ["education"]
+
+
+@pytest.mark.fast
+async def test_score_retries_when_education_score_ignores_doctorate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cv_text = _T25_CV.replace(
+        "MSc in Computer Science, accredited university, two thousand eighteen.",
+        "Ph.D. in Applied Machine Learning at CVUT FEL, dissertation on causal attribution.",
+    )
+    doctorate_anchor = Anchor(
+        quote="ph.d. in applied machine learning at cvut fel",
+        section="Education",
+    )
+    first_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education",
+                score_0_100=0,
+                justification="No formal credential found.",
+                anchor=doctorate_anchor,
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    second_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education",
+                score_0_100=90,
+                justification="Doctorate completed.",
+                anchor=doctorate_anchor,
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    payloads = [first_payload, second_payload]
+    seen_users: list[str] = []
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        seen_users.append(kwargs["user"])
+        return payloads.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(RedactedCV(text=cv_text, audit_log=[]), _t25_profile())
+
+    assert isinstance(result, Score)
+    education = next(c for c in result.components if c.name == "education")
+    assert education.score_0_100 == 90
+    assert len(seen_users) == 2
+    assert "education credential rubric" in seen_users[1]
+    retry_evt = next(e for e in events if e["event"] == "score_retry")
+    assert retry_evt["reason"] == "education_below_credential_floor"
+    assert retry_evt["score"] == 0
+    assert retry_evt["floor"] == 86
 
 
 @pytest.mark.fast
@@ -715,7 +946,7 @@ async def test_score_returns_stage_failure_on_invalid_llm_output(
 )
 async def test_junior_fixture_scores_below_40() -> None:
     cv_text = JUNIOR_FIXTURE.read_text(encoding="utf-8")
-    redacted = RedactedCV(text=cv_text, audit_log=[])
+    redacted = RedactedCV(text=_annotate_sections(cv_text), audit_log=[])
     item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
     profile = Profile(
         skills=[item],
@@ -744,7 +975,7 @@ async def test_junior_fixture_scores_below_40() -> None:
 )
 async def test_senior_fixture_scores_above_70() -> None:
     cv_text = SENIOR_FIXTURE.read_text(encoding="utf-8")
-    redacted = RedactedCV(text=cv_text, audit_log=[])
+    redacted = RedactedCV(text=_annotate_sections(cv_text), audit_log=[])
     item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
     profile = Profile(
         skills=[item],
@@ -758,6 +989,44 @@ async def test_senior_fixture_scores_above_70() -> None:
     result = await score_profile(redacted, profile)
     assert isinstance(result, Score), f"expected Score, got {type(result).__name__}: {result}"
     assert result.total > 70, f"senior fixture scored {result.total}, expected >70"
+
+
+@pytest.mark.live
+@pytest.mark.skipif(
+    _missing_provider_key(),
+    reason="live score regression requires OPENROUTER_API_KEY",
+)
+async def test_phd_fixture_education_lands_in_doctorate_band() -> None:
+    # T47: the score.md education rubric maps a completed doctorate to 86–100
+    # and pushes multi-degree CVs (here: Bc. + Mgr./M.Sc. + Ph.D.) toward the
+    # top of that band. The Marek research fixture lists exactly that ladder
+    # in its Education section, so a passing run must produce an education
+    # component ≥ 85. The score stage may drop the component on anchor-verify
+    # — in that case the test fails closed rather than silently passing.
+    cv_text = PHD_FIXTURE.read_text(encoding="utf-8")
+    redacted = RedactedCV(text=_annotate_sections(cv_text), audit_log=[])
+    item = ProfileItem(text="placeholder", anchor=Anchor(quote="placeholder"))
+    profile = Profile(
+        skills=[item],
+        experience=[item],
+        education=[item],
+        soft_signals=[item],
+        detected_role="Research Scientist",
+        detected_location="Prague",
+        detected_years_experience=12,
+    )
+    result = await score_profile(redacted, profile)
+    assert isinstance(result, Score), f"expected Score, got {type(result).__name__}: {result}"
+    education = next((c for c in result.components if c.name == "education"), None)
+    assert education is not None, (
+        f"education component missing from PhD fixture score; "
+        f"dropped={result.dropped}, components={[c.name for c in result.components]}"
+    )
+    assert education.score_0_100 >= 85, (
+        f"PhD + Master's + Bachelor's fixture scored education "
+        f"{education.score_0_100}/100, expected >=85 per T47 rubric. "
+        f"Anchor: {education.anchor.quote!r}"
+    )
 
 
 @pytest.mark.fast

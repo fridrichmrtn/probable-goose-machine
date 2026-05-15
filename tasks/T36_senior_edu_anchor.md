@@ -1,6 +1,6 @@
 # T36 — Senior fixture education-anchor verify miss
 
-Status: open
+Status: done — education retry verified and strict EN spread gate restored
 Owner: ai-ml-engineer (follow-up from T30 phase 1)
 Depends on: T24 (merged), T25 (merged), T26 (merged), T30 phase 1 (PR #10)
 Unblocks: removing the `if senior.dropped:` partial-Score absorber branch
@@ -103,6 +103,36 @@ for e in events:
 - Local fast suite stays green.
 - One live acceptance run confirms the spread climbs back above 30 on the
   EN triplet.
+
+## Outcome
+
+Implemented the deterministic retry-side fix for the observed education-drop
+path:
+- `score_profile` now treats `education` as a one-shot salvageable component,
+  alongside `skills` and `soft_signals`.
+- The retry prompt adds education-specific guidance to choose an exact literal
+  degree/institution line and preserve punctuation, accents, and redaction
+  markers.
+- Added a fast regression test where the first scoring attempt loses only
+  `education`, the retry returns the exact anchor, and the final `Score` is
+  full 4-of-4 with no dropped components.
+
+Verified:
+- `uv run pytest tests/test_score.py -m fast -q` → `16 passed, 3 deselected`.
+- `uv run ruff check src/gander/score.py tests/test_score.py` → passed.
+- `uv run mypy src/gander/score.py` → passed.
+
+Final verification:
+- Removed the partial-Score absorber branch from
+  `tests/test_acceptance.py::test_score_spread_at_least_30`; the test now
+  enforces the unrelaxed `delta >= 30` gate again.
+- `uv --cache-dir /tmp/uv-cache run ruff check tests/test_acceptance.py`
+  → passed.
+- `uv --cache-dir /tmp/uv-cache run pytest tests/test_acceptance.py --collect-only --strict-markers -q`
+  → `10 tests collected`.
+- PR #35 OpenRouter live CI run
+  `25932192588` / job `76228665081` → passed, including
+  `tests/test_acceptance.py::test_score_spread_at_least_30`.
 
 ## Reference
 

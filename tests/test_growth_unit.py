@@ -494,6 +494,81 @@ async def test_plan_growth_returns_stage_failure_when_fewer_than_three_verified(
 
 
 @pytest.mark.fast
+async def test_plan_growth_retries_when_too_few_actions_verify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    first = _GrowthList(
+        actions=[
+            _action(
+                what="Complete a PhD program at a top-tier institution",
+                mechanism="moves into research band",
+                quote=_QUOTE_FRAUD,
+            ),
+            _action(
+                what="Drive the Snowflake adoption rollout for the analytics platform",
+                mechanism="owning the warehouse migration lifts you into the staff-data band",
+                quote="this quote does not appear anywhere inside the source cv text body",
+                section=None,
+            ),
+            _action(
+                what="Lead the on-prem to cloud migration of the recommendation pipeline",
+                mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+                quote=_QUOTE_MIGRATION,
+            ),
+        ]
+    )
+    second = _GrowthList(
+        actions=[
+            _action(
+                what="Lead the on-prem to cloud migration of the recommendation pipeline",
+                mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+                quote=_QUOTE_MIGRATION,
+            ),
+            _action(
+                what="Own the principal engineer on-call rotation across both production squads",
+                mechanism="on-call ownership lifts base by ~15% plus uplift in CZ market",
+                quote=_QUOTE_ONCALL,
+            ),
+            _action(
+                what="Publish a Kafka stream-processing case study from the retail engagement",
+                mechanism="external visibility shifts you into staff-IC band, +25% in CZ",
+                quote=_QUOTE_FRAUD,
+            ),
+        ]
+    )
+    responses = iter([first, second])
+    seen_users: list[str] = []
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        seen_users.append(kwargs["user"])
+        return next(responses)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert len(seen_users) == 2
+    assert "previous growth-plan output failed downstream verification" in seen_users[1]
+    assert "drop_reasons" in seen_users[1]
+
+    retry_evt = next(e for e in events if e["event"] == "growth_retry")
+    assert retry_evt["reason"] == "insufficient_verified_actions"
+    assert retry_evt["survived"] == 1
+    assert retry_evt["drop_reasons"] == {"ban_phrase": 1, "unverified_anchor": 1}
+
+    anti_slop_events = [e for e in events if e["event"] == "growth_anti_slop_check"]
+    assert [e["attempt"] for e in anti_slop_events] == [0, 1]
+
+
+@pytest.mark.fast
 async def test_plan_growth_truncates_to_five_actions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -823,6 +898,10 @@ async def test_plan_growth_returns_exactly_three_when_three_verify(
     assert len(result) == 3
     returned_evt = next(e for e in events if e["event"] == "growth_actions_returned")
     assert returned_evt["count"] == 3
+    done_evt = next(e for e in events if e["event"] == "done" and e["stage"] == "growth")
+    assert isinstance(done_evt["duration_ms"], int)
+    assert done_evt["duration_ms"] >= 0
+    assert done_evt["count"] == 3
     assert not any(e["event"] == "growth_actions_truncated" for e in events)
 
 

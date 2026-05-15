@@ -1,6 +1,6 @@
 # T43 — Report readability: visual breaks, Plan typography, Score component grid
 
-Status: planned
+Status: implemented — synthetic browser smoke passed; Profile.pdf/PR screenshot attachment pending
 Owner: ux-engineer (impl) + software-engineer (test updates)
 Depends on: none (purely renderer + CSS; pipeline + schemas untouched)
 Unblocks: better first-impression UX for live `app.py` demos and Profile.pdf reruns
@@ -210,9 +210,34 @@ The literal glyph `[!] / [~] / [?]` from `_CONFIDENCE_BADGE` carries the meaning
 
 ## Review checklist (fill in on completion)
 
-- [ ] All four deliverables shipped; CSS + renderer changes contained to `src/gander/report.py`.
-- [ ] `tests/test_render.py` + `tests/test_report.py` updated; full `uv run pytest -q` green.
+- [x] All four deliverables shipped; CSS + renderer changes contained to `src/gander/report.py`.
+- [x] `tests/test_render.py` + `tests/test_report.py` updated; targeted render/report suite green.
+- [x] Local browser smoke run on a synthetic senior report in forced light, dark, desktop, and mobile viewports.
 - [ ] UI smoke run on Profile.pdf in light + dark mode; before/after screenshots attached.
-- [ ] No new dependencies; no schema changes; no pipeline changes.
-- [ ] PRD §8 cold-start ack still intact (handler's first yield in `app.py` unchanged).
+- [x] No new dependencies; no schema changes; no pipeline changes.
+- [x] PRD §8 cold-start ack still intact (handler's first yield in `app.py` unchanged).
 - [ ] Lessons updated if any user correction landed during impl.
+
+## Outcome
+
+Implemented the renderer half of T43:
+- Score now renders as a stable component grid instead of a table plus
+  `<details>` accordion, fixing the visual collision where the Skills quote
+  sat too close to the next component row.
+- Salary range renders as a headline value with a unit span.
+- Confidence renders as a standalone glyph chip plus rationale paragraph.
+- Growth plan actions render as a numbered HTML list with time-horizon chips,
+  normal-weight titles, and secondary mechanism text.
+- Added H2 separators and dark-mode variants for the new elements.
+
+Verified:
+- `uv run pytest tests/test_render.py tests/test_report.py tests/test_partial_failure_streaming.py -q`
+  → `49 passed`.
+- Local T43 browser smoke with headless Chrome:
+  - `/tmp/gander-report-light-forced.png` — 900×900 forced-light desktop.
+  - `/tmp/gander-report-dark.png` — 900×900 dark desktop.
+  - `/tmp/gander-report-mobile-light.png` — 390×900 forced-light mobile.
+  - `/tmp/gander-report-mobile-dark.png` — 390×900 dark mobile.
+
+Still pending before checking T43 done in `tasks/todo.md`:
+- Private `Profile.pdf` UI smoke, if explicitly approved, and PR screenshot attachment.

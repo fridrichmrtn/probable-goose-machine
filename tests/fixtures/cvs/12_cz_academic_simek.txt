@@ -1,0 +1,36 @@
+Radim Šimek
+Vedoucí výzkumného týmu · Brno, Česká republika
+radim.simek@example.cz · +420 603 118 772 · orcid.org/0000-0002-synthetic
+Akademická praxe
+Vedoucí výzkumného týmu — Fakulta informatiky, Brno
+Září 2018 – dosud
+Vede výzkumnou skupinu pro strojové učení v biomedicíně; tým má 7 doktorandů, 3 postdoky
+a dva průmyslové partnery.
+Získal grant TAČR na predikci komplikací v intenzivní péči, koordinoval datovou spolupráci se
+třemi nemocnicemi a zavedl reprodukovatelné evaluační protokoly.
+Postdoctoral Researcher — ETH Zürich, Švýcarsko
+Říjen 2013 – Srpen 2018
+Publikoval modely pro nepravidelné časové řady a vedl mezinárodní benchmark se 14
+datovými sadami.
+Výzkumný pracovník — Ústav informatiky AV ČR, Praha
+Leden 2010 – Září 2013
+Vyvinul bayesovský model pro detekci anomálií v klinických měřeních a učil seminář
+statistického učení.
+Vzdělání
+Docentura v oboru Informatika — Masarykova univerzita
+2021, habilitační práce o robustním učení z medicínských dat.
+Ph.D. v oboru Computer Science — Univerzita Karlova
+2006 – 2010, disertace o bayesovských modelech časových řad.
+Mgr. v oboru Matematická informatika — MUNI Brno
+2001 – 2006.
+Publikace
+32 recenzovaných článků, z toho 6 v hlavních konferencích ICML, NeurIPS a AISTATS; h-index
+19 podle Google Scholar.
+Spoluautor knihovny MedicalTSBench používané v evropské akademické komunitě.
+Granty
+TAČR TREND 2024–2027, hlavní řešitel, rozpočet 18 MCZK.
+GAČR projekt 2019–2022, spoluřešitel, časové řady v intenzivní péči.
+Výuka
+Garant předmětů Strojové učení a Bayesovská inference.
+Konference
+Programový výbor ECML PKDD 2022–2025, recenzent NeurIPS.

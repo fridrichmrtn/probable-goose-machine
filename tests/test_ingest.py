@@ -476,8 +476,10 @@ async def test_file_specific_ingest_mode_validation_is_clear(
 
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"
-    assert f"Unknown {env_name}='fast'" in result.user_message
-    assert f"expected one of {expected_modes}" in result.user_message
+    assert result.user_message == "Unable to read this file. Please upload a valid PDF or DOCX."
+    assert result.debug_detail is not None
+    assert f"Unknown {env_name}='fast'" in result.debug_detail
+    assert f"expected one of {expected_modes}" in result.debug_detail
 
 
 @pytest.mark.fast
@@ -641,6 +643,8 @@ def test_annotate_does_not_double_annotate() -> None:
     [
         "pracovní zkušenosti",
         "zkušenosti",
+        "praxe",
+        "akademická praxe",
         "vzdělání",
         "dovednosti",
         "nejčastější dovednosti",
@@ -648,6 +652,10 @@ def test_annotate_does_not_double_annotate() -> None:
         "certifikace",
         "ocenění",
         "publikace",
+        "granty",
+        "výuka",
+        "konference",
+        "reference",
         "projekty",
         "shrnutí",
         "profil",
@@ -685,7 +693,12 @@ def test_section_vocabulary_cz(cz_header: str) -> None:
         "Honors-Awards",
         "Awards",
         "Publications",
+        "Grants",
+        "Teaching",
+        "Conferences",
+        "References",
         "Contact",
+        "Academic Experience",
     ],
 )
 def test_section_vocabulary_en_extended(en_header: str) -> None:

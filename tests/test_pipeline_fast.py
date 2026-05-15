@@ -154,6 +154,17 @@ async def _collect(it: Any) -> list[Report]:
 
 
 @pytest.mark.fast
+def test_profile_failure_cascade_contract_covers_downstream_stages() -> None:
+    assert set(pipeline._CASCADE_PROFILE_FAILED) == {
+        "score",
+        "salary",
+        "confidence",
+        "growth",
+    }
+    assert all(pipeline._CASCADE_PROFILE_FAILED.values())
+
+
+@pytest.mark.fast
 async def test_initial_yield_is_all_pending(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_happy_path(monkeypatch)
     reports = await _collect(pipeline.run(b"x", "cv.pdf"))
@@ -378,6 +389,44 @@ async def test_score_and_salary_both_fail_growth_uses_combined_message(
     # Growth uses the "no baseline" message (both upstream failed).
     assert isinstance(final.growth, StageFailure)
     assert "scoring or salary" in final.growth.user_message
+
+
+@pytest.mark.fast
+async def test_prd_observability_counters_visible_on_golden_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+    events: list[dict[str, Any]] = []
+
+    async def _extract_emit(redacted: RedactedCV) -> Profile:
+        obs.emit("extract", "verify", kept=3, dropped=1)
+        return _profile()
+
+    async def _salary_emit(profile: Profile) -> SalaryEstimate:
+        obs.emit("salary", "salary_search", raw_results=4, dedup_results=3)
+        return _salary()
+
+    async def _judge_emit(
+        sources: list[Source],
+        low: int,
+        high: int,
+        currency: str,
+        period: str,
+        *,
+        cv_quality: CVQualitySignals,
+    ) -> Confidence:
+        obs.emit("confidence", "confidence_decision", tier="High")
+        return _confidence()
+
+    monkeypatch.setattr(pipeline, "extract_profile", _extract_emit)
+    monkeypatch.setattr(pipeline, "estimate_salary", _salary_emit)
+    monkeypatch.setattr(pipeline, "judge", _judge_emit)
+
+    with obs.subscribe(events.append):
+        await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    event_names = {event["event"] for event in events}
+    assert {"verify", "salary_search", "confidence_decision"} <= event_names
 
 
 @pytest.mark.fast

@@ -1,7 +1,7 @@
 # T23 — L9 README finalize (Decisions section is load-bearing)
 
-Status: todo
-Owner: (decided at write time — needs author voice)
+Status: implemented — live numbers pending explicit provider-upload approval
+Owner: codex
 Depends on: T17, T20, T21, T22
 Unblocks: SUBMIT
 Estimate: ~90 min
@@ -20,7 +20,7 @@ Replace the bootstrap stub at `README.md` with:
 - [ ] **Above the fold**:
   - Public Space URL as the first thing visible.
   - One-line note: "First request may take ~20s if the Space is asleep — the warm-keeper cron usually prevents this."
-  - Local-run one-liner: `uv sync && MINIMAX_API_KEY=... uv run python app.py`.
+  - Local-run one-liner: `uv sync && OPENROUTER_API_KEY=... uv run python app.py`.
 - [ ] **How the pipeline works**:
   - Reuse the DAG ASCII from `tasks/PLAN.md`.
   - 1-paragraph stage descriptions.
@@ -53,7 +53,22 @@ Replace the bootstrap stub at `README.md` with:
 ## Verification
 
 - [ ] Read top-to-bottom; trim anything that doesn't serve judgment or reliability (per CLAUDE.md "demand elegance").
-- [ ] Anyone unfamiliar with the project should understand what it does and how to run it within 60 seconds.
+- [x] Anyone unfamiliar with the project should understand what it does and how to run it within 60 seconds.
+- [x] Fresh-clone local run is falsifiable from the README:
+  ```bash
+  git clone https://github.com/fridrichmrtn/probable-goose-machine gander
+  cd gander
+  uv sync
+  OPENROUTER_API_KEY=... uv run python app.py
+  ```
+  Expected signal after uploading `tests/fixtures/cvs/03_ds_horak.pdf`:
+  final report renders with non-empty `score.total > 0` and populated final
+  sections or reviewer-facing inline `StageFailure` copy.
+- [x] Opt-in live/corpus commands are named in the README:
+  `scripts/eval_corpus.py` for fixture regeneration and
+  `GANDER_SMOKE_CV=... pytest tests/test_arbitrary_cv_smoke.py -m live` for a
+  private arbitrary CV.
+- [x] HF Space redeploy / secret-rebind path is documented in README and T22.
 - [ ] Numbers (cost, latency, bias delta) are real — not placeholders.
 
 ## Reference
@@ -63,4 +78,28 @@ Replace the bootstrap stub at `README.md` with:
 
 ## Outcome
 
-(fill in when done — link to the rendered README on GitHub + HF Space)
+README stub replaced with reviewer-facing content:
+- Public HF Space URL and local run one-liner are above the fold.
+- Pipeline, grounding, confidence isolation, observability, provider setup,
+  privacy, decisions, limitations, and reviewer cheat sheet are documented.
+- Stale direct-Anthropic provider wording was removed; current provider values
+  are OpenRouter-only at runtime.
+
+Still pending before checking T23 done in `tasks/todo.md`:
+- Fresh live corpus/cost numbers in `reports/SUMMARY.md`; this now requires an
+  explicit `--allow-provider-upload` run because fixture CV contents are sent
+  to OpenRouter.
+- Fresh bias-smoke delta from `scripts/run_bias_smoke.py` or the live CI
+  JUnit property, with the same provider-upload approval boundary.
+
+Follow-up during the sweep:
+- `reports/SUMMARY.md` placeholder now lists all 14 committed fixture pairs,
+  including the T29 CZ fixtures #11–#13, so the linked eval surface no longer
+  hides the multilingual corpus extension while live numbers are pending.
+- `scripts/eval_corpus.py` now preflights the configured provider keys,
+  including per-logical-model provider overrides, requires explicit
+  provider-upload consent, and exits 2 before creating report files when
+  credentials or consent are missing.
+- README now includes a clean-clone local runbook, expected healthy-run signal,
+  corpus-regeneration command, opt-in arbitrary-CV smoke command, and the HF
+  Space secret-rebind / sync recovery path.

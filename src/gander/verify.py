@@ -5,7 +5,11 @@ import unicodedata
 from typing import TypeVar
 
 from gander import obs
-from gander.sections import NORMALIZED_SECTION_NAMES, normalize_section_name
+from gander.sections import (
+    NORMALIZED_SECTION_NAMES,
+    normalize_section_name,
+    section_name_candidates,
+)
 
 T = TypeVar("T")
 
@@ -16,9 +20,14 @@ _HEADER = re.compile(r"^(#{1,6})\s+(.+)$", flags=re.MULTILINE)
 _WORK_SECTION_NAMES = frozenset(
     normalize_section_name(name)
     for name in (
+        "academic experience",
+        "academic practice",
         "experience",
+        "research experience",
         "work experience",
         "professional experience",
+        "akademická praxe",
+        "praxe",
         "pracovní zkušenosti",
         "zkušenosti",
     )
@@ -59,7 +68,7 @@ def _normalize(text: str) -> str:
 
 
 def _is_known_section_header(text: str) -> bool:
-    return normalize_section_name(text) in NORMALIZED_SECTION_NAMES
+    return bool(section_name_candidates(text) & NORMALIZED_SECTION_NAMES)
 
 
 def _looks_like_work_child_header(text: str) -> bool:
@@ -87,13 +96,13 @@ def _is_child_header(parent_section: str, parent_level: int, match: re.Match[str
 
 
 def _section_text(source: str, section: str) -> str | None:
-    target = normalize_section_name(section)
+    targets = section_name_candidates(section)
     matches = list(_HEADER.finditer(source))
     if not matches:
         return None
     for i, m in enumerate(matches):
         header = normalize_section_name(m.group(2))
-        if header == target:
+        if header in targets:
             start = m.end()
             end = len(source)
             if _is_known_section_header(section):

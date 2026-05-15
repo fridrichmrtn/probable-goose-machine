@@ -74,6 +74,51 @@ def test_verify_quote_section_match_cz() -> None:
     assert verify_quote(quote, SOURCE_CZ, section="Pracovní zkušenosti") is True
 
 
+def test_translated_cz_section_alias_matches_without_fallback_event() -> None:
+    source = """## Akademická praxe
+Vede výzkumnou skupinu pro strojové učení v biomedicíně a koordinuje datovou spolupráci.
+
+## Vzdělání
+Docentura v oboru Informatika na Masarykově univerzitě.
+"""
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        assert (
+            verify_quote(
+                "vede výzkumnou skupinu pro strojové učení",
+                source,
+                section="Academic Experience",
+            )
+            is True
+        )
+    assert not any(e["event"] == "verify_section_miss" for e in events)
+
+
+def test_translated_cz_section_alias_stays_section_local() -> None:
+    source = """## Akademická praxe
+Vede výzkumnou skupinu pro strojové učení v biomedicíně.
+
+## Vzdělání
+Docentura v oboru Informatika na Masarykově univerzitě a Ph.D. v informatice.
+"""
+    quote = "Docentura v oboru Informatika na Masarykově univerzitě"
+    assert verify_quote(quote, source, section="Academic Experience") is False
+
+
+def test_academic_alias_does_not_match_general_work_section() -> None:
+    source = """## Pracovní zkušenosti
+Vedl komerční datový tým v bankovnictví a dodal tři produkční modely rizika.
+
+## Akademická praxe
+Vede výzkumnou skupinu pro strojové učení v biomedicíně a koordinuje grantovou spolupráci.
+"""
+    work_quote = "Vedl komerční datový tým v bankovnictví a dodal"
+    academic_quote = "Vede výzkumnou skupinu pro strojové učení v biomedicíně"
+
+    assert verify_quote(work_quote, source, section="Academic Experience") is False
+    assert verify_quote(academic_quote, source, section="Academic Experience") is True
+
+
 def test_known_parent_section_includes_employer_subheaders() -> None:
     source = (
         "## Pracovní zkušenosti\n"

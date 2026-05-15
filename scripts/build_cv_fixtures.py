@@ -1,12 +1,15 @@
 """Author the test CV fixtures.
 
-Single source of truth for the 10-persona CZ corpus (#1–#10) plus the 09b
+Single source of truth for the 13-persona corpus (#1–#13) plus the 09b
 bias-pair variant of #9. PDFs come from two reportlab templates: a clean
-single-frame layout (#2, #3, #7, #9, #9b) and a deliberately messy
-two-column layout with optional footer cruft (#5, #8) so pdfplumber's
+single-frame layout (#2, #3, #7, #9, #9b, #12, #13) and a deliberately messy
+two-column layout with optional footer cruft (#5, #8, #11) so pdfplumber's
 column-aware fallback gets exercised. DOCX fixtures (#1, #4, #6, #10) use
 ``python-docx``. Goldens (``*.txt``) are the actual extractor output, not
 the source content.
+
+Regeneration requires reviewer sign-off; PDFs/DOCX files and their extracted
+``*.txt`` mirrors are committed test artifacts.
 
 Run: ``uv run python scripts/build_cv_fixtures.py``
 """
@@ -975,6 +978,170 @@ def _zemanova_blocks() -> list[CVBlock]:
     ]
 
 
+def _strelcova_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Pracovní zkušenosti",
+            [
+                "<b>Member of Staff — Stealth AI Studio, Praha</b><br/>"
+                "Leden 2024 – present<br/>"
+                "Owns applied ML strategy for a privacy-first analytics product; "
+                "built the first retrieval-evaluation harness and led production "
+                "launch reviews for agentic workflows serving finance customers.",
+                "Vede malý tým 5 lidí napříč research, platformou a product ops; "
+                "zavedla týdenní eval review a incident playbook pro modelové "
+                "regrese v produkci.",
+                "<b>Head of Data Science — Košík Retail Lab, Praha</b><br/>"
+                "Duben 2019 – Prosinec 2023<br/>"
+                "Built a demand-forecasting and replenishment programme across "
+                "fresh grocery categories; reduced spoilage by 18% while keeping "
+                "same-day availability above 96%.",
+                "Managed 9 data scientists and analytics engineers, hired the "
+                "first ML platform engineer, and presented quarterly margin "
+                "levers to the executive board.",
+                "<b>Senior Manager, AI &amp; Data — Atlas Enterprise, Brno</b><br/>"
+                "Srpen 2014 – Březen 2019<br/>"
+                "Led churn, pricing, and customer-lifetime-value models for B2B "
+                "segments in CZ and SK. Delivered a gradient-boosting pricing "
+                "model that lifted renewal margin by 11.7%.",
+            ],
+        ),
+        CVBlock(
+            "Vzdělání",
+            [
+                "<b>Ph.D. in Applied Machine Learning — ČVUT FEL, Praha</b><br/>"
+                "2010 – 2014, dissertation on causal attribution in retail data.",
+                "<b>Ing. (M.Sc.) in Statistics — VŠE Praha</b><br/>2008 – 2010.",
+            ],
+        ),
+        CVBlock(
+            "Nejčastější dovednosti",
+            [
+                "Python 3.11, PyTorch 2.3, LightGBM 4.3, SHAP, causal forests, "
+                "FastAPI, Kubernetes 1.29, MLflow 2.10, BigQuery, dbt 1.7.",
+                "Leadership: hiring plan, board narrative, research roadmap, "
+                "risk review, mentoring senior ICs.",
+            ],
+        ),
+        CVBlock(
+            "Jazyky",
+            ["Čeština rodilá, angličtina C2, slovenština plynule."],
+        ),
+        CVBlock(
+            "Publikace",
+            [
+                "K. Střelcová, Attribution under delayed retail feedback, "
+                "Workshop on Applied ML Systems 2023.",
+            ],
+        ),
+        CVBlock(
+            "Certifikace",
+            ["Certified Kubernetes Application Developer, Google Professional ML Engineer."],
+        ),
+    ]
+
+
+def _simek_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Akademická praxe",
+            [
+                "<b>Vedoucí výzkumného týmu — Fakulta informatiky, Brno</b><br/>"
+                "Září 2018 – dosud<br/>"
+                "Vede výzkumnou skupinu pro strojové učení v biomedicíně; tým "
+                "má 7 doktorandů, 3 postdoky a dva průmyslové partnery.",
+                "Získal grant TAČR na predikci komplikací v intenzivní péči, "
+                "koordinoval datovou spolupráci se třemi nemocnicemi a zavedl "
+                "reprodukovatelné evaluační protokoly.",
+                "<b>Postdoctoral Researcher — ETH Zürich, Švýcarsko</b><br/>"
+                "Říjen 2013 – Srpen 2018<br/>"
+                "Publikoval modely pro nepravidelné časové řady a vedl "
+                "mezinárodní benchmark se 14 datovými sadami.",
+                "<b>Výzkumný pracovník — Ústav informatiky AV ČR, Praha</b><br/>"
+                "Leden 2010 – Září 2013<br/>"
+                "Vyvinul bayesovský model pro detekci anomálií v klinických "
+                "měřeních a učil seminář statistického učení.",
+            ],
+        ),
+        CVBlock(
+            "Vzdělání",
+            [
+                "<b>Docentura v oboru Informatika — Masarykova univerzita</b><br/>"
+                "2021, habilitační práce o robustním učení z medicínských dat.",
+                "<b>Ph.D. v oboru Computer Science — Univerzita Karlova</b><br/>"
+                "2006 – 2010, disertace o bayesovských modelech časových řad.",
+                "<b>Mgr. v oboru Matematická informatika — MUNI Brno</b><br/>2001 – 2006.",
+            ],
+        ),
+        CVBlock(
+            "Publikace",
+            [
+                "32 recenzovaných článků, z toho 6 v hlavních konferencích "
+                "ICML, NeurIPS a AISTATS; h-index 19 podle Google Scholar.",
+                "Spoluautor knihovny MedicalTSBench používané v evropské akademické komunitě.",
+            ],
+        ),
+        CVBlock(
+            "Granty",
+            [
+                "TAČR TREND 2024–2027, hlavní řešitel, rozpočet 18 MCZK.",
+                "GAČR projekt 2019–2022, spoluřešitel, časové řady v intenzivní péči.",
+            ],
+        ),
+        CVBlock("Výuka", ["Garant předmětů Strojové učení a Bayesovská inference."]),
+        CVBlock("Konference", ["Programový výbor ECML PKDD 2022–2025, recenzent NeurIPS."]),
+    ]
+
+
+def _havelka_blocks() -> list[CVBlock]:
+    return [
+        CVBlock(
+            "Praxe",
+            [
+                "<b>Manažer datového oddělení — Moravia Banka, Praha</b><br/>"
+                "Únor 2021 – dosud<br/>"
+                "Řídí datové oddělení o 11 lidech pro retailové bankovnictví, "
+                "úvěrové kampaně a reporty pro představenstvo.",
+                "Zavedl jednotný datový slovník, kontrolu kvality v dbt a "
+                "měsíční radu pro priorizaci analytických požadavků.",
+                "Vedl migraci reportingu z ručních Excel sešitů do Snowflake, "
+                "dbt a Power BI; zkrátil přípravu měsíčního balíku z 6 dnů "
+                "na 9 hodin.",
+                "<b>Senior analytik — TelcoNet CZ, Praha</b><br/>"
+                "Květen 2016 – Leden 2021<br/>"
+                "Postavil model odchodu zákazníků pro tarifní bázi 1,8M klientů "
+                "a snížil churn v retenčním segmentu o 7,9%.",
+                "<b>Datový analytik — Lékárna Online, Brno</b><br/>"
+                "Červen 2013 – Duben 2016<br/>"
+                "Připravil první maržový dashboard pro e-commerce sortiment a "
+                "sjednotil SQL definice objednávek, vratek a slev.",
+            ],
+        ),
+        CVBlock(
+            "Vzdělání",
+            [
+                "<b>Ing. v oboru Informační management — VŠE Praha</b><br/>"
+                "2011 – 2013, diplomová práce o predikci odchodu zákazníků.",
+                "<b>Bc. v oboru Aplikovaná informatika — VUT Brno</b><br/>2008 – 2011.",
+            ],
+        ),
+        CVBlock(
+            "Dovednosti",
+            [
+                "SQL, Snowflake, dbt 1.7, Power BI, Python 3.11, pandas, "
+                "Airflow 2.9, modely odchodu zákazníků, datová kvalita.",
+                "Vedení týmu, plánování kapacit, komunikace s představenstvem, "
+                "řízení priorit a mentoring analytiků.",
+            ],
+        ),
+        CVBlock("Jazyky", ["Čeština rodilá, slovenština plynule, angličtina B2."]),
+        CVBlock(
+            "Reference",
+            ["Reference od CIO a ředitele retailového bankovnictví dostupné na vyžádání."],
+        ),
+    ]
+
+
 # ---------- Persona builders (one per fixture) ----------
 
 
@@ -1062,6 +1229,37 @@ def build_zemanova_docx(out_path: Path) -> None:
     )
 
 
+def build_strelcova_pdf(out_path: Path) -> None:
+    _build_messy_pdf(
+        out_path,
+        _strelcova_blocks(),
+        name="Klára Střelcová",
+        role="Data Gardener | AI, Data Science & Engineering @Stealth",
+        contact="klara.strelcova@example.cz · +420 731 404 909 · linkedin.com/in/klarastrelcova",
+        footer_left="Životopis — aktualizováno květen 2026",
+    )
+
+
+def build_simek_pdf(out_path: Path) -> None:
+    _build_clean_pdf(
+        out_path,
+        _simek_blocks(),
+        name="Radim Šimek",
+        role="Vedoucí výzkumného týmu · Brno, Česká republika",
+        contact="radim.simek@example.cz · +420 603 118 772 · orcid.org/0000-0002-synthetic",
+    )
+
+
+def build_havelka_pdf(out_path: Path) -> None:
+    _build_clean_pdf(
+        out_path,
+        _havelka_blocks(),
+        name="Pavel Havelka",
+        role="Manažer datového oddělení · Praha, Česká republika",
+        contact="pavel.havelka@example.cz · +420 777 530 118 · linkedin.com/in/pavelhavelka",
+    )
+
+
 # ---------- Golden .txt extraction ----------
 
 
@@ -1101,6 +1299,9 @@ def main() -> None:
             lambda p: build_marek_pdf(p, school="[REDACTED UNIVERSITY]"),
         ),
         ("10_head_of_data_zemanova", "docx", build_zemanova_docx),
+        ("11_cz_bilingual_member_of_staff_strelcova", "pdf", build_strelcova_pdf),
+        ("12_cz_academic_simek", "pdf", build_simek_pdf),
+        ("13_cz_corporate_manazer_havelka", "pdf", build_havelka_pdf),
     ]
 
     for stem, fmt, builder in builds:

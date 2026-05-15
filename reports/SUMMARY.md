@@ -6,9 +6,12 @@ Profile: `local` (GANDER_MODEL_PROFILE)
 > the numbers below are not real. Regenerate with:
 >
 > ```bash
-> uv run python scripts/eval_corpus.py            # local profile
-> uv run python scripts/eval_corpus.py --profile ci   # CI / cheap-model profile
+> uv run python scripts/eval_corpus.py --allow-provider-upload
+> uv run python scripts/eval_corpus.py --profile ci --allow-provider-upload
 > ```
+>
+> The opt-in flag is intentional: the run sends committed fixture CV contents
+> to the configured LLM provider.
 >
 > The script writes one `reports/<cv_stem>.md` per fixture plus this
 > SUMMARY.md. Only SUMMARY.md is committed (see `.gitignore`).
@@ -26,5 +29,8 @@ Profile: `local` (GANDER_MODEL_PROFILE)
 | 09 | 09_research_phd_marek | PDF | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
 | 10 | 09b_research_phd_marek_anon | PDF | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
 | 11 | 10_head_of_data_zemanova | DOCX | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| 12 | 11_cz_bilingual_member_of_staff_strelcova | PDF | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| 13 | 12_cz_academic_simek | PDF | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| 14 | 13_cz_corporate_manazer_havelka | PDF | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
 
 **Totals**: pending live run.

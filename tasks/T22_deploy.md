@@ -32,10 +32,12 @@ Get the public Hugging Face Space URL live. After this task, the reviewer can cl
   ```
   Verify the file lists exactly the runtime deps (no dev deps).
 - [x] Create the Space:
-  - Via web UI on huggingface.co/new-space, or via `huggingface-cli` (login first).
+  - Via web UI on huggingface.co/new-space, or via `hf` (login first).
   - SDK: Gradio. Hardware: free CPU (sufficient).
-  - Set the Space secret: `MINIMAX_API_KEY`. (And `ANTHROPIC_API_KEY` if T05 spike triggered the swap.)
-  - Set repo variable `GANDER_MODEL_PROFILE=local` (Space uses the M1 profile, not the CI cheap profile).
+  - Set the Space secret for the active provider: `MINIMAX_API_KEY` by default,
+    or `OPENROUTER_API_KEY` plus `GANDER_LLM_PROVIDER=openrouter`.
+  - Set Space variable `GANDER_MODEL_PROFILE=local` (Space uses the M1 profile,
+    not the CI cheap profile).
 - [x] Wire GitHub → HF Space sync:
   - Either: add HF Space as a git remote and `git push hf main`; OR enable "Sync from GitHub" in Space settings (preferred — push to GitHub once and it auto-deploys).
   - Document the chosen approach in this task's Outcome section.
@@ -46,7 +48,7 @@ Get the public Hugging Face Space URL live. After this task, the reviewer can cl
 
 ```bash
 gh variable list                 # HF_SPACE_URL is set
-gh secret list                   # MINIMAX_API_KEY is set
+gh secret list                   # HF_TOKEN and OPENROUTER_API_KEY are set
 curl -sfI $HF_SPACE_URL          # 200 OK
 # manual: open URL, upload one fixture, see report appear within ~60s warm
 ```
@@ -75,6 +77,27 @@ curl -sfI $HF_SPACE_URL          # 200 OK
 **GitHub→HF sync:** Wired via [.github/workflows/sync-to-hub.yml](../.github/workflows/sync-to-hub.yml) (direct `git push` triggered on `push: main` and `workflow_dispatch`). HF does **not** offer a "Sync from GitHub" Space-settings UI — earlier walkthrough was a misread; correct mechanism per [HF docs](https://huggingface.co/docs/hub/spaces-github-actions) is a GH Action. After commit `eaa6d1f`, deploying requires only `git push origin main`; the action does the HF push. First run completed/success in 11s — `protocol.version=0` workaround was **not** needed (runner git is recent enough). Manual `git push hf main` remains the fallback if the action breaks; `hf` remote stays configured.
 
 Token note: `HF_TOKEN` GH secret was seeded from local `hf auth token` (account-wide write). Rotation follow-up: mint a fine-grained token scoped to this Space only at https://huggingface.co/settings/tokens and replace via `gh secret set HF_TOKEN`.
+
+**Recovery / secret rebind runbook:** The live source of truth is GitHub
+`main`; [.github/workflows/sync-to-hub.yml](../.github/workflows/sync-to-hub.yml)
+pushes that commit to the Space using the GitHub `HF_TOKEN` secret. If the
+Space is rebuilt or secrets are lost, restore:
+
+- HF Space secrets/env: `MINIMAX_API_KEY` for the default provider, or
+  `OPENROUTER_API_KEY` plus `GANDER_LLM_PROVIDER=openrouter` when running the
+  hosted app on OpenRouter; `GANDER_MODEL_PROFILE=local`; `PYTHONPATH=/app/src`.
+- GitHub secrets/vars: `HF_TOKEN` for the sync workflow,
+  `HF_SPACE_URL=https://fridrichmrtn-probable-goose-machine.hf.space` for
+  warm-keeper, and `OPENROUTER_API_KEY` for `openrouter-live` CI.
+
+For a full Space recreate:
+
+```bash
+hf repos create fridrichmrtn/probable-goose-machine --type space --space-sdk gradio --public --secrets MINIMAX_API_KEY=... --env GANDER_MODEL_PROFILE=local --env PYTHONPATH=/app/src --exist-ok
+gh secret set HF_TOKEN
+gh variable set HF_SPACE_URL --body https://fridrichmrtn-probable-goose-machine.hf.space
+gh workflow run sync-to-hub.yml
+```
 
 **Build issues encountered & fixed during deploy:**
 1. `uv export` writes its `Resolved N packages …` status line to stdout, not stderr — it became line 1 of `requirements.txt` and pip rejected with `Invalid requirement`. Fix: re-export with `--quiet`.

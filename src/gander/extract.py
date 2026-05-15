@@ -116,6 +116,14 @@ def _evidence_key(quote: str) -> str:
     return " ".join(unicodedata.normalize("NFC", quote).casefold().split())
 
 
+def _quote_source_index(source: str, quote: str) -> int:
+    """Best-effort source offset for verified anchor quotes; missing quotes sort last."""
+    haystack = unicodedata.normalize("NFC", source).casefold()
+    needle = unicodedata.normalize("NFC", quote).casefold()
+    idx = haystack.find(needle)
+    return idx if idx >= 0 else len(haystack)
+
+
 def _strip_bullet(line: str) -> str:
     stripped = line.strip()
     for prefix in _BULLET_PREFIXES:
@@ -317,8 +325,12 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             "detected_years_experience", profile.detected_years_experience
         )
         assert isinstance(years_for_normalize, int)
+        experience_items = sorted(
+            kept_lists["experience"],
+            key=lambda item: _quote_source_index(redacted.text, item.anchor.quote),
+        )
         experience_titles: list[str] = []
-        for item in kept_lists["experience"]:
+        for item in experience_items:
             experience_titles.append(item.text)
         normalized = await normalize_role_with_llm_fallback(
             profile.detected_role, years_for_normalize, experience_titles
