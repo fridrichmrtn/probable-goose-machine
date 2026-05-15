@@ -1,6 +1,6 @@
 # T39 — Growth backward-bias + salary role-mismatch (Profile.pdf rerun)
 
-Status: implemented — pending live Profile.pdf rerun
+Status: implemented — final private Profile.pdf rerun pending explicit approval
 Owner: ai-ml-engineer
 Depends on: —
 Unblocks: T40 verification (Martin CV rerun)
@@ -99,12 +99,38 @@ Implemented the fast-verifiable pieces:
 - `normalize.seniority_rank()` plus a narrow `experience_recovery` path so a valid-but-low side-entry role such as "Research Engineer" cannot beat a higher-seniority work title.
 - `extract_profile()` now sorts title candidates by seniority before role normalization.
 - Growth payload now includes `current_employer_hint` and `dropped_components`; prompt rules now distinguish evidence anchors from forward-looking action targets and forbid past-employer redo/scale actions.
+- `verify_quote(section=...)` now keeps employer subheaders inside known parent
+  CV sections such as `Pracovní zkušenosti`, so VLM transcripts with `## TD
+  SYNNEX` under work experience no longer drop valid experience/soft-signal
+  score anchors before growth can run.
+- Role recovery now extracts clean title prefixes from Profile.pdf-style
+  summaries such as `Senior Manager AI at TD SYNNEX, ...` and rejects
+  duration-shaped candidates such as `Research Engineer, 10 years ...` as the
+  salary canonical role.
 
 Verified:
 - `uv run pytest tests/test_normalize.py tests/test_extract.py -m fast -v`
 - `uv run pytest tests/test_growth_unit.py -m fast -v`
 - full fast suite: `350 passed, 57 deselected`
+- `uv run pytest tests/test_verify.py tests/test_score.py -m fast --strict-markers -v` — 32 passed, 3 deselected
+- `uv run pytest tests/test_normalize.py tests/test_extract.py tests/test_salary.py -m fast --strict-markers -v` — 68 passed, 13 deselected
+
+Live Profile.pdf observations on 2026-05-15:
+- Text ingest reproduced the known Profile.pdf fragility: `score=failed`, salary/confidence completed, growth cascaded.
+- App-default vision ingest plus OpenRouter downstream stages initially exposed
+  the section-slicing bug (`score=failed` because work-experience quotes lived
+  under employer subheaders).
+- After the section fix, the app handler reached `profile/score/salary/confidence/growth=done`;
+  growth produced current/future-role actions with no Alza/rebuild/redo target,
+  and the UI stream rendered sensibly. The same run exposed the remaining
+  salary-role bug: canonical role was still `research engineer, 10 years 7
+  months tenure` with a 60-90k CZK/month band.
+- The role-prefix recovery fix is fast-verified, but the final private
+  Profile.pdf rerun after that fix was blocked by the execution environment
+  because it would resend local private CV contents to external LLM services.
 
 Still pending before checking T39 done:
-- Live Profile.pdf rerun to confirm growth output has zero past-employer targets and salary resolves to the senior/management track.
+- Final app-default Profile.pdf rerun after explicit user approval for sending
+  the private local PDF to MiniMax/OpenRouter, confirming salary no longer
+  resolves to Research Engineer and growth still has zero past-employer targets.
 - T30 EN-triplet live acceptance / growth baseline refresh if the live output changes.

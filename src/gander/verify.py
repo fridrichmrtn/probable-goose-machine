@@ -11,23 +11,73 @@ T = TypeVar("T")
 _WS = re.compile(r"\s+")
 # Accept any markdown header level (H1–H6); the section vocabulary is
 # author-driven, not depth-driven.
-_HEADER = re.compile(r"^#{1,6}\s+(.+)$", flags=re.MULTILINE)
+_HEADER = re.compile(r"^(#{1,6})\s+(.+)$", flags=re.MULTILINE)
+_KNOWN_SECTION_NAMES = frozenset(
+    {
+        "awards",
+        "certifications",
+        "contact",
+        "dovednosti",
+        "education",
+        "experience",
+        "honors-awards",
+        "jazyky",
+        "kontakt",
+        "languages",
+        "nejcastejsi dovednosti",
+        "pracovni zkusenosti",
+        "professional experience",
+        "profile",
+        "profil",
+        "projects",
+        "projekty",
+        "publications",
+        "publikace",
+        "skills",
+        "summary",
+        "vydelani",
+        "vzdelani",
+        "work experience",
+        "zkusenosti",
+    }
+)
 
 
 def _normalize(text: str) -> str:
     return _WS.sub(" ", unicodedata.normalize("NFC", text).strip().lower())
 
 
+def _normalize_section_name(text: str) -> str:
+    decomposed = unicodedata.normalize("NFD", text)
+    no_marks = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+    return _WS.sub(" ", no_marks.strip().lower())
+
+
+def _is_known_section_header(text: str) -> bool:
+    return _normalize_section_name(text) in _KNOWN_SECTION_NAMES
+
+
 def _section_text(source: str, section: str) -> str | None:
-    target = unicodedata.normalize("NFC", section).strip().lower()
+    target = _normalize_section_name(section)
     matches = list(_HEADER.finditer(source))
     if not matches:
         return None
     for i, m in enumerate(matches):
-        header = unicodedata.normalize("NFC", m.group(1)).strip().lower()
+        header = _normalize_section_name(m.group(2))
         if header == target:
             start = m.end()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(source)
+            end = len(source)
+            if _is_known_section_header(section):
+                # VLM/PDF transcripts often mark employer names as `##` headers
+                # inside a real Work Experience section. Keep those subheaders
+                # inside the parent section and stop only at the next known CV
+                # section label, preserving section-restricted verification.
+                for next_match in matches[i + 1 :]:
+                    if _is_known_section_header(next_match.group(2)):
+                        end = next_match.start()
+                        break
+            elif i + 1 < len(matches):
+                end = matches[i + 1].start()
             return source[start:end]
     return None
 

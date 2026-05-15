@@ -194,17 +194,23 @@ async def search(queries: list[str]) -> list[Source]:
     search_backends = _salary_search_backends()
     raw_results: list[dict[str, Any]] = []
     failed_queries: list[dict[str, str]] = []
-    for q in queries:
+
+    async def _run_query(query: str) -> tuple[list[dict[str, Any]], dict[str, str] | None]:
         try:
-            results = await asyncio.to_thread(_ddg_text, q)
+            return await asyncio.to_thread(_ddg_text, query), None
         except Exception as exc:
             # DDG occasionally rejects one query shape (e.g. site:a OR site:b)
             # while the others succeed. Treat single-query failures as expected
             # and continue; only collapse to StageFailure if <2 sources survive
             # in aggregate.
-            failed_queries.append({"query": q, "exc_type": type(exc).__name__})
-            continue
+            return [], {"query": query, "exc_type": type(exc).__name__}
+
+    # build_queries caps fan-out at five today. If that grows, add a small
+    # semaphore here before DDG starts rate-limiting one runner IP.
+    for results, failure in await asyncio.gather(*(_run_query(q) for q in queries)):
         raw_results.extend(results)
+        if failure is not None:
+            failed_queries.append(failure)
 
     seen: set[str] = set()
     candidates: list[Source] = []

@@ -191,6 +191,32 @@ def test_valid_but_lower_seniority_detected_role_recovers_from_titles() -> None:
 
 
 @pytest.mark.fast
+def test_tagline_recovery_uses_title_prefixes_not_duration_summaries() -> None:
+    """Profile.pdf-style summaries carry title prefixes plus employer/duration prose.
+
+    The role normalizer must recover the senior/management track from those
+    prefixes instead of letting a duration-shaped "Research Engineer" side
+    entry drive salary queries.
+    """
+    result = normalize_role(
+        "Data Gardener | AI, Data Science & Engineering @Stealth",
+        10,
+        [
+            "Member of Staff at Stealth Mode Startup, 4 months",
+            "Research Engineer, 10 years 7 months tenure",
+            "Senior Manager AI at TD SYNNEX, led marketing and commercial data streams",
+            "Head of Data Science & Analytics at Alza.cz, founded and led teams",
+            "Head of Tender Management & Analytics at DSV Global Transport",
+        ],
+    )
+
+    assert result.canonical_role == "head of data science & analytics"
+    assert result.seniority_band == "head"
+    assert result.is_management is True
+    assert result.source == "tagline_shape"
+
+
+@pytest.mark.fast
 def test_valid_mid_detected_role_not_overridden_by_prior_head_title() -> None:
     result = normalize_role(
         "Data Scientist",

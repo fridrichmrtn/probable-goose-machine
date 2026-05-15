@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -250,20 +252,15 @@ async def test_estimate_salary_survives_single_query_failure(
             "body": "Senior Data Scientist 110 000 - 150 000 Kc gross monthly.",
         },
     ]
-    # Side-effect sequence: first query fails on every tenacity attempt
-    # (configured backend + auto fallback, twice), then every remaining query
-    # succeeds.
-    n_queries = len(build_queries(_cz_profile()))
-    text_mock = MagicMock(
-        side_effect=[
-            RuntimeError("ddg rejects site: OR site: shape"),
-            RuntimeError("ddg rejects site: OR site: shape"),
-            RuntimeError("ddg rejects site: OR site: shape"),
-            RuntimeError("ddg rejects site: OR site: shape"),
-            *([good_results] * (n_queries - 1)),
-        ]
-    )
-    _patch_ddgs(monkeypatch, text_mock)
+    queries = build_queries(_cz_profile())
+    bad_query = queries[0]
+
+    def fake_ddg_text(query: str) -> list[dict[str, Any]]:
+        if query == bad_query:
+            raise RuntimeError("ddg rejects site: OR site: shape")
+        return good_results
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
     monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
 
     # Mock the LLM step so the test stays hermetic.
@@ -307,6 +304,35 @@ async def test_estimate_salary_survives_single_query_failure(
     assert search_evt["failed_queries"] == 1
     failures_evt = next(e for e in events if e["event"] == "query_failures")
     assert failures_evt["failures"][0]["exc_type"] == "RuntimeError"
+
+
+@pytest.mark.fast
+async def test_search_runs_queries_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def fake_ddg_text(query: str) -> list[dict[str, Any]]:
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.03)
+        with lock:
+            active -= 1
+        slug = query.replace(" ", "-")
+        return [{"href": f"https://example.com/{slug}", "body": f"{query} salary"}]
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    sources = await salary_mod.search(
+        ["data scientist prague", "data engineer prague", "ml engineer prague"]
+    )
+
+    assert len(sources) == 3
+    assert max_active > 1
 
 
 @pytest.mark.fast

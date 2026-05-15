@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from gander import obs
 from gander.confidence import judge
@@ -263,61 +263,83 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
                     )
             yield state.snapshot()
 
-        # === L4c confidence (conditional) ===
-        state.statuses["confidence"] = "running"
-        yield state.snapshot()
-        if isinstance(state.salary, SalaryEstimate):
-            cv_quality = CVQualitySignals(
-                dropped_score_components=len(state.score.dropped)
-                if isinstance(state.score, Score)
-                else 3,
-                canonical_role_resolved=isinstance(state.profile, Profile)
-                and state.profile.role_normalization_source != "unrecognized",
-                location_detected=isinstance(state.profile, Profile)
-                and state.profile.detected_location is not None,
-            )
-            conf_result = await judge(
-                state.salary.sources,
-                state.salary.low,
-                state.salary.high,
-                state.salary.currency,
-                state.salary.period,
-                cv_quality=cv_quality,
-            )
-            state.confidence = conf_result
-            state.statuses["confidence"] = (
-                "done" if isinstance(conf_result, Confidence) else "failed"
-            )
-        else:
-            # Salary failed — short-circuit confidence to Low without an LLM call.
-            state.confidence = Confidence(
-                tier="Low",
-                rationale=_CONFIDENCE_NO_SALARY_RATIONALE,
-            )
-            state.statuses["confidence"] = "done"
-        yield state.snapshot()
+        # === L4c confidence + L5 growth (conditional, concurrent) ===
+        async def _run_confidence() -> tuple[StageName, object]:
+            if isinstance(state.salary, SalaryEstimate):
+                cv_quality = CVQualitySignals(
+                    dropped_score_components=len(state.score.dropped)
+                    if isinstance(state.score, Score)
+                    else 3,
+                    canonical_role_resolved=isinstance(state.profile, Profile)
+                    and state.profile.role_normalization_source != "unrecognized",
+                    location_detected=isinstance(state.profile, Profile)
+                    and state.profile.detected_location is not None,
+                )
+                return (
+                    "confidence",
+                    await judge(
+                        state.salary.sources,
+                        state.salary.low,
+                        state.salary.high,
+                        state.salary.currency,
+                        state.salary.period,
+                        cv_quality=cv_quality,
+                    ),
+                )
 
-        # === L5 growth (conditional) ===
+            # Salary failed — short-circuit confidence to Low without an LLM call.
+            return (
+                "confidence",
+                Confidence(
+                    tier="Low",
+                    rationale=_CONFIDENCE_NO_SALARY_RATIONALE,
+                ),
+            )
+
+        async def _run_growth() -> tuple[StageName, object]:
+            # Decision A (T15 plan): growth requires BOTH score AND salary. If
+            # either upstream failed we cascade; only the all-green path calls T13.
+            score_block = state.score
+            salary_block = state.salary
+            if isinstance(score_block, Score) and isinstance(salary_block, SalaryEstimate):
+                mid = (salary_block.low + salary_block.high) // 2
+                ccy = salary_block.currency
+                return "growth", await plan_growth(redacted, profile, score_block, mid, ccy)
+            if not isinstance(score_block, Score) and not isinstance(salary_block, SalaryEstimate):
+                return "growth", _cascade_failure("growth", _GROWTH_NO_BASELINE)
+            if not isinstance(score_block, Score):
+                return "growth", _cascade_failure("growth", _GROWTH_NEEDS_SCORE)
+            return "growth", _cascade_failure("growth", _GROWTH_NEEDS_SALARY)
+
+        state.statuses["confidence"] = "running"
         state.statuses["growth"] = "running"
         yield state.snapshot()
-        # Decision A (T15 plan): growth requires BOTH score AND salary. If
-        # either upstream failed we cascade; only the all-green path calls T13.
-        score_block = state.score
-        salary_block = state.salary
-        if isinstance(score_block, Score) and isinstance(salary_block, SalaryEstimate):
-            mid = (salary_block.low + salary_block.high) // 2
-            ccy = salary_block.currency
-            growth_result = await plan_growth(redacted, profile, score_block, mid, ccy)
-            state.growth = growth_result
-            state.statuses["growth"] = "done" if isinstance(growth_result, list) else "failed"
-        elif not isinstance(score_block, Score) and not isinstance(salary_block, SalaryEstimate):
-            state.growth = _cascade_failure("growth", _GROWTH_NO_BASELINE)
-            state.statuses["growth"] = "failed"
-        elif not isinstance(score_block, Score):
-            state.growth = _cascade_failure("growth", _GROWTH_NEEDS_SCORE)
-            state.statuses["growth"] = "failed"
-        else:
-            state.growth = _cascade_failure("growth", _GROWTH_NEEDS_SALARY)
-            state.statuses["growth"] = "failed"
+
+        final_tasks = [
+            asyncio.create_task(_run_confidence()),
+            asyncio.create_task(_run_growth()),
+        ]
+        for i, final_completed in enumerate(asyncio.as_completed(final_tasks)):
+            final_stage, final_result = await final_completed
+            if final_stage == "confidence":
+                conf_result = cast(Confidence | StageFailure, final_result)
+                state.confidence = conf_result
+                state.statuses["confidence"] = (
+                    "done" if isinstance(conf_result, Confidence) else "failed"
+                )
+            elif final_stage == "growth":
+                growth_result = cast(list[GrowthAction] | StageFailure, final_result)
+                state.growth = growth_result
+                state.statuses["growth"] = "done" if isinstance(growth_result, list) else "failed"
+            else:
+                obs.emit(
+                    None,
+                    "pipeline_warn",
+                    reason="unknown_final_stage",
+                    final_stage=final_stage,
+                )
+            if i < len(final_tasks) - 1:
+                yield state.snapshot()
+
         obs.emit(None, "pipeline_done", outcome="ok")
         yield state.snapshot()

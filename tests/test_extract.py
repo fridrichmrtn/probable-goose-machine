@@ -116,6 +116,7 @@ async def test_extract_profile_allows_second_validation_retry(
     monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
     redacted = _redacted_with_anchors()
     seen_max_retries: int | None = None
+    seen_model: str | None = None
 
     synthetic = Profile(
         skills=[ProfileItem(text="dashboards in Looker", anchor=Anchor(quote=_UNIQUE_14W_QUOTE))],
@@ -138,7 +139,8 @@ async def test_extract_profile_allows_second_validation_retry(
         model: str = "reasoning",
         **kwargs: Any,
     ) -> BaseModel:
-        nonlocal seen_max_retries
+        nonlocal seen_max_retries, seen_model
+        seen_model = model
         seen_max_retries = kwargs.get("max_retries")
         return synthetic
 
@@ -147,6 +149,7 @@ async def test_extract_profile_allows_second_validation_retry(
     result = await extract_profile(redacted)
 
     assert isinstance(result, Profile)
+    assert seen_model == "extract"
     assert seen_max_retries == 2
 
 

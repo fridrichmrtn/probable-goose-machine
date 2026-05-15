@@ -141,19 +141,23 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
     monkeypatch.delenv("OPENROUTER_MODEL_REASONING", raising=False)
     monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT", raising=False)
 
     client = LLMClient()
 
     assert captured["api_key"] == "or-test"
     assert str(captured["base_url"]) == "https://openrouter.ai/api/v1"
     assert captured["default_headers"]["X-Title"] == "Gander"
-    assert client._resolve_model("reasoning") == "anthropic/claude-haiku-4.5"
+    assert client._resolve_model("reasoning") == "google/gemini-2.5-flash"
     assert client._resolve_model("cheap") == "google/gemini-2.5-flash"
+    assert client._resolve_model("extract") == "anthropic/claude-haiku-4.5"
 
     monkeypatch.setenv("OPENROUTER_MODEL_REASONING", "anthropic/claude-sonnet-4.5")
     monkeypatch.setenv("OPENROUTER_MODEL_CHEAP", "google/gemini-2.5-flash-lite")
+    monkeypatch.setenv("OPENROUTER_MODEL_EXTRACT", "anthropic/claude-opus-4.5")
     assert client._resolve_model("reasoning") == "anthropic/claude-sonnet-4.5"
     assert client._resolve_model("cheap") == "google/gemini-2.5-flash-lite"
+    assert client._resolve_model("extract") == "anthropic/claude-opus-4.5"
 
 
 @pytest.mark.fast
