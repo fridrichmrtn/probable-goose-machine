@@ -78,11 +78,17 @@ Implemented the prompt-only calibration plus tests:
 - The prestige-blind clause remains explicit, so school name still must not
   move the education score.
 - Added a fast prompt-contract test and a live PhD-fixture regression.
+- The live PhD regression now skips cleanly when the selected provider's key is
+  absent (`OPENROUTER_API_KEY` for `GANDER_LLM_PROVIDER=openrouter`, otherwise
+  `MINIMAX_API_KEY`), matching the newer CZ acceptance suite's local-gating
+  behavior.
 
 Verified:
 - `uv run pytest tests/test_score.py tests/test_schemas.py -m fast --strict-markers -q`
   → `36 passed, 4 deselected`.
 - `uv run ruff check tests/test_score.py` → passed.
+- `uv run pytest -m live tests/test_score.py -k phd_fixture_education_lands_in_doctorate_band -q`
+  with no provider key in this shell → `1 skipped`.
 
 Still pending before checking T47 done in `tasks/todo.md`:
 - Live `tests/test_score.py::test_phd_fixture_education_lands_in_doctorate_band`

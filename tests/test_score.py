@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,15 @@ FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
 JUNIOR_FIXTURE = FIXTURE_DIR / "01_junior_da_novotny.txt"
 SENIOR_FIXTURE = FIXTURE_DIR / "08_staff_ml_engineer_dvorak.txt"
 PHD_FIXTURE = FIXTURE_DIR / "09_research_phd_marek.txt"
+
+
+def _missing_provider_key() -> bool:
+    provider = os.environ.get("GANDER_LLM_PROVIDER", "minimax")
+    if provider == "openrouter":
+        return not bool(os.environ.get("OPENROUTER_API_KEY"))
+    if provider == "minimax":
+        return not bool(os.environ.get("MINIMAX_API_KEY"))
+    return False
 
 
 @pytest.mark.fast
@@ -835,6 +845,13 @@ async def test_senior_fixture_scores_above_70() -> None:
 
 
 @pytest.mark.live
+@pytest.mark.skipif(
+    _missing_provider_key(),
+    reason=(
+        "live score regression requires OPENROUTER_API_KEY when "
+        "GANDER_LLM_PROVIDER=openrouter, otherwise MINIMAX_API_KEY"
+    ),
+)
 async def test_phd_fixture_education_lands_in_doctorate_band() -> None:
     # T47: the score.md education rubric maps a completed doctorate to 86–100
     # and pushes multi-degree CVs (here: Bc. + Mgr./M.Sc. + Ph.D.) toward the
