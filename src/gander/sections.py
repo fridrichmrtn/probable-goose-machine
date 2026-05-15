@@ -18,10 +18,19 @@ SECTION_NAMES: frozenset[str] = frozenset(
         "honors-awards",
         "awards",
         "publications",
+        "grants",
+        "teaching",
+        "conferences",
+        "references",
         "contact",
+        "academic experience",
+        "academic practice",
+        "research experience",
         # Czech — section labels common on bilingual CZ/EN CVs
         "pracovní zkušenosti",
         "zkušenosti",
+        "praxe",
+        "akademická praxe",
         "vzdělání",
         "dovednosti",
         "nejčastější dovednosti",
@@ -29,6 +38,10 @@ SECTION_NAMES: frozenset[str] = frozenset(
         "certifikace",
         "ocenění",
         "publikace",
+        "granty",
+        "výuka",
+        "konference",
+        "reference",
         "projekty",
         "shrnutí",
         "profil",
@@ -47,3 +60,50 @@ def normalize_section_name(s: str) -> str:
 NORMALIZED_SECTION_NAMES: frozenset[str] = frozenset(
     normalize_section_name(name) for name in SECTION_NAMES
 )
+
+
+_SECTION_ALIAS_GROUPS: tuple[frozenset[str], ...] = tuple(
+    frozenset(normalize_section_name(name) for name in group)
+    for group in (
+        (
+            "experience",
+            "work experience",
+            "professional experience",
+            "academic experience",
+            "academic practice",
+            "research experience",
+            "pracovní zkušenosti",
+            "zkušenosti",
+            "praxe",
+            "akademická praxe",
+        ),
+        ("education", "vzdělání"),
+        ("skills", "dovednosti", "nejčastější dovednosti"),
+        ("languages", "jazyky"),
+        ("certifications", "certifikace"),
+        ("awards", "honors-awards", "ocenění"),
+        ("publications", "publikace"),
+        ("projects", "projekty"),
+        ("summary", "shrnutí"),
+        ("profile", "profil"),
+        ("contact", "kontakt"),
+        ("grants", "granty"),
+        ("teaching", "výuka"),
+        ("conferences", "konference"),
+        ("references", "reference"),
+    )
+)
+
+
+def section_name_candidates(s: str) -> frozenset[str]:
+    """Return normalized section labels equivalent to ``s``.
+
+    CV authors often keep Czech headers while the LLM reports the English
+    translation. The verifier still wants section-local matching, so known
+    cross-language aliases resolve to the same header family.
+    """
+    normalized = normalize_section_name(s)
+    for group in _SECTION_ALIAS_GROUPS:
+        if normalized in group:
+            return group
+    return frozenset({normalized})

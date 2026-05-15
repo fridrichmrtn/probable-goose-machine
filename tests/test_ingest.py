@@ -643,6 +643,8 @@ def test_annotate_does_not_double_annotate() -> None:
     [
         "pracovní zkušenosti",
         "zkušenosti",
+        "praxe",
+        "akademická praxe",
         "vzdělání",
         "dovednosti",
         "nejčastější dovednosti",
@@ -650,6 +652,10 @@ def test_annotate_does_not_double_annotate() -> None:
         "certifikace",
         "ocenění",
         "publikace",
+        "granty",
+        "výuka",
+        "konference",
+        "reference",
         "projekty",
         "shrnutí",
         "profil",
@@ -687,7 +693,12 @@ def test_section_vocabulary_cz(cz_header: str) -> None:
         "Honors-Awards",
         "Awards",
         "Publications",
+        "Grants",
+        "Teaching",
+        "Conferences",
+        "References",
         "Contact",
+        "Academic Experience",
     ],
 )
 def test_section_vocabulary_en_extended(en_header: str) -> None:
