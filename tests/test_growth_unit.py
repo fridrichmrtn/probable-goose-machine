@@ -817,6 +817,10 @@ async def test_plan_growth_returns_exactly_three_when_three_verify(
     assert len(result) == 3
     returned_evt = next(e for e in events if e["event"] == "growth_actions_returned")
     assert returned_evt["count"] == 3
+    done_evt = next(e for e in events if e["event"] == "done" and e["stage"] == "growth")
+    assert isinstance(done_evt["duration_ms"], int)
+    assert done_evt["duration_ms"] >= 0
+    assert done_evt["count"] == 3
     assert not any(e["event"] == "growth_actions_truncated" for e in events)
 
 

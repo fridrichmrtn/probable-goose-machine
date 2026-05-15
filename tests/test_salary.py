@@ -404,6 +404,11 @@ async def test_estimate_salary_caps_inflated_junior_czk_month_range(
     cap_evt = next(e for e in events if e["event"] == "salary_sanity_cap")
     assert cap_evt["original_high"] == 130000
     assert cap_evt["capped_high"] == 90000
+    done_evt = next(e for e in events if e["event"] == "done" and e["stage"] == "salary")
+    assert isinstance(done_evt["duration_ms"], int)
+    assert done_evt["duration_ms"] >= 0
+    assert done_evt["currency"] == "CZK"
+    assert done_evt["period"] == "month"
 
 
 @pytest.mark.fast

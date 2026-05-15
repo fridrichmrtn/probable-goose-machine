@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import string
+import time
 import unicodedata
 from pathlib import Path
 
@@ -220,6 +221,11 @@ async def plan_growth(
     currency: str,
 ) -> list[GrowthAction] | StageFailure:
     async with stage_boundary("growth"):
+        t0 = time.perf_counter()
+
+        def _ms() -> int:
+            return int((time.perf_counter() - t0) * 1000)
+
         try:
             client = LLMClient()
             user_message = _build_user_message(redacted, profile, score, salary_midpoint, currency)
@@ -240,6 +246,7 @@ async def plan_growth(
                     "stage_failure",
                     reason="llm_error",
                     exc_type=type(exc).__name__,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="growth",
@@ -253,6 +260,7 @@ async def plan_growth(
                     "stage_failure",
                     reason="invalid_llm_output",
                     got_type=type(raw).__name__,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="growth",
@@ -301,6 +309,7 @@ async def plan_growth(
                     "stage_failure",
                     reason="insufficient_verified_actions",
                     survived=len(survivors),
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="growth",
@@ -337,6 +346,7 @@ async def plan_growth(
                 emit("growth", "growth_baseline_missing")
 
             emit("growth", "growth_actions_returned", count=len(survivors))
+            emit("growth", "done", duration_ms=_ms(), count=len(survivors))
             return survivors
         except Exception as exc:
             emit(
@@ -344,6 +354,7 @@ async def plan_growth(
                 "stage_failure",
                 reason="unexpected_error",
                 exc_type=type(exc).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="growth",

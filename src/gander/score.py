@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,11 @@ def _verify_components(
 
 async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | StageFailure:
     with stage_boundary("score") as cm:
+        t0 = time.perf_counter()
+
+        def _ms() -> int:
+            return int((time.perf_counter() - t0) * 1000)
+
         client = LLMClient()
         user_message = _build_user_message(redacted, profile)
 
@@ -129,6 +135,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     "stage_failure",
                     reason="llm_error",
                     exc_type=type(exc).__name__,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="score",
@@ -141,6 +148,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     "stage_failure",
                     reason="invalid_llm_output",
                     got_type=type(raw).__name__,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="score",
@@ -160,7 +168,15 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
             )
 
             if section_miss_count > _SECTION_MISS_CAP:
+                duration_ms = _ms()
                 emit("score", "section_blind_fail", miss_count=section_miss_count)
+                emit(
+                    "score",
+                    "stage_failure",
+                    reason="section_blind",
+                    miss_count=section_miss_count,
+                    duration_ms=duration_ms,
+                )
                 return StageFailure(
                     stage="score",
                     user_message=(
@@ -194,6 +210,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     reason="missing_categories",
                     missing=sorted(missing),
                     dropped=dropped,
+                    duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="score",
@@ -234,6 +251,14 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                 surviving=sorted(best_verified.keys()),
             )
         emit("score", "score_total", total=score.total)
+        emit(
+            "score",
+            "done",
+            duration_ms=_ms(),
+            total=score.total,
+            components=len(score.components),
+            dropped=len(score.dropped),
+        )
         return score
 
     return cm.failure  # type: ignore[return-value]

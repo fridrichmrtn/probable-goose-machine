@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -482,6 +483,11 @@ async def search(
 
 async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
     async with stage_boundary("salary") as cm:
+        t0 = time.perf_counter()
+
+        def _ms() -> int:
+            return int((time.perf_counter() - t0) * 1000)
+
         queries = build_queries(profile)
         country = _resolve_country(profile)
         country_name = _country_display_name(country)
@@ -500,6 +506,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 "stage_failure",
                 reason="search_error",
                 exc_type=type(exc).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
@@ -544,6 +551,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 "stage_failure",
                 reason="llm_error",
                 exc_type=type(exc).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
@@ -556,6 +564,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 "stage_failure",
                 reason="invalid_llm_output",
                 got_type=type(estimate).__name__,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
@@ -596,6 +605,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 "stage_failure",
                 reason="no_verifiable_sources",
                 returned=len(estimate.sources),
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
@@ -612,6 +622,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 "stage_failure",
                 reason="invalid_currency_shape",
                 currency=estimate.currency,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
@@ -637,6 +648,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 reason="invalid_range",
                 low=estimate.low,
                 high=estimate.high,
+                duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
@@ -655,6 +667,15 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             n_sources=len(verified.sources),
             country=country,
             currency_hint=currency_hint,
+        )
+        emit(
+            "salary",
+            "done",
+            duration_ms=_ms(),
+            n_sources=len(verified.sources),
+            country=country,
+            currency=verified.currency,
+            period=verified.period,
         )
         return verified
 

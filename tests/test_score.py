@@ -154,6 +154,10 @@ async def test_score_no_partial_when_all_verify(
     components_evt = next(e for e in events if e["event"] == "score_components")
     assert components_evt["verified"] == 4
     assert components_evt["dropped"] == 0
+    done_evt = next(e for e in events if e["event"] == "done" and e["stage"] == "score")
+    assert isinstance(done_evt["duration_ms"], int)
+    assert done_evt["duration_ms"] >= 0
+    assert done_evt["total"] == result.total
 
 
 @pytest.mark.fast

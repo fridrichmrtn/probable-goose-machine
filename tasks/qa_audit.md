@@ -17,6 +17,7 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[should-fix]` T18 failure-path tests | PR #12 (`stream-c/T18-failure-tests`) | 10 fast tests in `test_failures.py` + `test_partial_failure_streaming.py` |
 | `[should-fix]` T22 HF Space deploy | `Status: done` in `tasks/T22_*.md` | hosted run reachable |
 | `[nit]` T05 spike artifact | resolved at plan-review time; downstream T07–T13 unblocked | T05 status no longer gating |
+| `[must-fix]` §4.8 per-stage duration | PR #35 sweep (`t46-salary-multi-market`) | `score`, `salary`, `confidence`, and `growth` now emit terminal `done` events with `duration_ms`; explicit `stage_failure` events on those stages also carry `duration_ms` |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -74,16 +75,16 @@ PRD §4.8 names four counters: **claims verified**, **claims dropped**, **search
 | L1 ingest | duration, fingerprint, error | covered — `ingest.py:46` (start: `filename_suffix`, `size_bytes`), `ingest.py:53/60/67/73/80/83/92` (`rejected`/`done` carry `duration_ms=_ms()`), `stage_boundary` error |
 | L2 redact | duration | covered — `redact.py:418-422` (`obs.emit("redact", "done", duration_ms=_ms(), …)`) |
 | L3 extract | **claims verified, claims dropped**, duration | covered — `extract.py:64` (`verify` event with `dropped`/`kept`), `extract.py:65` (`done` with `duration_ms=_ms()`) |
-| L4a score | duration | **missing** — `score.py` has no `_ms()` helper and no `duration_ms` on a success event; relies on the per-LLM-call `duration_ms` recorded by `gander.llm` |
-| L4b salary | **search results returned**, duration | counter covered (`salary.py:120-127`); **duration missing** — `salary.py` emits `salary_search` but no stage-level `done` event with `duration_ms` |
-| L4c confidence | **confidence tier assigned**, duration | counter covered (`confidence.py:111`/`171`); **duration missing** — no stage-level `done`/`duration_ms` emit |
-| L5 growth | duration; runtime n-gram smoke | **duration missing** — `growth.py` has no stage-level `done`/`duration_ms` emit |
+| L4a score | duration | covered — `score.py` emits `done` with `duration_ms`, total, component count, and dropped count |
+| L4b salary | **search results returned**, duration | covered — `salary_search` carries search counters; `salary.py` emits `done` with `duration_ms`, source count, country, currency, and period |
+| L4c confidence | **confidence tier assigned**, duration | covered — `confidence_decision` carries tier; `confidence.py` emits `done` with `duration_ms`, salary tier, final tier, and CV floor |
+| L5 growth | duration; runtime n-gram smoke | covered — `growth_anti_slop_check` carries returned/dropped/survived; `growth.py` emits `done` with `duration_ms` and action count |
 
-`src/gander/pipeline.py:145` does aggregate `duration_ms` off `llm_call` records to populate `Report.total_latency_ms`, but that's a coarse per-LLM-call sum, not a stage-boundary duration. PRD §4.8 phrasing ("per-stage duration") is therefore satisfied only for ingest/redact/extract today.
+`src/gander/pipeline.py:145` aggregates `duration_ms` off `llm_call` records to populate `Report.total_latency_ms`; the stage-level `done`/`rejected` events now provide the per-stage timing view separately.
 
 **Findings**
 
-- `[must-fix] §4.8 per-stage duration` `score`, `salary`, `confidence`, and `growth` do not emit a stage-level `duration_ms`. PRD §4.8 names per-stage duration as a required signal; today it exists for ingest/redact/extract only. Suggested fix: each stage body times itself (`t0 = time.perf_counter()`) and emits `obs.emit(<stage>, "done", duration_ms=…)` (plus counters where applicable) on the success path before returning. Cheap and uniform.
+- `[resolved] §4.8 per-stage duration` `score`, `salary`, `confidence`, and `growth` now time themselves and emit `obs.emit(<stage>, "done", duration_ms=…)` on success. The explicit `stage_failure` events in those stages also include `duration_ms`.
 - `[should-fix] errors.py:82,89` two CV-content leak points share the same `str(exc)` source. (1) Line 89 emits an obs `error` event with `exc_message=str(exc)`. (2) Line 82 assigns the same `str(exc)` to `StageFailure.user_message`, which the tracker and `report.render_body` render directly into user-facing markdown (`src/gander/report.py:163, 184, 191`). PRD §4.8 excludes CV content from logs **and** PRD §4.6 promises a curated user-facing message, not a raw exception string. If a parser raises with a snippet of the document (pypdf surfaces document strings in some `ValueError`s; `pydantic.ValidationError` includes the offending value), CV-derived text reaches both obs sinks **and** the rendered report. Suggested fix: in `_handle`, replace the `user_message=str(exc) or type(exc).__name__` fallback with a curated stage-specific default (or sanitized truncation), and replace `exc_message=str(exc)` in the obs emit with `exc_class=type(exc).__name__, exc_code=getattr(exc, "code", None)`, **or** truncate to 200 chars and strip any chars outside `[A-Za-z0-9 .,:;()/_-]`. Both call sites must be fixed together — fixing only the obs emit still leaks CV content to the rendered report.
 - `[nit] tests/test_obs.py` no test asserts the four PRD-named counters are emitted on a single golden run end-to-end. Useful as a regression net if obs sink names ever drift. Cheap to add: a session-scoped `obs.subscribe` callback that collects events, then assert every name in `{"verify", "salary_search", "confidence_decision"}` appears at least once.
 - `[nit]` `ingest.py:46` uses `filename_suffix` + `size_bytes` rather than a single `fingerprint` field — semantically equivalent to PRD §4.8's "file size and type, not CV content". Leave as-is; flagged here only so future readers don't grep for the literal word.
@@ -131,7 +132,7 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 
 | Severity | Count |
 |---|---|
-| `[must-fix]` | 2 |
+| `[must-fix]` | 1 |
 | `[should-fix]` | 8 |
 | `[nit]` | 4 |
 
@@ -140,7 +141,7 @@ Open `[should-fix]` bullets: PRD §5(6) reachability, T23 README falsifiability,
 **Top three actionable items** (do before declaring stages done):
 
 1. `[must-fix]` Cover PRD §5(3) — arbitrary-reviewer-supplied CV. Add `test_arbitrary_cv_smoke` reading a path from `GANDER_SMOKE_CV`.
-2. `[must-fix]` Plumb per-stage `duration_ms` on `score`, `salary`, `confidence`, `growth` — PRD §4.8 names duration as a required per-stage signal and four of seven stages are silent.
-3. `[should-fix]` Sanitize both leak points off `str(exc)` in `errors.py:82,89` — the same string reaches obs logs **and** the rendered user-facing report; fixing only the obs emit still leaks CV content downstream.
+2. `[should-fix]` Sanitize both leak points off `str(exc)` in `errors.py:82,89` — the same string reaches obs logs **and** the rendered user-facing report; fixing only the obs emit still leaks CV content downstream.
+3. `[should-fix]` Add source reachability coverage for salary URLs, preferably with a tolerant GET/HEAD fallback rather than a brittle HEAD-only check.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint). 2 `[must-fix]` outstanding: PRD §5(3) arbitrary-CV gap (carried forward) and the newly-surfaced §4.8 per-stage-duration gap on score/salary/confidence/growth. Net: 2 `[must-fix]` outstanding.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), plus the newly surfaced §4.8 per-stage-duration gap has been closed. 1 `[must-fix]` remains outstanding: PRD §5(3) arbitrary-CV coverage.
