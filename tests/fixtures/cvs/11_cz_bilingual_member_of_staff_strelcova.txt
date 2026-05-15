@@ -1,0 +1,64 @@
+Klára Střelcová
+Data Gardener | AI, Data Science & Engineering @Stealth
+klara.strelcova@example.cz · +420 731 404 909 · linkedin.com/in/klarastrelcova
+Životopis — aktualizováno květen 2026
+Page 1
+Pracovní zkušenosti
+Member of Staff — Stealth AI
+Studio, Praha
+Leden 2024 – present
+Owns applied ML strategy for a
+privacy-first analytics product; built
+the first retrieval-evaluation harness
+and led production launch reviews for
+agentic workflows serving finance
+customers.
+Vede malý tým 5 lidí napříč research,
+platformou a product ops; zavedla
+týdenní eval review a incident
+playbook pro modelové regrese v
+produkci.
+Head of Data Science — Košík
+Retail Lab, Praha
+Duben 2019 – Prosinec 2023
+Built a demand-forecasting and
+replenishment programme across
+fresh grocery categories; reduced
+spoilage by 18% while keeping
+same-day availability above 96%.
+Managed 9 data scientists and
+analytics engineers, hired the first
+ML platform engineer, and presented
+quarterly margin levers to the
+executive board.
+Senior Manager, AI & Data —
+Atlas Enterprise, Brno
+Srpen 2014 – Březen 2019
+Led churn, pricing, and
+customer-lifetime-value models for
+B2B segments in CZ and SK.
+Delivered a gradient-boosting pricing
+model that lifted renewal margin by
+11.7%.
+Vzdělání
+Ph.D. in Applied Machine
+Learning — ČVUT FEL, Praha
+2010 – 2014, dissertation on causal
+attribution in retail data.
+Ing. (M.Sc.) in Statistics — VŠE
+Praha
+2008 – 2010.
+Nejčastější dovednosti
+Python 3.11, PyTorch 2.3, LightGBM 4.3, SHAP,
+causal forests, FastAPI, Kubernetes 1.29, MLflow
+2.10, BigQuery, dbt 1.7.
+Leadership: hiring plan, board narrative, research
+roadmap, risk review, mentoring senior ICs.
+Jazyky
+Čeština rodilá, angličtina C2, slovenština plynule.
+Publikace
+K. Střelcová, Attribution under delayed retail
+feedback, Workshop on Applied ML Systems 2023.
+Certifikace
+Certified Kubernetes Application Developer, Google
+Professional ML Engineer.

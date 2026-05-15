@@ -1,9 +1,10 @@
 # CV fixture sources
 
-Synthesized CZ data / DS / ML CVs used by the test suite and the user-facing
+Synthesized data / DS / ML CVs used by the test suite and the user-facing
 eval-corpus runner. T04 seeded the two acceptance anchors (#1 junior, #8
 senior); T06 fills in #2–7, #9, #10 plus a 09b anonymized variant of #9 for
-the T20 bias smoke test.
+the T20 bias smoke test. T29 adds three CZ/EN senior-shape fixtures (#11–#13)
+for multilingual acceptance coverage.
 
 All names are clearly fictional. Employers are real CZ companies or plausible
 CZ-based subsidiaries. Universities are CZ. Salaries (when implied by role)
@@ -39,14 +40,14 @@ country sanity caps).
 - DOCX: `python-docx` straight to `.docx` via `_build_docx` (shared by 04, 06,
   10) plus the bespoke `build_junior_docx` for #1.
 - PDF (clean): `reportlab` single-frame full-width layout via
-  `_build_clean_pdf` (02, 03, 07, 09, 09b). Header band drawn in `onPage`;
-  serif body / sans heading consistent with the messy template.
+  `_build_clean_pdf` (02, 03, 07, 09, 09b, 12, 13). Header band drawn in
+  `onPage`; serif body / sans heading consistent with the messy template.
 - PDF (messy): `reportlab` two-column layout with deliberate stressors
   (uneven 42/58 column widths, header/footer bands, mixed serif/sans body,
-  mid-phrase column breaks) via `_build_messy_pdf` (08 + 05). #05 passes the
-  optional `footer_cruft` argument so a "© Marek Beneš 2026 · prepared for
-  internal review · do not redistribute" line is drawn into the bottom of the
-  body — pdfplumber will see footer chrome interleaved with content.
+  mid-phrase column breaks) via `_build_messy_pdf` (08, 05, 11). #05 passes
+  the optional `footer_cruft` argument so a "© Marek Beneš 2026 · prepared
+  for internal review · do not redistribute" line is drawn into the bottom of
+  the body — pdfplumber will see footer chrome interleaved with content.
 - Czech diacritics handled via DejaVu Sans / Serif TTF registration; falls
   back to Helvetica/Times-Roman if DejaVu is absent (output then drops
   diacritics — acceptable lossy mode).
@@ -355,13 +356,94 @@ it; T20's wording is documented as drift in `tasks/backlog.md`.
   9. "Head of Analytics — Mall.cz, Prague" — third role in history.
   10. "Ing. (M.Sc.) in Statistics — VŠE Prague".
 
+## #11 — Klára Střelcová — Bilingual Member of Staff (PDF, two-column)
+
+- Files: `11_cz_bilingual_member_of_staff_strelcova.pdf`,
+  `11_cz_bilingual_member_of_staff_strelcova.txt`.
+- Format-stress purpose: CZ headers plus mixed EN/CZ bullets in the messy
+  two-column layout. Mirrors the Profile.pdf regression shape without using
+  private CV content.
+- Role / seniority target: 12 years; tagline headline
+  `Data Gardener | AI, Data Science & Engineering @Stealth`; current
+  `Member of Staff`, prior `Head of Data Science`, prior `Senior Manager,
+  AI & Data`; PhD + MSc.
+- Salary calibration: stealth/management senior CZ market, 200–300k CZK/mo
+  gross.
+- Salary source anchors:
+  - Hays Czech Republic Salary Guide, technology/data leadership rows:
+    https://www.hays.cz/salary-guide
+  - Platy.cz / Paylab IT management and data roles:
+    https://www.platy.cz/en/salaryinfo/information-technology
+- Anchors:
+  1. "Data Gardener | AI, Data Science & Engineering @Stealth" — tagline.
+  2. "Member of Staff — Stealth AI" — current non-market headline.
+  3. "Vede malý tým 5 lidí napříč research" — CZ leadership.
+  4. "Head of Data Science — Košík" — prior market recovery title.
+  5. "Managed 9 data scientists and analytics engineers" — people leadership.
+  6. "Senior Manager, AI & Data" — prior senior-management title.
+  7. "lifted renewal margin by 11.7%" — quantified impact.
+  8. "Ph.D. in Applied Machine Learning — ČVUT FEL" — doctorate.
+  9. "Python 3.11, PyTorch 2.3, LightGBM 4.3" — named stack.
+  10. "Leadership: hiring plan, board narrative" — soft signal.
+
+## #12 — Radim Šimek — Czech Academic Research Lead (PDF clean)
+
+- Files: `12_cz_academic_simek.pdf`, `12_cz_academic_simek.txt`.
+- Format-stress purpose: CZ-only academic section vocabulary
+  (`Akademická praxe`, `Granty`, `Výuka`, `Konference`) in a clean PDF.
+- Role / seniority target: 15 years; `Vedoucí výzkumného týmu`, PhD +
+  habilitation, grant leadership, lower-paying academic market.
+- Salary calibration: senior academic research lead, 60–110k CZK/mo gross.
+- Salary source anchors:
+  - Czech public-university academic pay context:
+    https://www.msmt.cz/
+  - Platy.cz research/education salary context:
+    https://www.platy.cz/en/salaryinfo/education-science-research
+- Anchors:
+  1. "Vedoucí výzkumného týmu — Fakulta informatiky, Brno" — CZ market token.
+  2. "tým má 7 doktorandů, 3 postdoky" — leadership.
+  3. "Získal grant TAČR na predikci komplikací" — grant signal.
+  4. "Postdoctoral Researcher — ETH Zürich" — international senior path.
+  5. "Docentura v oboru Informatika — Masarykova univerzita" — habilitation.
+  6. "Ph.D. v oboru Computer Science — Univerzita Karlova" — doctorate.
+  7. "32 recenzovaných článků" — publication signal.
+  8. "TAČR TREND 2024–2027" — named grant.
+  9. "Garant předmětů Strojové učení" — teaching leadership.
+  10. "Programový výbor ECML PKDD" — conference/service signal.
+
+## #13 — Pavel Havelka — Czech Corporate Data Manager (PDF clean)
+
+- Files: `13_cz_corporate_manazer_havelka.pdf`,
+  `13_cz_corporate_manazer_havelka.txt`.
+- Format-stress purpose: Czech-only corporate CV using `Praxe`, `Dovednosti`,
+  `Reference`, and Czech bullets with no English body copy.
+- Role / seniority target: 10 years; `Manažer datového oddělení`, team
+  leadership, banking/telco/retail progression.
+- Salary calibration: corporate data manager, 110–180k CZK/mo gross.
+- Salary source anchors:
+  - Hays Czech Republic Salary Guide, data/analytics manager rows:
+    https://www.hays.cz/salary-guide
+  - Platy.cz / Paylab IT and management data roles:
+    https://www.platy.cz/en/salaryinfo/information-technology
+- Anchors:
+  1. "Manažer datového oddělení — Moravia Banka, Praha" — CZ market token.
+  2. "Řídí datové oddělení o 11 lidech" — people leadership.
+  3. "reporty pro představenstvo" — executive communication.
+  4. "migraci reportingu z ručních Excel sešitů" — transformation.
+  5. "z 6 dnů na 9 hodin" — quantified process win.
+  6. "Senior analytik — TelcoNet CZ" — progression.
+  7. "snížil churn v retenčním segmentu o 7,9%" — quantified outcome.
+  8. "Ing. v oboru Informační management — VŠE Praha" — graduate degree.
+  9. "SQL, Snowflake, dbt 1.7" — stack.
+  10. "komunikace s představenstvem" — soft signal.
+
 ## Naming convention
 
-Canonical 10 personas use the `NN_*` prefix (`01_*` … `10_*`). Bias
+Canonical 13 personas use the `NN_*` prefix (`01_*` … `13_*`). Bias
 variants append a lowercase suffix before the underscore (`09b_*`). Glob
-`[0-9][0-9]_*` to enumerate the canonical 10; glob `[0-9][0-9]*_*` to
-include bias variants. The full directory ships 10 personas + 1 bias
-variant = 11 fixture pairs (PDF/DOCX + .txt golden).
+`[0-9][0-9]_*` to enumerate the canonical 13; glob `[0-9][0-9]*_*` to
+include bias variants. The full directory ships 13 personas + 1 bias
+variant = 14 fixture pairs (PDF/DOCX + .txt golden).
 
 ## Calibration
 
@@ -385,6 +467,9 @@ except the 09/09b pair (identical research-pay band by design):
 | 9   | Research Scientist (Česká spořitelna) | 12    | none (research IC)    | 140–180k             |
 | 9b  | Research Scientist (variant)          | 12    | none (research IC)    | 140–180k             |
 | 10  | Head of Data (Rohlik)                 | 15    | head of 22-person org | 180–250k             |
+| 11  | Member of Staff (stealth AI)          | 12    | team 5 + prior head   | 200–300k             |
+| 12  | Academic research lead                | 15    | 7 PhDs + 3 postdocs   | 60–110k              |
+| 13  | Corporate data manager                | 10    | team 11               | 110–180k             |
 
 Two gates apply to the seniority spread:
 

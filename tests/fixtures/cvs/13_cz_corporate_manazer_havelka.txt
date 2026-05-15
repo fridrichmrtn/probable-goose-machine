@@ -1,0 +1,34 @@
+Pavel Havelka
+Manažer datového oddělení · Praha, Česká republika
+pavel.havelka@example.cz · +420 777 530 118 · linkedin.com/in/pavelhavelka
+Praxe
+Manažer datového oddělení — Moravia Banka, Praha
+Únor 2021 – dosud
+Řídí datové oddělení o 11 lidech pro retailové bankovnictví, úvěrové kampaně a reporty pro
+představenstvo.
+Zavedl jednotný datový slovník, kontrolu kvality v dbt a měsíční radu pro priorizaci
+analytických požadavků.
+Vedl migraci reportingu z ručních Excel sešitů do Snowflake, dbt a Power BI; zkrátil přípravu
+měsíčního balíku z 6 dnů na 9 hodin.
+Senior analytik — TelcoNet CZ, Praha
+Květen 2016 – Leden 2021
+Postavil model odchodu zákazníků pro tarifní bázi 1,8M klientů a snížil churn v retenčním
+segmentu o 7,9%.
+Datový analytik — Lékárna Online, Brno
+Červen 2013 – Duben 2016
+Připravil první maržový dashboard pro e-commerce sortiment a sjednotil SQL definice
+objednávek, vratek a slev.
+Vzdělání
+Ing. v oboru Informační management — VŠE Praha
+2011 – 2013, diplomová práce o predikci odchodu zákazníků.
+Bc. v oboru Aplikovaná informatika — VUT Brno
+2008 – 2011.
+Dovednosti
+SQL, Snowflake, dbt 1.7, Power BI, Python 3.11, pandas, Airflow 2.9, modely odchodu
+zákazníků, datová kvalita.
+Vedení týmu, plánování kapacit, komunikace s představenstvem, řízení priorit a mentoring
+analytiků.
+Jazyky
+Čeština rodilá, slovenština plynule, angličtina B2.
+Reference
+Reference od CIO a ředitele retailového bankovnictví dostupné na vyžádání.
