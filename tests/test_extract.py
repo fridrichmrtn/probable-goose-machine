@@ -154,6 +154,86 @@ async def test_extract_profile_allows_second_validation_retry(
 
 
 @pytest.mark.fast
+async def test_extract_salvages_skills_and_soft_signals_from_long_cv_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    skills_quote = (
+        "Built forecasting automation in Python SQL and Kubernetes for weekly revenue "
+        "planning across the commercial analytics team"
+    )
+    soft_quote = (
+        "Mentored four analysts and presented findings to executive stakeholders during "
+        "quarterly planning rituals"
+    )
+    experience_quote = (
+        "Owned churn model delivery for the retention squad and reduced manual review "
+        "work by twelve hours weekly"
+    )
+    redacted = RedactedCV(
+        text=(
+            "## Skills\n"
+            "Python, SQL, Kubernetes.\n"
+            "## Work Experience\n"
+            f"{skills_quote}.\n"
+            f"{soft_quote}.\n"
+            f"{experience_quote}.\n"
+        ),
+        audit_log=[],
+    )
+    llm_profile = Profile(
+        skills=[],
+        experience=[
+            ProfileItem(
+                text="churn model delivery owner",
+                anchor=Anchor(quote=experience_quote, section="Work Experience"),
+            )
+        ],
+        education=[],
+        soft_signals=[],
+        detected_role="Data Scientist",
+        detected_location="Prague",
+        detected_years_experience=5,
+    )
+
+    async def _fake_complete_json(
+        self: LLMClient,
+        *,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        model: str = "reasoning",
+        **kwargs: Any,
+    ) -> BaseModel:
+        return llm_profile
+
+    monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_profile(redacted)
+
+    assert isinstance(result, Profile)
+    assert len(result.skills) == 1
+    assert result.skills[0].anchor.quote == skills_quote
+    assert "Python" in result.skills[0].text
+    assert len(result.soft_signals) == 1
+    assert result.soft_signals[0].anchor.quote == soft_quote
+    assert "stakeholder" in result.soft_signals[0].text
+    assert verify_quote(result.skills[0].anchor.quote, redacted.text, section="Work Experience")
+    assert verify_quote(
+        result.soft_signals[0].anchor.quote,
+        redacted.text,
+        section="Work Experience",
+    )
+
+    salvaged = [e for e in events if e["event"] == "evidence_salvaged"]
+    assert [e["field"] for e in salvaged] == ["skills", "soft_signals"]
+    verify_events = [e for e in events if e["event"] == "verify" and e["stage"] == "extract"]
+    assert verify_events[0]["kept"] == 3
+
+
+@pytest.mark.fast
 async def test_stage_failure_returned_when_llm_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

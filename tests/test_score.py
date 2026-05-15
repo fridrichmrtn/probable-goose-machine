@@ -340,6 +340,76 @@ async def test_score_retries_when_experience_anchor_fails(
 
 
 @pytest.mark.fast
+async def test_score_retries_when_skills_or_soft_signals_drop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_payload = _ComponentList(
+        components=[
+            Component(
+                name="skills",
+                score_0_100=70,
+                justification=".",
+                anchor=Anchor(
+                    quote="rust, kafka, redis, distributed cache, message bus",
+                    section="Skills",
+                ),
+            ),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals",
+                score_0_100=60,
+                justification=".",
+                anchor=Anchor(
+                    quote="coached principal engineers during an executive roadshow",
+                    section="Work Experience",
+                ),
+            ),
+        ]
+    )
+    second_payload = _ComponentList(
+        components=[
+            Component(name="skills", score_0_100=70, justification=".", anchor=_VERIFIES_SKILLS),
+            Component(
+                name="experience", score_0_100=65, justification=".", anchor=_VERIFIES_EXPERIENCE
+            ),
+            Component(
+                name="education", score_0_100=55, justification=".", anchor=_VERIFIES_EDUCATION
+            ),
+            Component(
+                name="soft_signals", score_0_100=60, justification=".", anchor=_VERIFIES_SOFT
+            ),
+        ]
+    )
+    payloads = [first_payload, second_payload]
+    seen_users: list[str] = []
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        seen_users.append(kwargs["user"])
+        return payloads.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await score_profile(RedactedCV(text=_T25_CV, audit_log=[]), _t25_profile())
+
+    assert isinstance(result, Score)
+    assert result.dropped == []
+    assert {c.name for c in result.components} == set(COMPONENT_WEIGHTS.keys())
+    assert len(seen_users) == 2
+    assert "compact Skills/Soft sections" in seen_users[1]
+    retry_evt = next(e for e in events if e["event"] == "score_retry")
+    assert retry_evt["reason"] == "missing_skills_or_soft_signals"
+    assert retry_evt["missing"] == ["skills", "soft_signals"]
+
+
+@pytest.mark.fast
 def test_score_total_arithmetic_drop_as_zero() -> None:
     # Concrete arithmetic per T25_score_partial.md §Deliverables:
     # partial (exp:80, edu:60, soft:40; skills dropped) → 80*0.30 + 60*0.20 +

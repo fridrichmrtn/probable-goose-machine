@@ -22,6 +22,8 @@ Preserve case and punctuation exactly. No ellipses. No edits. No reformatting.
 
 Returning `[]` for any of `skills`, `experience`, `education`, or `soft_signals` is valid when no item in that category has a qualifying 6+ word literal substring. An empty list is correct; a paraphrased or too-short anchor is not.
 
+For `skills` and `soft_signals`, do not depend only on a compact dedicated section. A short line like `Python, SQL, Kubernetes` may be useful as a cue, but it is not a valid anchor by itself. If a longer Experience, Projects, Profile, or Summary line demonstrates those tools or behaviours, extract the item from that longer literal line instead.
+
 If the CV contains a section header like `## Experience` or `## Education`, set `anchor.section` to the header text without the leading `##` (e.g. `"Experience"`). Otherwise set it to `null`.
 
 ## Evidence, not surface

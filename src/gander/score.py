@@ -27,6 +27,7 @@ _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 _GENERATION_FAILURE_MSG = "Could not generate this section reliably"
 _SCORE_LLM_MAX_RETRIES = 2
 _SCORE_LOGICAL_MAX_RETRIES = 1
+_SALVAGE_RETRY_COMPONENTS = {"skills", "soft_signals"}
 
 
 class _ComponentList(BaseModel):
@@ -51,7 +52,7 @@ def _build_user_message(redacted: RedactedCV, profile: Profile) -> str:
 
 
 def _build_retry_user_message(user_message: str, missing: set[str], dropped: int) -> str:
-    return (
+    message = (
         user_message
         + "\n\nYour previous score output failed downstream verification: "
         + f"missing_categories={sorted(missing)} dropped={dropped}. "
@@ -60,6 +61,14 @@ def _build_retry_user_message(user_message: str, missing: set[str], dropped: int
         + "role progression, or shipped impact. If the section header is uncertain, "
         + "set anchor.section to null rather than guessing."
     )
+    if missing & _SALVAGE_RETRY_COMPONENTS:
+        message += (
+            " For skills and soft_signals, do not rely only on compact Skills/Soft "
+            "sections; use longer literal lines from Experience, Projects, Profile, "
+            "or Summary when they demonstrate named tools, leadership, mentorship, "
+            "ownership, cross-team work, or stakeholder communication."
+        )
+    return message
 
 
 def _verify_components(
@@ -178,6 +187,16 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
                     user_message="Could not verify enough scoring components from CV.",
                     debug_detail=f"missing_categories={sorted(missing)} dropped={dropped}",
                 )
+            if missing & _SALVAGE_RETRY_COMPONENTS and attempt < _SCORE_LOGICAL_MAX_RETRIES:
+                emit(
+                    "score",
+                    "score_retry",
+                    reason="missing_skills_or_soft_signals",
+                    missing=sorted(missing),
+                    dropped=dropped,
+                )
+                user_message = _build_retry_user_message(user_message, missing, dropped)
+                continue
             break
 
         # Partial-score path: experience verified, but ≥1 of {skills, education,
