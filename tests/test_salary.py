@@ -26,6 +26,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SENIOR_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "cvs" / "08_staff_ml_engineer_dvorak.txt"
 
 
+@pytest.fixture(autouse=True)
+def _stub_llm_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `LLMClient.__init__` reads the API key for the configured provider.
+    # Tests mock `complete_json` but still hit the constructor; stub both
+    # keys so neither provider blocks `LLMClient()` from constructing.
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+
 def _cz_profile(
     *,
     role: str = "Senior Data Scientist",
