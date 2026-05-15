@@ -30,8 +30,10 @@ SENIOR_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "cvs" / "08_staff_ml_enginee
 def _stub_openrouter_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     # Tests mock `complete_json` but still hit the constructor. Pin the
     # provider so the constructor reads the OpenRouter key (not MINIMAX).
+    # Only stub when no real key is set, so live tests keep their credentials.
     monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
 
 def _cz_profile(
