@@ -1,6 +1,6 @@
 # T31 — SPIKE: multimodal vision ingest as L1+L2 alternative
 
-Status: deferred-post-submission
+Status: superseded by T32–T35 Token Plan VLM path
 Owner: ai-ml-engineer
 Depends on: —
 Unblocks: —
@@ -90,4 +90,18 @@ Spike is "verified" when the report contains all matrix cells with concrete numb
 
 ## Outcome
 
-(fill in when done — recommendation + matrix link + decision rationale; if recommendation is "migrate", spawn follow-up T<NN> tasks)
+Superseded by the T32–T35 MiniMax Token Plan VLM chain.
+
+The original T31 ask was a post-submission exploratory spike to determine
+whether a multimodal pass could replace or complement deterministic L1/L2
+ingest. That question has since been answered by the narrower Token Plan route:
+
+- T32 verified the MiniMax `API-vlm` endpoint on synthetic CV-like pages with
+  18/18 anchor survival and a `usable` recommendation.
+- T33–T34 wired the production async ingest path and PDF-page VLM tier.
+- T35 added opt-in live smoke coverage and README cost/privacy notes for the
+  Token Plan path.
+
+No separate T31 branch or `scripts/spike_multimodal_ingest.py` report is needed
+now; the active follow-up surface is T35's opt-in live VLM run and private-CV
+approval gate, not a second spike.

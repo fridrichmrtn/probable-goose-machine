@@ -48,7 +48,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [ ] **T29** — Acceptance eval: 3 CZ fixtures (#11 bilingual, #12 academic, #13 corporate) (`tasks/T29_cz_senior_fixture.md`) — *deps T24, T25, T26, T27, T28*
 - [x] **T30 phase 1** — Wire §5.4 differentiation eval into CI (closes T17) (`tasks/T30_acceptance_ci.md`) — *PR #10, dea3dcf*
 - [ ] **T30 phase 2** — CZ-triplet extension — *deps T29*
-- [ ] ~~**T31** — SPIKE: multimodal vision ingest~~ — *deferred/superseded by T32–T35 vision chain; no longer an active pickup* (`tasks/T31_multimodal_spike.md`)
+- [x] ~~**T31** — SPIKE: multimodal vision ingest~~ — *superseded by T32–T35 Token Plan VLM chain; no longer an active pickup* (`tasks/T31_multimodal_spike.md`)
 
 ## MiniMax Token Plan LLM ingest
 - [x] **T32** — Synthetic Token Plan VLM spike passed (`tasks/minimax_token_plan_vlm_report.md`) — *MiniMax `API-vlm`, 100% synthetic anchor survival, usable*
