@@ -327,3 +327,34 @@ Report: tasks/dev-report.md (in dev/parallelize-vision-cap-max-tokens)
 - [ai-ml-engineer] src/gander/ingest.py — `png_to_index` round-trip dict is a workaround for `asyncio.gather`'s preserve-order semantics that the function already relies on. Drop the dict; `gather` returns in submission order.
 - [qa-engineer] tests/test_llm.py — three new `max_tokens` forwarding tests are near-identical (one per `complete_json` / `complete_text` / `complete_vision_text`). Parametrize over the three entry points.
 - [hiring-manager] src/gander/ingest.py — `_transcribe(i, png)`: `i` is a single-letter loop variable that survives into a closure capture. Rename `page_index`.
+
+## t47-current-employer-fix — 2026-05-15T00:00Z
+Report: tasks/T47_dev-report.md (in dev/t47-current-employer-fix)
+
+### Should-fix
+- [ai-ml-engineer] src/gander/growth.py validator + 3-survivor floor — if 3+ benign actions get dropped (ban + closed-employer + unverified-anchor stack) the stage flips to `insufficient_verified_actions`. Consider lowering the gate to 2 OR adding a single retry that re-prompts only the dropped actions with the violation reason injected.
+- [ai-ml-engineer] src/gander/growth.py `_COMPANY_STOPWORDS` — strips `data, ai, research, science, platform`. An employer literally named "Data Science Institute" or "AI Research Labs" produces zero candidates, so the validator is a no-op for them. Either tighten the stopword list to title words only OR fall back to full-header substring when no token candidates survive.
+- [product-owner] src/gander/growth.py `_employer_match_candidates` — legal-form suffixes (`a.s`, `s.r.o`, `sro`, `ltd`, `gmbh`, `inc`, `llc`, `corp`) survive as 3-char tokens after edge-`.,;:` strip and would falsely match unrelated `"a.s"` substrings. Add them to `_COMPANY_STOPWORDS`.
+- [product-owner] src/gander/growth.py `_violates_forward_setting` — current-employer match wins unconditionally over closed-employer match. If a current and closed employer share a rare non-stopword token (e.g. "Holding"), a closed-targeted action passes. Document as a known limitation OR use longest-token-wins.
+- [product-owner] src/gander/timeline.py header walk-up — hardcoded 3-line window with bullet-glyph-only lines `continue`-ing (not decrementing budget). A CV with 4+ decorative lines plus a real header could lose the company. Count cleaned-empty lines toward budget OR break on non-content.
+- [hiring-manager] src/gander/growth.py `_violates_forward_setting:265-271` — current-employer match short-circuits to PASS the moment ANY current candidate substring (e.g. `"independent"`, `"stealth"`) appears in `what`. The current-hit gate should require a non-stopword *company-segment* hit (post-dash side of the header), not any candidate.
+- [hiring-manager] src/gander/growth.py `_employer_match_candidates` — `_COMPANY_STOPWORDS` is English-only. Czech CVs leak `vedoucí`, `analytik`, `oddělení` as "company tokens" because they look non-English-stopword. Either localize stopwords or restrict candidate extraction to the post-dash company segment.
+- [hiring-manager] src/gander/growth.py `growth_action_dropped` event — omits `current_count`/`closed_count`. Adding both materially improves oncall triage when the LLM regresses.
+- [hiring-manager] src/gander/growth.py `_build_user_message` optional-hint params — production always passes them; the default-None branch is effectively dead. Either drop the optional params (force callers) or document the test-only intent.
+- [qa-engineer] tests/test_growth_unit.py — Missing explicit test for the `>3 closed-targeted drops → StageFailure` path. The existing failure test mixes ban + unverified, never closed-employer-setting drops.
+- [qa-engineer] tests/test_growth_unit.py — Missing 3-letter acronym (DSV) targeted action validator case. `test_payload_bug_pdf_shape` includes DSV but no validator-side coverage of the short-acronym branch.
+- [qa-engineer] tests/test_growth_unit.py `test_validator_normalizes_accents_for_match` — named for accent-stripping but inputs differ only in case + tokenization (`alza.cz` vs `Alza.cz a.s.`). Rename OR add a true accent fixture (e.g. `Škoda` vs `skoda`).
+- [codex] src/gander/salary.py:595 — Currency gate accepts any 3 uppercase letters, so invalid currencies like `XYZ` can reach reports. Out-of-scope for T47 (salary stage); file separately.
+- [codex] tests/test_salary.py:1026 — Live test skips on `OPENROUTER_API_KEY` but `LLMClient` still defaults to MiniMax unless `GANDER_LLM_PROVIDER` is set. Out-of-scope for T47 (salary stage); file separately.
+
+### Must-fix (remaining — exhaustion)
+- [codex] tests/test_salary.py:201 — Fast tests instantiate `LLMClient()` before mocked `complete_json` is reached; without a `MINIMAX_API_KEY` env var the constructor fails. Out-of-scope for T47 (salary test infrastructure, predates this branch). Filed for separate ticket. T47 ran fast tests with `MINIMAX_API_KEY=stub` to mirror the existing pattern.
+
+### Nits
+- [ai-ml-engineer] src/gander/prompts/growth.md Rule 7 part (c) — could steer LLM to generic OSS boilerplate when `current_employer_hint` is empty. Consider requiring the artefact to name a specific capability gap from `dropped_components`.
+- [ai-ml-engineer] src/gander/growth.py emit field — uses `detail` for closed-employer drop, but the rest of the file uses `debug_detail`/`phrase`/`reason`. Minor schema drift.
+- [product-owner] src/gander/prompts/growth.md Rule 7 fallback — "if BOTH hint lists are empty, treat top entry as current" is now narrower than the original behaviour. Worth a README "Decisions" note for the round-2 reviewer running on a snippet-shaped CV.
+- [product-owner] Plan→code drift — `_BANNED_VERBS_NEAR_CLOSED` from `tasks/T47_dev-plan.md` was cut during implementation in favour of the simpler substring rule. Plan review section should record the cut.
+- [hiring-manager] src/gander/timeline.py `_BULLET_GLYPHS` — includes `-`, `–`, `—` (also dash chars). One-line WHY comment would prevent a maintainer from "fixing" the apparent overlap.
+- [hiring-manager] src/gander/timeline.py header lookback `range(i - 1, max(-1, i - 4), -1)` — correct but obtuse. A `# at most 3 lines back, stop at top of slice` comment would do.
+- [hiring-manager] tests/test_growth_unit.py `test_validator_drop_emits_observability_event` — relies on `"synnex"` appearing in lowercased `detail`. A future refactor that title-cases detail will silently break the assertion without a clear failure message.
