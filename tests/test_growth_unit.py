@@ -1219,13 +1219,53 @@ def test_validator_matches_certify_verb_form() -> None:
 
 @pytest.mark.fast
 def test_validator_normalizes_accents_for_match() -> None:
-    action = _make_action("Rebuild the recommender at alza.cz over the next two quarters")
+    # Real accent example: the closed header carries "Škoda" but the action
+    # spells the company without the diacritic. NFKD-strip in
+    # `_normalize_for_match` is what makes this match.
+    action = _make_action("Rebuild the procurement pipeline at skoda over the next two quarters")
     result = _violates_forward_setting(
         action,
         current_employers=[],
-        closed_employers=["Lead Data Scientist — Alza.cz a.s."],
+        closed_employers=["Lead Data Scientist — Škoda Auto a.s."],
     )
     assert result is not None
+    assert result.startswith("forward_setting_targets_closed_employer")
+
+
+@pytest.mark.fast
+def test_validator_does_not_bypass_via_generic_current_token() -> None:
+    # "Research Engineer — Independent" used to emit the candidate
+    # "independent"; an action that explicitly targets a closed employer
+    # while merely *mentioning* independent work would then slip through.
+    # Generic descriptors are now stopwords, so the closed hit lands.
+    action = _make_action(
+        "Use independent contractor work to rebuild the TD SYNNEX pricing engine",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Research Engineer — Independent"],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is not None
+    assert result.startswith("forward_setting_targets_closed_employer")
+
+
+@pytest.mark.fast
+def test_validator_does_not_match_inc_inside_increase() -> None:
+    # Word-boundary matching means "inc" (a legal suffix that's also a
+    # stopword now) and short tokens generally can't false-match inside
+    # unrelated words. Even without the stopword filter, the word-boundary
+    # guard is what keeps "inc" out of "increase".
+    action = _make_action(
+        "Increase incident response coverage across the platform team next quarter",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Director — Acme Inc"],
+    )
+    # No closed-token boundary hit, so this is not a violation.
+    assert result is None
 
 
 @pytest.mark.fast

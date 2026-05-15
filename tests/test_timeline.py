@@ -158,6 +158,25 @@ def test_scan_does_not_flag_header_with_inline_month_name() -> None:
 
 
 @pytest.mark.fast
+def test_scan_handles_trailing_segment_after_present() -> None:
+    # Splitting on the *last* dash used to misread this as "Remote" on the
+    # RHS, dropping the present-token signal. With first-dash splitting the
+    # whole "Present - Remote" tail is searched.
+    text = (
+        "## Work Experience\n"
+        "Senior Engineer — Current Co\n"
+        "January 2024 - Present - Remote\n"
+        "Engineer — Old Co\n"
+        "2018 - 2021\n"
+    )
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 2
+    assert entries[0].header == "Senior Engineer — Current Co"
+    assert entries[0].is_current is True
+    assert entries[1].is_current is False
+
+
+@pytest.mark.fast
 def test_employer_entry_is_frozen() -> None:
     entry = EmployerEntry(header="X", dates_raw="2018 - 2021", is_current=False)
     with pytest.raises(FrozenInstanceError):

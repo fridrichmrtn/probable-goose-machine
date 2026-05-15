@@ -54,10 +54,15 @@ def _is_date_range_line(line: str) -> bool:
     return bool(_YEAR_MARKER_RE.search(line) or _BARE_YEAR_RE.search(line))
 
 
-def _split_on_last_dash(line: str) -> tuple[str, str]:
-    idx = max(line.rfind(d) for d in _DASH_CHARS)
-    if idx < 0:
+def _split_on_first_dash(line: str) -> tuple[str, str]:
+    # Splitting on the *first* dash captures everything after the range start,
+    # so "January 2024 - Present - Remote" yields "Present - Remote" on the
+    # RHS rather than just "Remote" — preserving the present-token signal
+    # when the line carries a trailing modifier segment.
+    positions = [p for p in (line.find(d) for d in _DASH_CHARS) if p >= 0]
+    if not positions:
         return line, ""
+    idx = min(positions)
     return line[:idx], line[idx + 1 :]
 
 
@@ -101,7 +106,7 @@ def scan_employer_timeline(redacted_text: str) -> list[EmployerEntry]:
             header_parts.append(cleaned)
         header_parts.reverse()
         header = " — ".join(header_parts)
-        right_of_dash = _split_on_last_dash(line)[1]
+        right_of_dash = _split_on_first_dash(line)[1]
         is_current = bool(_PRESENT_TOKEN_RE.search(_normalize(right_of_dash)))
         out.append(EmployerEntry(header=header, dates_raw=line.strip(), is_current=is_current))
     return out
