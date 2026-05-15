@@ -7,7 +7,13 @@ import pytest
 
 import gander.growth as growth_mod
 from gander.errors import StageFailure
-from gander.growth import _build_user_message, _GrowthList, _jaccard_4gram, plan_growth
+from gander.growth import (
+    _build_user_message,
+    _GrowthList,
+    _jaccard_4gram,
+    _violates_forward_setting,
+    plan_growth,
+)
 from gander.llm import LLMClient
 from gander.obs import subscribe
 from gander.schemas import (
@@ -1014,3 +1020,284 @@ def test_baseline_path_lives_inside_package() -> None:
     assert baseline.parent.parent.name == "gander"
     # tests/ directory must NOT appear anywhere in the runtime path.
     assert "tests" not in baseline.parts
+
+
+# --- Workstream B: payload includes timeline-derived hints ---
+
+
+def _bug_pdf_redacted() -> RedactedCV:
+    return RedactedCV(
+        text=(
+            "## Work Experience\n"
+            "Member of Staff — Stealth Mode Startup\n"
+            "ledna [YEAR] - Present\n"
+            "Research Engineer — Independent\n"
+            "ledna [YEAR] - Present\n"
+            "Senior Manager AI & Data Science — TD SYNNEX\n"
+            "ledna [YEAR] - prosince [YEAR]\n"
+            "Lead Data Scientist — Alza.cz\n"
+            "ledna [YEAR] - prosince [YEAR]\n"
+        ),
+        audit_log=[],
+    )
+
+
+@pytest.mark.fast
+def test_payload_includes_closed_employer_hint() -> None:
+    payload = json.loads(
+        _build_user_message(
+            _bug_pdf_redacted(), _profile(), _score(), salary_midpoint=150000, currency="CZK"
+        )
+    )
+    assert "closed_employer_hint" in payload
+    assert "TD SYNNEX" in payload["closed_employer_hint"][0]
+
+
+@pytest.mark.fast
+def test_payload_uses_timeline_when_available() -> None:
+    # Profile has no anchor matches (so the snippet fallback would yield []),
+    # but the timeline parser still produces hints from header+date lines.
+    payload = json.loads(
+        _build_user_message(
+            _bug_pdf_redacted(), _profile(), _score(), salary_midpoint=150000, currency="CZK"
+        )
+    )
+    assert payload["current_employer_hint"] == [
+        "Member of Staff — Stealth Mode Startup",
+        "Research Engineer — Independent",
+    ]
+
+
+@pytest.mark.fast
+def test_payload_falls_back_to_anchor_heuristic_for_snippet_input() -> None:
+    # Snippet-shaped CV with no work-experience heading → timeline returns [],
+    # _extract_current_employer_hint takes over.
+    quote = "Lead the unified observability platform across product analytics teams"
+    redacted = RedactedCV(
+        text=(f"Some intro line.\n{quote}.\nJanuary 2024 - Present\n"),
+        audit_log=[],
+    )
+    profile = _profile().model_copy(
+        update={
+            "experience": [
+                ProfileItem(
+                    text="Lead Platform Engineer",
+                    anchor=Anchor(quote=quote, section=None),
+                )
+            ]
+        }
+    )
+    payload = json.loads(
+        _build_user_message(redacted, profile, _score(), salary_midpoint=150000, currency="CZK")
+    )
+    assert payload["current_employer_hint"] == ["Lead Platform Engineer"]
+    assert payload["closed_employer_hint"] == []
+
+
+@pytest.mark.fast
+def test_payload_bug_pdf_shape() -> None:
+    payload = json.loads(
+        _build_user_message(
+            _bug_pdf_redacted(), _profile(), _score(), salary_midpoint=150000, currency="CZK"
+        )
+    )
+    current = payload["current_employer_hint"]
+    closed = payload["closed_employer_hint"]
+    assert "Stealth Mode Startup" in current[0]
+    assert "Research Engineer" in current[1]
+    assert any("TD SYNNEX" in h for h in closed)
+
+
+# --- Workstream C: forward-setting validator ---
+
+
+def _make_action(what: str, quote: str = _QUOTE_FRAUD) -> GrowthAction:
+    return _action(
+        what=what,
+        mechanism="moves you into the senior-IC band, +20% in CZ market",
+        quote=quote,
+    )
+
+
+@pytest.mark.fast
+def test_validator_passes_action_targeting_current_employer() -> None:
+    action = _make_action(
+        "Lead the LLM evaluation harness rollout at Stealth Mode Startup over two quarters",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_passes_capability_mode_action_with_no_employer_named() -> None:
+    action = _make_action(
+        "Ship a public benchmark for distributed inference frameworks within six months",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_drops_action_targeting_closed_employer() -> None:
+    action = _make_action("Rebuild the pricing engine you owned at TD SYNNEX")
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is not None
+    assert result.startswith("forward_setting_targets_closed_employer")
+
+
+@pytest.mark.fast
+def test_validator_allows_closed_employer_when_forward_marker_present() -> None:
+    action = _make_action(
+        "Use the TD SYNNEX experience to land a next role at a CZ-market data leader",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_normalizes_accents_for_match() -> None:
+    action = _make_action("Rebuild the recommender at alza.cz over the next two quarters")
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Lead Data Scientist — Alza.cz a.s."],
+    )
+    assert result is not None
+
+
+@pytest.mark.fast
+async def test_validator_drop_emits_observability_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    closed_what = "Rebuild the pricing engine you owned at TD SYNNEX over the next year"
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what=closed_what,
+                mechanism="repeating prior work proves capability in CZ tech-lead band",
+                quote=_QUOTE_FRAUD,
+            ),
+            _action(
+                what="Lead the on-prem to cloud migration of the recommendation pipeline you own",
+                mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+                quote=_QUOTE_MIGRATION,
+            ),
+            _action(
+                what="Own the principal engineer on-call rotation across both production squads",
+                mechanism="on-call ownership lifts base by ~15% plus uplift in CZ market",
+                quote=_QUOTE_ONCALL,
+            ),
+            _action(
+                what="Publish a Kafka stream-processing case study from the European retail team",
+                mechanism="external visibility shifts you into the staff-IC band, +25% in CZ",
+                quote=_QUOTE_FRAUD,
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    def fake_hints(_redacted: RedactedCV, _profile: Profile) -> tuple[list[str], list[str]]:
+        return [], ["TD SYNNEX"]
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(growth_mod, "_compute_employer_hints", fake_hints)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    drop_evt = next(
+        e
+        for e in events
+        if e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
+    )
+    assert drop_evt["stage"] == "growth"
+    assert "synnex" in drop_evt["detail"]
+    assert drop_evt["what"].startswith("Rebuild the pricing engine")
+
+
+@pytest.mark.fast
+async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remaining(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what="Rebuild the pricing engine you owned at TD SYNNEX over the next year",
+                mechanism="repeating prior work proves capability in CZ tech-lead band",
+                quote=_QUOTE_FRAUD,
+            ),
+            _action(
+                what="Lead the on-prem to cloud migration of the recommendation pipeline you own",
+                mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+                quote=_QUOTE_MIGRATION,
+            ),
+            _action(
+                what="Own the principal engineer on-call rotation across both production squads",
+                mechanism="on-call ownership lifts base by ~15% plus uplift in CZ market",
+                quote=_QUOTE_ONCALL,
+            ),
+            _action(
+                what="Publish a Kafka stream-processing case study from the European retail team",
+                mechanism="external visibility shifts you into the staff-IC band, +25% in CZ",
+                quote=_QUOTE_FRAUD,
+            ),
+            _action(
+                what="Mentor two graduates through the Czech MSc programme you completed",
+                mechanism="formal mentorship is the tech-lead promotion signal, +30k CZK/mo",
+                quote=_QUOTE_EDUCATION,
+                section="Education",
+            ),
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    def fake_hints(_redacted: RedactedCV, _profile: Profile) -> tuple[list[str], list[str]]:
+        return [], ["TD SYNNEX"]
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(growth_mod, "_compute_employer_hints", fake_hints)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    assert len(result) == 4
+    assert all("TD SYNNEX" not in a.what for a in result)
+
+    drop_evts = [
+        e
+        for e in events
+        if e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
+    ]
+    assert len(drop_evts) == 1

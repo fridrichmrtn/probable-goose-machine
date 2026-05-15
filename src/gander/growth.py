@@ -30,6 +30,7 @@ from gander.llm import LLMClient
 from gander.obs import emit
 from gander.schemas import GrowthAction, Profile, ProfileItem, RedactedCV, Score
 from gander.tenure import _PRESENT_TOKENS, work_experience_slice
+from gander.timeline import scan_employer_timeline
 from gander.verify import verify_quote
 
 _SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "growth.md").read_text(encoding="utf-8")
@@ -48,6 +49,21 @@ _BAN_PHRASES: tuple[str, ...] = (
     "improve communication",
     "learn more",
     "network more",
+)
+
+_FORWARD_MARKERS: tuple[str, ...] = (
+    "next role",
+    "next employer",
+    "next position",
+    "open source",
+    "open-source",
+    "oss",
+    "certification",
+    "certificate",
+    "paper",
+    "publication",
+    "side project",
+    "side-project",
 )
 
 _BOILERPLATE_JACCARD_THRESHOLD = 0.6
@@ -184,20 +200,106 @@ def _extract_current_employer_hint(redacted: RedactedCV, profile: Profile) -> li
     return hints
 
 
+def _normalize_for_match(text: str) -> str:
+    stripped = "".join(
+        c for c in unicodedata.normalize("NFKD", text).lower() if not unicodedata.combining(c)
+    )
+    return " ".join(stripped.split())
+
+
+_COMPANY_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "manager",
+        "senior",
+        "junior",
+        "lead",
+        "principal",
+        "staff",
+        "engineer",
+        "scientist",
+        "analyst",
+        "director",
+        "data",
+        "ai",
+        "science",
+        "research",
+        "platform",
+        "software",
+        "head",
+        "of",
+        "and",
+        "the",
+        "member",
+    }
+)
+
+
+def _employer_match_candidates(header: str) -> list[str]:
+    # An EmployerEntry.header is "Title — Company"; an action's `what` rarely
+    # quotes the full header. Match the whole header, each dash-split part
+    # (>=4 chars), or any non-stopword token (>=3 chars) within those parts —
+    # the latter catches "alza.cz" inside "alza.cz a.s.".
+    normalized = _normalize_for_match(header)
+    if not normalized:
+        return []
+    candidates: set[str] = {normalized}
+    for part in re.split(r"\s+[-–—]\s+", normalized):
+        part = part.strip()
+        if len(part) >= 4:
+            candidates.add(part)
+        for token in part.split():
+            stripped = token.strip(".,;:")
+            if len(stripped) >= 3 and stripped not in _COMPANY_STOPWORDS:
+                candidates.add(stripped)
+    return [c for c in candidates if c]
+
+
+def _violates_forward_setting(
+    action: GrowthAction,
+    current_employers: list[str],
+    closed_employers: list[str],
+) -> str | None:
+    what = _normalize_for_match(action.what)
+    current_candidates = [c for h in current_employers for c in _employer_match_candidates(h)]
+    closed_candidates = [c for h in closed_employers for c in _employer_match_candidates(h)]
+    if any(c in what for c in current_candidates):
+        return None
+    closed_hits = [c for c in closed_candidates if c in what]
+    if not closed_hits:
+        return None
+    if any(marker in what for marker in _FORWARD_MARKERS):
+        return None
+    return "forward_setting_targets_closed_employer:" + closed_hits[0][:40]
+
+
+def _compute_employer_hints(redacted: RedactedCV, profile: Profile) -> tuple[list[str], list[str]]:
+    timeline = scan_employer_timeline(redacted.text)
+    if timeline:
+        current_hint = [e.header for e in timeline if e.is_current]
+        closed_hint = [e.header for e in timeline if not e.is_current]
+        return current_hint, closed_hint
+    return _extract_current_employer_hint(redacted, profile), []
+
+
 def _build_user_message(
     redacted: RedactedCV,
     profile: Profile,
     score: Score,
     salary_midpoint: int,
     currency: str,
+    current_hint: list[str] | None = None,
+    closed_hint: list[str] | None = None,
 ) -> str:
+    if current_hint is None or closed_hint is None:
+        current_hint, closed_hint = _compute_employer_hints(redacted, profile)
     payload = {
         "salary_midpoint": salary_midpoint,
         "currency": currency,
         "detected_role": profile.detected_role,
         "detected_location": profile.detected_location,
         "detected_years_experience": profile.detected_years_experience,
-        "current_employer_hint": _extract_current_employer_hint(redacted, profile),
+        "current_employer_hint": current_hint,
+        "closed_employer_hint": closed_hint,
         "dropped_components": list(score.dropped),
         "components": [
             {
@@ -222,7 +324,16 @@ async def plan_growth(
     async with stage_boundary("growth"):
         try:
             client = LLMClient()
-            user_message = _build_user_message(redacted, profile, score, salary_midpoint, currency)
+            current_hint, closed_hint = _compute_employer_hints(redacted, profile)
+            user_message = _build_user_message(
+                redacted,
+                profile,
+                score,
+                salary_midpoint,
+                currency,
+                current_hint,
+                closed_hint,
+            )
 
             try:
                 # temperature=0.0 for determinism — matches T10/T11/T12 stages.
@@ -282,6 +393,17 @@ async def plan_growth(
                         "growth_action_dropped",
                         reason="unverified_anchor",
                         what=action.what[:80],
+                    )
+                    dropped += 1
+                    continue
+                forward_violation = _violates_forward_setting(action, current_hint, closed_hint)
+                if forward_violation is not None:
+                    emit(
+                        "growth",
+                        "growth_action_dropped",
+                        reason="closed_employer_setting",
+                        what=action.what[:80],
+                        detail=forward_violation,
                     )
                     dropped += 1
                     continue
