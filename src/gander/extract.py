@@ -1,6 +1,6 @@
 """L3 — structured profile extraction from a redacted CV.
 
-One MiniMax JSON-mode call against the prompt at `prompts/extract.md`. Every
+One OpenRouter JSON-mode call against the prompt at `prompts/extract.md`. Every
 `ProfileItem` is substring-verified against `redacted.text` and dropped if its
 anchor does not survive `verify_quote` (PRD §4.6 hallucination guard).
 """

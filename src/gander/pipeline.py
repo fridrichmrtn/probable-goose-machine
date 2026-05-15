@@ -205,6 +205,7 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
             return
         redacted: RedactedCV = redacted_result
         state.redacted_cv_text = redacted.text
+        yield state.snapshot()
 
         # === L3 extract (async) ===
         profile_result = await extract_profile(redacted)

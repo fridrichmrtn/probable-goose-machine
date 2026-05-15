@@ -96,9 +96,10 @@ jobs:
           GANDER_LLM_PROVIDER: openrouter
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # Exercise the production OpenRouter path end to end: PDF pages use
-          # OpenRouter vision, DOCX normalization and downstream stages use
-          # OpenRouter text/JSON, and the acceptance suite enforces cost/quality.
-          GANDER_INGEST_MODE: vision
+          # OpenRouter vision, DOCX stays deterministic, and downstream stages
+          # use OpenRouter text/JSON.
+          GANDER_PDF_INGEST_MODE: vision
+          GANDER_DOCX_INGEST_MODE: text
         # --reruns 1 absorbs sampling + DDG variance at the anchor-survival gate;
         # one retry drops the cross-fixture flake rate from ~50% to ~10%. Applies
         # to live only — fast/slow suites must stay deterministic.

@@ -13,8 +13,8 @@ from gander.obs import subscribe
 from gander.schemas import Confidence, CVQualitySignals, Source
 
 _LIVE_SKIPIF = pytest.mark.skipif(
-    not os.environ.get("MINIMAX_API_KEY"),
-    reason="needs MINIMAX_API_KEY",
+    not os.environ.get("OPENROUTER_API_KEY"),
+    reason="needs OPENROUTER_API_KEY",
 )
 
 

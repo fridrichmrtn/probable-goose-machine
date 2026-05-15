@@ -5,20 +5,18 @@ import json
 import os
 import re
 import time
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
-import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from gander import obs
 
 LogicalModel = Literal["reasoning", "cheap", "extract", "vision"]
-ProviderName = Literal["minimax", "openrouter"]
+ProviderName = Literal["openrouter"]
 
-# MiniMax-M2.x models prepend a <think>...</think> reasoning block to chat output
-# regardless of response_format, and often wrap JSON-mode payloads in ```json fences.
-# Strip both before JSON-parsing or returning text.
+# Some reasoning models prepend a <think>...</think> block to chat output and
+# can wrap JSON-mode payloads in ```json fences. Strip both before parsing.
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 
@@ -93,26 +91,6 @@ def _usage_cost_usd(usage: Any) -> float | None:
         return None
 
 
-_API_VLM_MODEL = "api-vlm"
-_API_VLM_ENDPOINT = "https://api.minimax.io/v1/coding_plan/vlm"
-_API_VLM_USD_PER_REQUEST = 0.06
-_API_VLM_TOKEN_PLAN_M2_REQUESTS = 3
-
-_PROFILE_MODELS: dict[str, dict[str, str]] = {
-    "local": {
-        "reasoning": "MiniMax-M2.7-highspeed",
-        "cheap": "MiniMax-M2.7-highspeed",
-        "extract": "MiniMax-M2.7-highspeed",
-        "vision": _API_VLM_MODEL,
-    },
-    "ci": {
-        "reasoning": "MiniMax-M2.7-highspeed",
-        "cheap": "MiniMax-M2.7-highspeed",
-        "extract": "MiniMax-M2.7-highspeed",
-        "vision": _API_VLM_MODEL,
-    },
-}
-
 _OPENROUTER_MODELS: dict[LogicalModel, str] = {
     # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
     "reasoning": "google/gemini-2.5-flash",
@@ -128,27 +106,22 @@ _OPENROUTER_FALLBACK_MODELS: dict[LogicalModel, tuple[str, ...]] = {
 }
 
 # USD per 1M tokens, (prompt, completion).
-# TODO(T05): re-verify model identifiers and re-cost from MiniMax pricing console;
-# zeroed because public docs no longer expose per-model pricing without auth.
-MODEL_PRICES: dict[str, tuple[float, float]] = {
-    "MiniMax-M2.7-highspeed": (0.0, 0.0),
-    _API_VLM_MODEL: (0.0, 0.0),
-}
+# OpenRouter normally reports usage.cost; this table is only a local fallback.
+MODEL_PRICES: dict[str, tuple[float, float]] = {}
 
 
 class LLMClient:
-    """Async chat client over MiniMax (default) or OpenRouter.
+    """Async chat client over OpenRouter.
 
-    Provider selected via GANDER_LLM_PROVIDER env (`minimax` | `openrouter`).
-    A logical model may override it with GANDER_LLM_PROVIDER_<LOGICAL_MODEL>,
-    e.g. GANDER_LLM_PROVIDER_EXTRACT=openrouter.
-    Model resolution for MiniMax via GANDER_MODEL_PROFILE env (`local` | `ci`).
+    Provider selected via GANDER_LLM_PROVIDER env, which must be `openrouter`.
+    A logical model may still set GANDER_LLM_PROVIDER_<LOGICAL_MODEL>, but it
+    must also be `openrouter`; legacy providers fail at startup/call time.
     Every call emits an `llm_call` telemetry event (success or failure).
     """
 
     def __init__(self) -> None:
         self._provider = self._validate_provider(
-            os.environ.get("GANDER_LLM_PROVIDER", "minimax"),
+            os.environ.get("GANDER_LLM_PROVIDER", "openrouter"),
             "GANDER_LLM_PROVIDER",
         )
         self._client: AsyncOpenAI
@@ -159,32 +132,25 @@ class LLMClient:
     @staticmethod
     def _validate_provider(raw: str, env_name: str) -> ProviderName:
         provider = raw.strip().lower()
-        if provider in {"minimax", "openrouter"}:
-            return cast(ProviderName, provider)
-        raise RuntimeError(f"Unknown {env_name}={raw!r}; expected 'minimax' or 'openrouter'")
+        if provider == "openrouter":
+            return "openrouter"
+        raise RuntimeError(f"Unknown {env_name}={raw!r}; expected 'openrouter'")
 
     def _build_client(self, provider: ProviderName) -> AsyncOpenAI:
-        if provider == "minimax":
-            api_key = os.environ.get("MINIMAX_API_KEY")
-            if not api_key:
-                raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
-            return AsyncOpenAI(api_key=api_key, base_url="https://api.minimaxi.chat/v1")
-        if provider == "openrouter":
-            api_key = os.environ.get("OPENROUTER_API_KEY")
-            if not api_key:
-                raise RuntimeError("OPENROUTER_API_KEY not set — add it to .env or export it")
-            return AsyncOpenAI(
-                api_key=api_key,
-                base_url="https://openrouter.ai/api/v1",
-                default_headers={
-                    "HTTP-Referer": os.environ.get(
-                        "OPENROUTER_HTTP_REFERER",
-                        "https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine",
-                    ),
-                    "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Gander"),
-                },
-            )
-        raise AssertionError(f"unhandled provider {provider!r}")
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY not set — add it to .env or export it")
+        return AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": os.environ.get(
+                    "OPENROUTER_HTTP_REFERER",
+                    "https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine",
+                ),
+                "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Gander"),
+            },
+        )
 
     def _client_for_provider(self, provider: ProviderName) -> AsyncOpenAI:
         if provider == self._provider:
@@ -201,25 +167,16 @@ class LLMClient:
         return self._validate_provider(raw, env_key)
 
     def _resolve_model(self, logical: LogicalModel, provider: ProviderName | None = None) -> str:
-        provider = provider or self._resolve_provider(logical)
-        if provider == "openrouter":
-            env_key = f"OPENROUTER_MODEL_{logical.upper()}"
-            return os.environ.get(env_key, _OPENROUTER_MODELS[logical])
-        profile = os.environ.get("GANDER_MODEL_PROFILE", "local")
-        if profile not in _PROFILE_MODELS:
-            raise RuntimeError(
-                f"Unknown GANDER_MODEL_PROFILE={profile!r}; "
-                f"expected one of {sorted(_PROFILE_MODELS)}"
-            )
-        return _PROFILE_MODELS[profile][logical]
+        if provider is None:
+            self._resolve_provider(logical)
+        env_key = f"OPENROUTER_MODEL_{logical.upper()}"
+        return os.environ.get(env_key, _OPENROUTER_MODELS[logical])
 
     def _resolve_models(
         self, logical: LogicalModel, provider: ProviderName | None = None
     ) -> tuple[str, ...]:
         provider = provider or self._resolve_provider(logical)
         primary = self._resolve_model(logical, provider)
-        if provider != "openrouter":
-            return (primary,)
         env_key = f"OPENROUTER_MODEL_{logical.upper()}_FALLBACK"
         fallback_raw = os.environ.get(env_key)
         if fallback_raw is None:
@@ -434,81 +391,15 @@ class LLMClient:
         timeout_s: float = 120.0,
         max_tokens: int | None = None,
     ) -> str:
-        """Transcribe one rendered page through the configured vision provider."""
-        provider = self._resolve_provider("vision")
-        if provider == "openrouter":
-            return await self._complete_openrouter_vision_text(
-                image_bytes=image_bytes,
-                prompt=prompt,
-                mime_type=mime_type,
-                timeout_s=timeout_s,
-                max_tokens=max_tokens,
-            )
-
-        # MiniMax `coding_plan/vlm` REST endpoint accepts prompt + image_url only.
-        # No `max_tokens` plumbing on that branch.
-        return await self._complete_minimax_vision_text(
+        """Transcribe one rendered page through OpenRouter vision."""
+        self._resolve_provider("vision")
+        return await self._complete_openrouter_vision_text(
             image_bytes=image_bytes,
             prompt=prompt,
             mime_type=mime_type,
             timeout_s=timeout_s,
+            max_tokens=max_tokens,
         )
-
-    async def _complete_minimax_vision_text(
-        self,
-        *,
-        image_bytes: bytes,
-        prompt: str,
-        mime_type: str,
-        timeout_s: float,
-    ) -> str:
-        api_key = os.environ.get("MINIMAX_API_KEY")
-        if not api_key:
-            raise RuntimeError("MINIMAX_API_KEY not set — add it to .env or export it")
-
-        endpoint = os.environ.get("GANDER_VLM_ENDPOINT", _API_VLM_ENDPOINT)
-        image_url = f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("ascii")
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "MM-API-Source": "Gander-Ingest",
-        }
-        payload = {"prompt": prompt, "image_url": image_url}
-        t0 = time.perf_counter()
-        sent = False
-        finish_reason = ""
-        try:
-            async with httpx.AsyncClient(timeout=timeout_s) as client:
-                sent = True
-                response = await client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            base_resp = data.get("base_resp")
-            if isinstance(base_resp, dict):
-                status_code = base_resp.get("status_code")
-                if status_code not in (None, 0, 200):
-                    status_msg = str(base_resp.get("status_msg", "unknown MiniMax error"))
-                    raise RuntimeError(f"MiniMax API-vlm error {status_code}: {status_msg}")
-            content = data.get("content", "")
-            text = content.strip() if isinstance(content, str) else str(content).strip()
-            if not text:
-                raise RuntimeError("MiniMax API-vlm returned empty content")
-            finish_reason = "success"
-            return text
-        finally:
-            duration_ms = int((time.perf_counter() - t0) * 1000)
-            obs.emit(
-                obs.current_stage.get(),
-                "llm_call",
-                provider="minimax",
-                model=_API_VLM_MODEL,
-                prompt_tokens=0,
-                completion_tokens=0,
-                usd_cost=_API_VLM_USD_PER_REQUEST if sent else 0.0,
-                duration_ms=duration_ms,
-                finish_reason=finish_reason,
-                token_plan_m2_requests=_API_VLM_TOKEN_PLAN_M2_REQUESTS if sent else 0,
-            )
 
     async def _complete_openrouter_vision_text(
         self,
@@ -595,30 +486,6 @@ class LLMClient:
         provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
-        if provider == "minimax":
-            client: Any = self._client_for_provider(provider)
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                response_format={"type": "json_object"},
-                temperature=temperature,
-                max_tokens=4096,
-                extra_body={"reasoning_split": True},
-            )
-            choice = response.choices[0]
-            text = choice.message.content or ""
-            usage = response.usage
-            prompt_tokens, completion_tokens = _usage_tokens(usage)
-            return (
-                _strip_think(text),
-                prompt_tokens,
-                completion_tokens,
-                choice.finish_reason or "",
-                None,
-            )
         client_o: Any = self._client_for_provider(provider)
         openrouter_kwargs: dict[str, Any] = {
             "model": model,
@@ -667,28 +534,6 @@ class LLMClient:
         provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
-        if provider == "minimax":
-            client: Any = self._client_for_provider(provider)
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                temperature=temperature,
-                extra_body={"reasoning_split": True},
-            )
-            choice = response.choices[0]
-            text = choice.message.content or ""
-            usage = response.usage
-            prompt_tokens, completion_tokens = _usage_tokens(usage)
-            return (
-                _strip_think(text),
-                prompt_tokens,
-                completion_tokens,
-                choice.finish_reason or "",
-                None,
-            )
         client_o: Any = self._client_for_provider(provider)
         openrouter_kwargs: dict[str, Any] = {
             "model": model,

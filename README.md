@@ -22,7 +22,7 @@ First request may take about 20 seconds if the Space is asleep; the warm-keeper
 cron usually prevents that. Local run:
 
 ```bash
-uv sync && MINIMAX_API_KEY=... uv run python app.py
+uv sync && OPENROUTER_API_KEY=... uv run python app.py
 ```
 
 Fresh-clone check:
@@ -31,7 +31,7 @@ Fresh-clone check:
 git clone https://github.com/fridrichmrtn/probable-goose-machine gander
 cd gander
 uv sync
-MINIMAX_API_KEY=... uv run python app.py
+OPENROUTER_API_KEY=... uv run python app.py
 ```
 
 Open the printed local Gradio URL, upload `tests/fixtures/cvs/03_ds_horak.pdf`
@@ -92,9 +92,9 @@ I started with MiniMax because the project brief rewards practical AI-first
 judgment, not defaulting to the most familiar frontier provider. The T05 spike
 validated the core jobs on `MiniMax-M2.7-highspeed`: 100% anchor verification
 on the junior and senior fixtures, scores of 22 and 87, and average latencies
-of 14.9s and 18.3s. Later work added OpenRouter as a second provider option so
-the same pipeline can run Gemini/Claude-family model slugs without a direct
-Anthropic integration.
+of 14.9s and 18.3s. Later work moved the runtime to OpenRouter/Gemini so the
+same pipeline can run Gemini/Claude-family model slugs without per-provider
+SDK branches.
 
 DuckDuckGo/DDGS is deliberately used instead of a paid search API. It keeps the
 reviewer setup at zero accounts beyond the LLM key, and it makes the salary
@@ -120,37 +120,30 @@ files instead of pretending it understood them.
 
 ## Providers
 
-Default local provider:
-
-```bash
-MINIMAX_API_KEY=...
-GANDER_LLM_PROVIDER=minimax
-```
-
-OpenRouter provider:
+Gander uses OpenRouter by default:
 
 ```bash
 OPENROUTER_API_KEY=...
 GANDER_LLM_PROVIDER=openrouter
 ```
 
-The current supported provider values are `minimax` and `openrouter`.
+The current supported provider value is `openrouter`.
 OpenRouter model slugs may point at Anthropic, Gemini, OpenAI, or other hosted
 models, but Gander does not use the direct Anthropic SDK/provider path.
 
-By default, LLM ingest is enabled. PDF pages are rendered to images and DOCX
-source text may be sent to the configured LLM provider for
-transcription/normalization. Uploaded files are not retained by Gander after
-processing. To use deterministic local text extraction only:
+By default, PDF pages are rendered to images and sent to OpenRouter/Gemini for
+transcription. DOCX files use deterministic local text extraction unless
+`GANDER_DOCX_INGEST_MODE=llm` is set. Uploaded files are not retained by Gander
+after processing.
+
+To use deterministic local PDF text extraction:
 
 ```bash
-GANDER_INGEST_MODE=text uv run python app.py
+GANDER_PDF_INGEST_MODE=text uv run python app.py
 ```
 
-MiniMax PDF-page ingest uses the `API-vlm` token-plan endpoint: each rendered
-page is one VLM request, currently treated as `$0.06` or 3 M2.7 token-plan
-requests in telemetry. Private real-CV live testing is opt-in only; the checked
-live smoke for this path uses a synthetic image.
+`GANDER_INGEST_MODE` remains as a legacy fallback when file-specific modes are
+unset. Private real-CV live testing is opt-in only.
 
 ## Deployment Recovery
 
@@ -163,8 +156,7 @@ using the GitHub `HF_TOKEN` secret.
 
 Required Hugging Face Space configuration:
 
-- Secret for the active provider: `MINIMAX_API_KEY` for the default MiniMax
-  path, or `OPENROUTER_API_KEY` plus `GANDER_LLM_PROVIDER=openrouter`.
+- Secret: `OPENROUTER_API_KEY`.
 - Variables: `GANDER_MODEL_PROFILE=local` and `PYTHONPATH=/app/src`.
 
 Required GitHub configuration:
@@ -179,7 +171,7 @@ Rebind an existing Space through the Space settings page
 the Space with the CLI:
 
 ```bash
-hf repos create fridrichmrtn/probable-goose-machine --type space --space-sdk gradio --public --secrets MINIMAX_API_KEY=... --env GANDER_MODEL_PROFILE=local --env PYTHONPATH=/app/src --exist-ok
+hf repos create fridrichmrtn/probable-goose-machine --type space --space-sdk gradio --public --secrets OPENROUTER_API_KEY=... --env GANDER_LLM_PROVIDER=openrouter --env GANDER_MODEL_PROFILE=local --env PYTHONPATH=/app/src --exist-ok
 gh secret set HF_TOKEN
 gh variable set HF_SPACE_URL --body https://fridrichmrtn-probable-goose-machine.hf.space
 gh workflow run sync-to-hub.yml

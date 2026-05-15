@@ -212,7 +212,7 @@ def test_salary_estimate_rejects_empty_sources() -> None:
     URL-in-inputs filter on line ~255 produces `StageFailure(... model_urls=[])`),
     but enforcing the invariant at the schema layer lets
     `LLMClient.complete_json`'s ValidationError-retry loop recover the rare
-    MiniMax sample that drops the field instead of bubbling the failure to
+    LLM sample that drops the field instead of bubbling the failure to
     the user. See `tests/test_acceptance.py::test_salary_ranges_dont_overlap`
     for the regression this guards against.
     """

@@ -9,8 +9,7 @@ parity with ``estimate_salary`` and ``score_profile``. The structural-isolation
 test asserts on parameter keys only, so the recompute-then-compare contract
 still holds.
 
-``model="cheap"`` resolves through ``_PROFILE_MODELS`` in ``gander.llm`` to
-MiniMax-M2.7-highspeed under the current profiles.
+``model="cheap"`` resolves through the OpenRouter registry in ``gander.llm``.
 """
 
 from __future__ import annotations

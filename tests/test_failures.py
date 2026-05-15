@@ -225,7 +225,7 @@ async def test_ddg_returns_empty_short_circuits_salary(
     """
     _patch_non_salary_stages(monkeypatch)
     _patch_ddgs(monkeypatch, MagicMock(return_value=[]))
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     reports = await _collect(pipeline.run(b"x", "cv.pdf"))
     final = reports[-1]
@@ -255,7 +255,7 @@ async def test_ddg_raises_connection_error_short_circuits_salary(
     """
     _patch_non_salary_stages(monkeypatch)
     _patch_ddgs(monkeypatch, MagicMock(side_effect=ConnectionError("ddg unreachable")))
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     reports = await _collect(pipeline.run(b"x", "cv.pdf"))
     final = reports[-1]
@@ -292,7 +292,7 @@ async def test_extract_validation_error_cascades_to_every_downstream_stage(
         raise RuntimeError("invalid JSON after retries")
 
     monkeypatch.setattr(LLMClient, "complete_json", _always_raise)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     # Use a real CV docx so ingest succeeds and we actually reach extract.
     fixture_name = "01_junior_da_novotny.docx"
@@ -350,7 +350,7 @@ async def test_low_evidence_profile_cascades_to_every_downstream_stage(
         return hallucinated
 
     monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
     # Real docx so ingest+redact actually run; the anchors above won't appear
     # in the redacted text, so drop_unverified strips every item.
@@ -390,6 +390,6 @@ async def test_no_failure_path_leaves_running_status(
 
     _patch_non_salary_stages(monkeypatch)
     _patch_ddgs(monkeypatch, MagicMock(return_value=[]))
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-stub")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     ddg_final = (await _collect(pipeline.run(b"x", "cv.pdf")))[-1]
     assert all(v != "running" for v in ddg_final.statuses.values())

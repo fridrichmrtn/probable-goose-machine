@@ -38,6 +38,8 @@ MIN_TEXT_CHARS = 100
 # diacritics make labels longer (e.g. "PRACOVNÍ ZKUŠENOSTI A PROFESNÍ KARIÉRA").
 _MAX_HEADER_CHARS = 40
 _INGEST_MODES = {"vision", "text"}
+_PDF_INGEST_MODES = {"vision", "text"}
+_DOCX_INGEST_MODES = {"llm", "text"}
 _DEFAULT_VISION_DPI = 160
 _MIN_DOCX_SOURCE_OVERLAP = 0.70
 
@@ -77,6 +79,28 @@ def _ingest_mode() -> str:
         expected = ", ".join(sorted(_INGEST_MODES))
         raise ValueError(f"Unknown GANDER_INGEST_MODE={mode!r}; expected one of {expected}")
     return mode
+
+
+def _read_mode_env(env_name: str, allowed: set[str]) -> str:
+    mode = os.environ.get(env_name, "").strip().lower()
+    if mode not in allowed:
+        expected = ", ".join(sorted(allowed))
+        raise ValueError(f"Unknown {env_name}={mode!r}; expected one of {expected}")
+    return mode
+
+
+def _pdf_ingest_mode() -> str:
+    if "GANDER_PDF_INGEST_MODE" in os.environ:
+        return _read_mode_env("GANDER_PDF_INGEST_MODE", _PDF_INGEST_MODES)
+    return _ingest_mode()
+
+
+def _docx_ingest_mode() -> str:
+    if "GANDER_DOCX_INGEST_MODE" in os.environ:
+        return _read_mode_env("GANDER_DOCX_INGEST_MODE", _DOCX_INGEST_MODES)
+    if "GANDER_INGEST_MODE" in os.environ:
+        return "llm" if _ingest_mode() == "vision" else "text"
+    return "text"
 
 
 def _vision_dpi() -> int:
@@ -147,9 +171,11 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
             obs.emit("ingest", "rejected", reason="doc_legacy", duration_ms=_ms())
             return StageFailure(stage="ingest", user_message=DOC_MSG)
 
+        mode: str
         if suffix == ".pdf":
+            mode = _pdf_ingest_mode()
             try:
-                text = await _extract_pdf(file_bytes)
+                text = await _extract_pdf(file_bytes, mode=mode)
             except Exception as exc:
                 obs.emit("ingest", "rejected", reason="corrupt", duration_ms=_ms())
                 return StageFailure(
@@ -161,8 +187,9 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
                 obs.emit("ingest", "rejected", reason="scanned", duration_ms=_ms())
                 return StageFailure(stage="ingest", user_message=SCANNED_MSG)
         elif suffix == ".docx":
+            mode = _docx_ingest_mode()
             try:
-                text = await _extract_docx(file_bytes)
+                text = await _extract_docx(file_bytes, mode=mode)
             except Exception as exc:
                 obs.emit("ingest", "rejected", reason="corrupt", duration_ms=_ms())
                 return StageFailure(
@@ -185,7 +212,7 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
             chars=len(annotated),
             suffix=suffix,
             duration_ms=_ms(),
-            mode=_ingest_mode(),
+            mode=mode,
         )
         return annotated
 
@@ -193,8 +220,9 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
     return cm.failure
 
 
-async def _extract_pdf(file_bytes: bytes) -> str:
-    if _ingest_mode() == "text":
+async def _extract_pdf(file_bytes: bytes, *, mode: str | None = None) -> str:
+    resolved_mode = _pdf_ingest_mode() if mode is None else mode
+    if resolved_mode == "text":
         return _extract_pdf_text(file_bytes)
 
     try:
@@ -212,9 +240,10 @@ async def _extract_pdf(file_bytes: bytes) -> str:
     return _extract_pdf_text(file_bytes)
 
 
-async def _extract_docx(file_bytes: bytes) -> str:
+async def _extract_docx(file_bytes: bytes, *, mode: str | None = None) -> str:
+    resolved_mode = _docx_ingest_mode() if mode is None else mode
     deterministic = _extract_docx_text(file_bytes)
-    if _ingest_mode() == "text":
+    if resolved_mode == "text":
         return deterministic
     if len(deterministic.strip()) < MIN_TEXT_CHARS:
         return deterministic

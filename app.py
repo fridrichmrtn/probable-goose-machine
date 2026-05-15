@@ -146,9 +146,9 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         gr.HTML(_HERO_CSS + _HERO_HTML)
         file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
         gr.HTML(
-            '<p class="gander-caption">PDF or DOCX, max 10 MB. PDF page images and DOCX '
-            "text may be sent to the configured LLM provider (MiniMax by default) for "
-            "extraction. Files are not retained by Gander.</p>"
+            '<p class="gander-caption">PDF or DOCX, max 10 MB. PDF pages are '
+            "transcribed with OpenRouter/Gemini; DOCX files are read locally by "
+            "default. Files are not retained by Gander.</p>"
         )
         run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
@@ -188,19 +188,25 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         # silence reads as breakage (PRD §8).
         reading_report = _initial_report()
         reading_report.statuses["profile"] = "running"
+        reading_copy = (
+            "*Transcribing PDF…*" if filename.lower().endswith(".pdf") else "*Reading DOCX…*"
+        )
         yield (
             gr.update(visible=True, value=render_tracker(reading_report)),
-            gr.update(visible=True, value="*Reading file…*"),
+            gr.update(visible=True, value=reading_copy),
         )
 
         async for report in pipeline_run(file_bytes, filename):
             # render_body short-circuits to a failure callout when profile is still a
             # StageFailure placeholder; hold neutral copy until profile is a real Profile.
-            body = (
-                render_body(report)
-                if isinstance(report.profile, Profile)
-                else "*Generating report…*"
-            )
+            if isinstance(report.profile, Profile):
+                body = render_body(report)
+            elif report.statuses["profile"] == "running" and not report.raw_cv_text:
+                body = reading_copy
+            elif report.statuses["profile"] == "running":
+                body = "*Extracting profile…*"
+            else:
+                body = "*Generating report…*"
             yield (
                 gr.update(visible=True, value=render_tracker(report)),
                 gr.update(visible=True, value=body),
