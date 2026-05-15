@@ -79,3 +79,6 @@ Follow-up during the sweep:
 - `reports/SUMMARY.md` placeholder now lists all 14 committed fixture pairs,
   including the T29 CZ fixtures #11–#13, so the linked eval surface no longer
   hides the multilingual corpus extension while live numbers are pending.
+- `scripts/eval_corpus.py` now preflights the configured provider keys,
+  including per-logical-model provider overrides, and exits 2 before creating
+  report files when credentials are missing.

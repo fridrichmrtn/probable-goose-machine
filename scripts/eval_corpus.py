@@ -10,12 +10,13 @@ Exit codes:
         (profile or score returned StageFailure — the report
         cannot be judged meaningfully without them).
     2 = setup error: fixture dir missing, no fixtures matched,
-        or an unresolved Git LFS pointer was found.
+        provider API key missing, or an unresolved Git LFS pointer was found.
 
 Usage:
     uv run python scripts/eval_corpus.py
     uv run python scripts/eval_corpus.py --profile ci
     uv run python scripts/eval_corpus.py --output-dir reports/ci-run
+    GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run python scripts/eval_corpus.py
 
 The `--profile` flag sets `GANDER_MODEL_PROFILE` for the run (see
 `gander.llm` for what it picks). Local profile uses the reasoning-heavy
@@ -42,6 +43,16 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "reports"
 SUPPORTED_SUFFIXES = (".pdf", ".docx")
 PROFILE_CHOICES = ("local", "ci")
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/"
+PROVIDER_KEYS = {
+    "minimax": "MINIMAX_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+LOGICAL_PROVIDER_ENV_KEYS = (
+    "GANDER_LLM_PROVIDER_REASONING",
+    "GANDER_LLM_PROVIDER_CHEAP",
+    "GANDER_LLM_PROVIDER_EXTRACT",
+    "GANDER_LLM_PROVIDER_VISION",
+)
 
 
 def _iter_fixture_paths(fixture_dir: Path) -> Iterable[Path]:
@@ -57,6 +68,37 @@ def _display_path(path: Path) -> str:
         return str(path.relative_to(REPO_ROOT))
     except ValueError:
         return str(path)
+
+
+def _provider_key_error() -> str | None:
+    provider_sources = {
+        "GANDER_LLM_PROVIDER": os.environ.get("GANDER_LLM_PROVIDER", "minimax"),
+    }
+    for env_key in LOGICAL_PROVIDER_ENV_KEYS:
+        raw = os.environ.get(env_key)
+        if raw is not None:
+            provider_sources[env_key] = raw
+
+    missing: dict[str, list[str]] = {}
+    for env_key, raw_provider in provider_sources.items():
+        provider = raw_provider.strip().lower()
+        api_key_env = PROVIDER_KEYS.get(provider)
+        if api_key_env is None:
+            expected = " or ".join(f"{name!r}" for name in PROVIDER_KEYS)
+            return f"Unknown {env_key}={raw_provider!r}; expected {expected}."
+        if not os.environ.get(api_key_env):
+            missing.setdefault(api_key_env, []).append(f"{env_key}={provider}")
+
+    if missing:
+        details = "; ".join(
+            f"{api_key_env} ({', '.join(sources)})"
+            for api_key_env, sources in sorted(missing.items())
+        )
+        return (
+            f"Missing provider credential(s): {details}. "
+            "Set the env var(s) and retry; .env is not auto-loaded by this script."
+        )
+    return None
 
 
 def _cell(value: object) -> str:
@@ -207,6 +249,11 @@ def _write_summary(
 
 
 async def _run_corpus(fixture_dir: Path, output_dir: Path, profile: str) -> int:
+    provider_error = _provider_key_error()
+    if provider_error is not None:
+        print(provider_error, file=sys.stderr)
+        return 2
+
     if not fixture_dir.exists() or not fixture_dir.is_dir():
         print(
             f"Fixture directory not found or not a directory: {fixture_dir}",
