@@ -55,15 +55,32 @@ _FORWARD_MARKERS: tuple[str, ...] = (
     "next role",
     "next employer",
     "next position",
+    "new role",
+    "new employer",
+    "new position",
+    "future role",
+    "interview",
+    "land a role",
+    "land a job",
+    "job hunt",
     "open source",
     "open-source",
-    "oss",
     "certification",
     "certificate",
+    "certify",
+    "certified",
     "paper",
+    "publish",
     "publication",
     "side project",
     "side-project",
+)
+
+# Word-boundary match: "oss" must not match inside "across"/"loss",
+# "paper" must not match inside "whitepaper"/"newspaper".
+_FORWARD_MARKER_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(m) for m in _FORWARD_MARKERS) + r")\b",
+    flags=re.IGNORECASE,
 )
 
 _BOILERPLATE_JACCARD_THRESHOLD = 0.6
@@ -267,7 +284,7 @@ def _violates_forward_setting(
     closed_hits = [c for c in closed_candidates if c in what]
     if not closed_hits:
         return None
-    if any(marker in what for marker in _FORWARD_MARKERS):
+    if _FORWARD_MARKER_RE.search(what):
         return None
     return "forward_setting_targets_closed_employer:" + closed_hits[0][:40]
 

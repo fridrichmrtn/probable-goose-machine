@@ -1171,6 +1171,53 @@ def test_validator_allows_closed_employer_when_forward_marker_present() -> None:
 
 
 @pytest.mark.fast
+def test_validator_does_not_match_oss_inside_loss_or_across() -> None:
+    # Pre-fix the bare substring "oss" sneaked inside "across"/"loss" and
+    # falsely rescued an action targeting a closed employer. "oss" is no
+    # longer a marker, and with word-boundary matching neither "across" nor
+    # "loss" surface any other forward marker either — so this drops.
+    action = _make_action(
+        "Recover the lost contributions from across the TD SYNNEX codebase",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is not None
+    assert result.startswith("forward_setting_targets_closed_employer")
+
+
+@pytest.mark.fast
+def test_validator_does_not_match_paper_inside_newspaper() -> None:
+    # "whitepaper" must not light up the "paper" forward marker — the
+    # action still targets closed TD SYNNEX and must drop.
+    action = _make_action(
+        "Document the TD SYNNEX rebuild in a whitepaper for the platform team",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is not None
+    assert result.startswith("forward_setting_targets_closed_employer")
+
+
+@pytest.mark.fast
+def test_validator_matches_certify_verb_form() -> None:
+    action = _make_action(
+        "Certify the migration approach you used at TD SYNNEX before pitching it to the next role",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
 def test_validator_normalizes_accents_for_match() -> None:
     action = _make_action("Rebuild the recommender at alza.cz over the next two quarters")
     result = _violates_forward_setting(
