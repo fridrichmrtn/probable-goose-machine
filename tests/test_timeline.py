@@ -146,6 +146,18 @@ def test_scan_bug_pdf_shape() -> None:
 
 
 @pytest.mark.fast
+def test_scan_does_not_flag_header_with_inline_month_name() -> None:
+    # "May Mobility" is a real company name; the header carries the month
+    # token "May" plus an em-dash but no year/[YEAR]/present-token, so the
+    # detector must not treat it as a date-range line.
+    text = "## Work Experience\nMachine Learning Engineer — May Mobility\nJanuary 2020 - Present\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].header == "Machine Learning Engineer — May Mobility"
+    assert entries[0].is_current is True
+
+
+@pytest.mark.fast
 def test_employer_entry_is_frozen() -> None:
     entry = EmployerEntry(header="X", dates_raw="2018 - 2021", is_current=False)
     with pytest.raises(FrozenInstanceError):
