@@ -25,6 +25,8 @@ Scope: `src/gander/` + `tests/` on `stream-C`, cross-referenced against PRD §5 
 | `[should-fix]` T23 README falsifiability + fresh-clone smoke | PR #35 sweep (`t46-salary-multi-market`) | `README.md` now has a clean-clone runbook, the expected healthy-run signal, corpus regeneration, and opt-in arbitrary-CV smoke commands; `tasks/T23_readme.md` mirrors the verification |
 | `[should-fix]` T22 secret rebind | PR #35 sweep (`t46-salary-multi-market`) | `README.md` and `tasks/T22_deploy.md` now list the HF Space secrets/env, GitHub secrets/vars, and `hf`/`gh` recovery commands |
 | `[should-fix]` PRD §5(6) salary source URL reachability | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_acceptance.py::test_salary_source_urls_reachable` opt-in gates on `GANDER_LIVE_DDG=1` + `GANDER_CHECK_SALARY_URLS=1`, then HEAD/GET-checks the top two salary sources per EN acceptance CV |
+| `[nit]` T18 cascade contract | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_pipeline_fast.py::test_profile_failure_cascade_contract_covers_downstream_stages` pins `_CASCADE_PROFILE_FAILED` to `score`, `salary`, `confidence`, and `growth` |
+| `[nit]` PRD obs-counter golden path | PR #35 sweep (`t46-salary-multi-market`) | `tests/test_pipeline_fast.py::test_prd_observability_counters_visible_on_golden_run` asserts `verify`, `salary_search`, and `confidence_decision` events are visible through one orchestrated run |
 
 Note: T17 and T18 still show `Status: todo` on stream-C base because the merging stream-C is awaiting PR review — work is on the PR branches, not yet on `main`. Treat both as **landed-pending-merge**, not unstarted.
 
@@ -67,7 +69,7 @@ Note: T17 and T18 still show `Status: todo` on stream-C base because the merging
 
 - `[resolved] PRD §4.6 rendered-copy` `tests/test_render.py` now has a parametrized `StageFailure` render test covering profile, score, salary, confidence, and growth copy.
 - `[resolved-pending-merge] Multi-failure renderer` PR #10's `tests/test_report.py::test_stage_failure_does_not_block_other_stages` asserts the renderer emits every section's failure callout (Score, Salary, Confidence, Plan) when all four downstream stages fail simultaneously. Single-stage-fails-alone permutations are owned by `tests/test_render.py`. No remaining gap on this axis; re-verify on merge.
-- `[nit] T18 cascade contract ↔ T15` the "extract fails → score/salary/growth get cascade message" assertion depends on T15's `_CASCADE_PROFILE_FAILED` dict shape. T15 has no contract-level test for the cascade keys; if a stage name changes, only T18 catches it. Suggested fix: a 5-line unit test in `tests/test_pipeline_fast.py` asserting `_CASCADE_PROFILE_FAILED` covers `{"score", "salary", "growth"}`.
+- `[resolved] T18 cascade contract ↔ T15` `tests/test_pipeline_fast.py` now pins the downstream profile-failure cascade keys.
 
 ---
 
@@ -93,7 +95,7 @@ PRD §4.8 names four counters: **claims verified**, **claims dropped**, **search
 
 - `[resolved] §4.8 per-stage duration` `score`, `salary`, `confidence`, and `growth` now time themselves and emit `obs.emit(<stage>, "done", duration_ms=…)` on success. The explicit `stage_failure` events in those stages also include `duration_ms`.
 - `[resolved] errors.py:82,89` the generic boundary no longer uses `str(exc)` for reviewer-facing copy or obs error messages. Raw exception text remains only in `StageFailure.debug_detail`, which is not rendered in the report.
-- `[nit] tests/test_obs.py` no test asserts the four PRD-named counters are emitted on a single golden run end-to-end. Useful as a regression net if obs sink names ever drift. Cheap to add: a session-scoped `obs.subscribe` callback that collects events, then assert every name in `{"verify", "salary_search", "confidence_decision"}` appears at least once.
+- `[resolved] PRD obs counters` `tests/test_pipeline_fast.py` now collects obs events from one golden pipeline run and asserts `{"verify", "salary_search", "confidence_decision"}` appears.
 - `[nit]` `ingest.py:46` uses `filename_suffix` + `size_bytes` rather than a single `fingerprint` field — semantically equivalent to PRD §4.8's "file size and type, not CV content". Leave as-is; flagged here only so future readers don't grep for the literal word.
 
 ---
@@ -146,7 +148,7 @@ These tasks were added after v1 audit. Most are scoped well; a few have weak ver
 |---|---|
 | `[must-fix]` | 0 |
 | `[should-fix]` | 1 |
-| `[nit]` | 4 |
+| `[nit]` | 2 |
 
 Open `[should-fix]` bullets: T30 Phase 2. The PR #10 multi-failure renderer item is tracked separately as `[resolved-pending-merge]`.
 
@@ -154,4 +156,4 @@ Open `[should-fix]` bullets: T30 Phase 2. The PR #10 multi-failure renderer item
 
 1. `[should-fix]` Run the CZ triplet live and close T30 Phase 2 once the provider-key gate is satisfied.
 
-**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak, rendered-copy, corpus role-map, README reproducibility, deploy recovery, and salary URL reachability should-fixes are also closed. 0 `[must-fix]` findings remain open in this audit.
+**Delta from v1 audit:** 3 of 3 v1 `[must-fix]` resolved (salary counter, confidence counter, ingest fingerprint), and the later §4.8 per-stage-duration plus PRD §5(3) arbitrary-CV gaps have both been closed. The raw-exception leak, rendered-copy, corpus role-map, README reproducibility, deploy recovery, and salary URL reachability should-fixes are also closed; the cascade-contract and obs-counter nits are pinned. 0 `[must-fix]` findings remain open in this audit.
