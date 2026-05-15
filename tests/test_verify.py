@@ -106,6 +106,30 @@ PhD, Economics and Management, Applied Machine Learning.
     assert verify_quote(quote, source, section="Pracovní zkušenosti") is False
 
 
+def test_known_parent_section_stops_at_shared_cz_section_vocabulary() -> None:
+    source = """## Pracovní zkušenosti
+
+## TD SYNNEX
+Founded and led data science & business intelligence teams.
+
+## Certifikace
+Certified Kubernetes Administrator issued by Cloud Native Computing Foundation.
+"""
+    quote = "Certified Kubernetes Administrator issued by Cloud Native Computing Foundation"
+    assert verify_quote(quote, source, section="Pracovní zkušenosti") is False
+
+
+def test_known_parent_section_stops_at_same_level_custom_non_child_header() -> None:
+    source = """## Work Experience
+Built a recommendation system that reduced churn by 18% over six months.
+
+## Open Source
+Maintained a data quality library used by three analytics teams.
+"""
+    quote = "Maintained a data quality library used by three analytics teams"
+    assert verify_quote(quote, source, section="Work Experience") is False
+
+
 def test_unknown_section_still_stops_at_next_header() -> None:
     source = """## Selected Case Studies
 Built a recommendation system that reduced churn by 18% over six months.

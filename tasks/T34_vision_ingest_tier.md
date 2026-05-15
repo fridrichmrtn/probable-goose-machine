@@ -24,6 +24,12 @@ Make L1 ingest LLM-first while keeping deterministic extraction as a fallback:
   fallback for both.
 - `text`: deterministic PDF/DOCX extraction only.
 
+Provider update (2026-05-15): `LLMClient.complete_vision_text` now dispatches
+by `GANDER_LLM_PROVIDER`. With `openrouter`, PDF pages use OpenRouter image URL
+messages with Gemini Flash primary and Gemini Flash Lite fallback. With
+`minimax`, the original MiniMax Token Plan `api-vlm` path below remains the
+legacy provider route.
+
 ## Deliverables
 
 - [ ] `src/gander/ingest.py`
@@ -82,3 +88,9 @@ Implemented:
 - Inline section-break repair runs before section annotation.
 - VLM telemetry records `model="api-vlm"`, `$0.06/request`, and
   `token_plan_m2_requests=3`.
+
+Post-T42 update:
+
+- OpenRouter provider mode now covers PDF vision ingest too; it emits
+  provider-reported token/cost telemetry and `models_attempted`.
+- MiniMax `api-vlm` telemetry remains unchanged for `GANDER_LLM_PROVIDER=minimax`.

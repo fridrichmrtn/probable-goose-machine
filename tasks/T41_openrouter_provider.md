@@ -20,22 +20,30 @@ Today every pipeline stage (`extract`, `normalize`, `score`, `salary`, `confiden
 
 Full plan in [plan-wiring-open-router-wiggly-hopper.md](../../.claude/plans/plan-wiring-open-router-wiggly-hopper.md). Summary:
 
-- **[src/gander/llm.py](../src/gander/llm.py)** — delete anthropic branch (TYPE_CHECKING import, `_ANTHROPIC_MODEL`, `__init__` elif, `_resolve_model` early return, anthropic branches in `_chat_json` / `_chat_text`); add openrouter branch using `AsyncOpenAI(base_url="https://openrouter.ai/api/v1", default_headers={HTTP-Referer, X-Title})`; add `OPENROUTER_MODEL_{REASONING,CHEAP}` env overrides on a small registry default; keep MiniMax quirks (`_strip_think`, `extra_body={"reasoning_split": True}`, `max_tokens=4096`) **strictly inside** the minimax branch; gate `_strip_think` behind `OPENROUTER_STRIP_THINK=1` for reasoning-trace routes; add `provider=self._provider` to both `obs.emit("llm_call", ...)` call sites.
-- **[.env.example](../.env.example)** — drop `ANTHROPIC_API_KEY` line; add `OPENROUTER_API_KEY` + two model-override lines.
+- **[src/gander/llm.py](../src/gander/llm.py)** — delete anthropic branch (TYPE_CHECKING import, `_ANTHROPIC_MODEL`, `__init__` elif, `_resolve_model` early return, anthropic branches in `_chat_json` / `_chat_text`); add openrouter branch using `AsyncOpenAI(base_url="https://openrouter.ai/api/v1", default_headers={HTTP-Referer, X-Title})`; add `OPENROUTER_MODEL_{REASONING,CHEAP,EXTRACT,VISION}` env overrides on a small registry default plus `OPENROUTER_MODEL_{SLOT}_FALLBACK` per-slot fallbacks; keep MiniMax quirks (`_strip_think`, `extra_body={"reasoning_split": True}`, `max_tokens=4096`) **strictly inside** the minimax branch; gate `_strip_think` behind `OPENROUTER_STRIP_THINK=1` for reasoning-trace routes; add `provider=self._provider` to `obs.emit("llm_call", ...)` call sites.
+- **[.env.example](../.env.example)** — drop `ANTHROPIC_API_KEY` line; add `OPENROUTER_API_KEY`, OpenRouter model overrides, and per-slot fallback examples.
 - **[scripts/spike_minimax.py](../scripts/spike_minimax.py)** — generalize `_preflight` to a 2-way `{minimax, openrouter}` lookup.
 - **[tests/test_llm.py](../tests/test_llm.py)** — OpenRouter construction/model override tests; JSON and text chat branch tests that omit MiniMax quirks and tolerate missing usage metadata/cost; MiniMax branch regression guard; gated OpenRouter live JSON roundtrip when `OPENROUTER_API_KEY` is present.
-- **[.github/workflows/ci.yml](../.github/workflows/ci.yml)** — add required `openrouter-live` job; it runs the OpenRouter live roundtrip plus EN-triplet acceptance under `GANDER_LLM_PROVIDER=openrouter` when `OPENROUTER_API_KEY` is available, and reports a quick no-op success on fork PRs where GitHub withholds secrets.
+- **[.github/workflows/ci.yml](../.github/workflows/ci.yml)** — add required `openrouter-live` job; it runs the OpenRouter live roundtrip plus EN-triplet acceptance under `GANDER_LLM_PROVIDER=openrouter` / `GANDER_INGEST_MODE=vision` when `OPENROUTER_API_KEY` is available, and reports a quick no-op success on fork PRs where GitHub withholds secrets.
 
 ## Default model registry
 
 ```python
 "openrouter": {
-    "reasoning": "anthropic/claude-haiku-4.5",  # verified on OpenRouter 2026-05-15
-    "cheap":     "google/gemini-2.5-flash",     # verified on OpenRouter 2026-05-15
+    "reasoning": "google/gemini-2.5-flash",
+    "cheap":     "google/gemini-2.5-flash",
+    "extract":   "google/gemini-2.5-flash",
+    "vision":    "google/gemini-2.5-flash",
+}
+fallbacks = {
+    "reasoning": ("google/gemini-2.5-flash-lite",),
+    "cheap":     ("google/gemini-2.5-flash-lite",),
+    "extract":   ("google/gemini-2.5-flash-lite",),
+    "vision":    ("google/gemini-2.5-flash-lite",),
 }
 ```
 
-Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_STRIP_THINK=1 uv run …`. Slugs drift — confirm against OpenRouter's `/models` listing before relying.
+Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_MODEL_REASONING_FALLBACK=google/gemini-2.5-flash-lite OPENROUTER_STRIP_THINK=1 uv run …`. Slugs drift — confirm against OpenRouter's `/models` listing before relying.
 
 ## Out of scope (deliberate cuts)
 
@@ -43,7 +51,7 @@ Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_ST
 - `--model-reasoning` / `--model-cheap` CLI flags on `eval_corpus.py` — env vars suffice for tomorrow's exploration.
 - Static `MODEL_PRICES` population for OpenRouter — use provider-reported `usage.cost` instead.
 - `scripts/spike_minimax.py` rename — misleading once it speaks two providers.
-- OpenRouter vision ingest — PDF VLM still uses MiniMax API-vlm; OpenRouter covers chat/text JSON stages.
+- Retiring MiniMax VLM entirely — PDF VLM uses OpenRouter only when `GANDER_LLM_PROVIDER=openrouter`; MiniMax `api-vlm` remains the legacy route when `GANDER_LLM_PROVIDER=minimax`.
 
 ## Verification
 
@@ -72,14 +80,15 @@ Strongly recommended: 4-CV spike harness against OpenRouter (real money). Eval s
 Implemented:
 - Removed the direct Anthropic provider branch from `src/gander/llm.py`.
 - Added `GANDER_LLM_PROVIDER=openrouter` via the OpenAI-compatible `AsyncOpenAI` client at `https://openrouter.ai/api/v1`.
-- Default OpenRouter models changed per user preference: `anthropic/claude-haiku-4.5` for `reasoning`, `google/gemini-2.5-flash` for `cheap`.
-- Added `OPENROUTER_MODEL_REASONING` / `OPENROUTER_MODEL_CHEAP` overrides, optional OpenRouter headers, and provider telemetry on `llm_call`.
+- Default OpenRouter models changed per user preference: Gemini Flash primary and Gemini Flash Lite fallback for `reasoning`, `cheap`, `extract`, and `vision`.
+- Added `OPENROUTER_MODEL_{REASONING,CHEAP,EXTRACT,VISION}` and `OPENROUTER_MODEL_{SLOT}_FALLBACK` overrides, optional OpenRouter headers, and provider telemetry on `llm_call`.
 - OpenRouter chat paths now tolerate missing provider usage metadata by reporting 0 prompt/completion tokens instead of failing a successful completion.
 - OpenRouter JSON-mode responses now strip markdown JSON fences without enabling reasoning-trace stripping.
 - OpenRouter telemetry now records provider-reported `usage.cost` as `usd_cost` when available.
 - Added required `openrouter-live` CI job for the live roundtrip + EN-triplet acceptance suite.
+- Updated `openrouter-live` to use `GANDER_INGEST_MODE=vision` so PDF ingest exercises OpenRouter vision in normal PR/main CI.
 - Tightened CZ salary calibration exposed by OpenRouter live acceptance: staff/principal IC uplift and deterministic <=2-year junior CZK/month cap.
-- Documented that vision ingest remains MiniMax API-vlm-backed.
+- Added OpenRouter PDF vision ingest via image URL messages; MiniMax API-vlm remains only for the MiniMax provider path.
 - Generalized `scripts/spike_minimax.py` preflight to `{minimax, openrouter}`.
 - Updated `.env.example`.
 

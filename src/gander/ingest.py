@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import time
-import unicodedata
 from io import BytesIO
 from pathlib import Path
 
@@ -16,6 +15,7 @@ import pypdf
 from gander import obs
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
+from gander.sections import NORMALIZED_SECTION_NAMES, SECTION_NAMES, normalize_section_name
 
 SCANNED_MSG = "This appears to be a scanned PDF. Text-based PDFs and DOCX are required."
 UNKNOWN_MSG = "Unable to read this file. Please upload a valid PDF or DOCX."
@@ -28,39 +28,6 @@ LOW_EVIDENCE_MSG = (
     "and that sections like Experience or Education are clearly labelled, then try again."
 )
 
-SECTION_NAMES: frozenset[str] = frozenset(
-    {
-        # English (existing + new for title-case headers seen in CZ/EN CVs)
-        "experience",
-        "work experience",
-        "professional experience",
-        "education",
-        "skills",
-        "projects",
-        "summary",
-        "profile",
-        "languages",
-        "certifications",
-        "honors-awards",
-        "awards",
-        "publications",
-        "contact",
-        # Czech — section labels common on bilingual CZ/EN CVs
-        "pracovní zkušenosti",
-        "zkušenosti",
-        "vzdělání",
-        "dovednosti",
-        "nejčastější dovednosti",
-        "jazyky",
-        "certifikace",
-        "ocenění",
-        "publikace",
-        "projekty",
-        "shrnutí",
-        "profil",
-        "kontakt",
-    }
-)
 MIN_TEXT_CHARS = 100
 # The length gate exists ONLY to keep long paragraph sentences that contain a
 # section keyword (e.g. "He learned several languages…") out of the vocab-match
@@ -141,20 +108,6 @@ def _is_all_caps_header(s: str) -> bool:
         elif ch not in " &/":
             return False
     return has_letter
-
-
-def _normalize_for_section_match(s: str) -> str:
-    """NFD-decompose, drop combining marks (= strip diacritics), lowercase,
-    collapse internal whitespace. So `Vzdělání` and `vzdelani` and
-    `  VZDĚLÁNÍ  ` all hash the same key."""
-    decomposed = unicodedata.normalize("NFD", s)
-    no_marks = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
-    return " ".join(no_marks.lower().split())
-
-
-_NORMALIZED_SECTION_NAMES: frozenset[str] = frozenset(
-    _normalize_for_section_match(name) for name in SECTION_NAMES
-)
 
 
 def _section_repair_aliases() -> tuple[str, ...]:
@@ -529,7 +482,7 @@ def _looks_like_section_header(line: str) -> bool:
     # several languages…" risks promotion if it ever shortens.
     if len(stripped) > _MAX_HEADER_CHARS:
         return False
-    return _normalize_for_section_match(stripped) in _NORMALIZED_SECTION_NAMES
+    return normalize_section_name(stripped) in NORMALIZED_SECTION_NAMES
 
 
 def _annotate_sections(text: str) -> str:
