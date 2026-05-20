@@ -104,9 +104,7 @@ def _source_rubric_tier(sources: list[Source]) -> Literal["Low", "Medium", "High
         distinct_domains.add(domain)
         numbers.extend(_salary_numbers(source.snippet))
 
-    if len(distinct_domains) < 2:
-        return "Low"
-    if len(numbers) < 2:
+    if len(distinct_domains) < 2 or len(numbers) < 2:
         return None
 
     median = statistics.median(numbers)
