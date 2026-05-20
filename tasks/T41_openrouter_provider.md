@@ -30,20 +30,20 @@ Full plan in [plan-wiring-open-router-wiggly-hopper.md](../../.claude/plans/plan
 
 ```python
 "openrouter": {
-    "reasoning": "google/gemini-2.5-flash",
-    "cheap":     "google/gemini-2.5-flash",
-    "extract":   "google/gemini-2.5-flash",
-    "vision":    "google/gemini-2.5-flash",
+    "reasoning": "google/gemini-2.5-flash-lite",
+    "cheap":     "google/gemini-2.5-flash-lite",
+    "extract":   "google/gemini-2.5-flash-lite",
+    "vision":    "google/gemini-2.5-flash-lite",
 }
 fallbacks = {
-    "reasoning": ("google/gemini-2.5-flash-lite",),
-    "cheap":     ("google/gemini-2.5-flash-lite",),
-    "extract":   ("google/gemini-2.5-flash-lite",),
-    "vision":    ("google/gemini-2.5-flash-lite",),
+    "reasoning": ("google/gemini-2.5-flash",),
+    "cheap":     ("google/gemini-2.5-flash",),
+    "extract":   ("google/gemini-2.5-flash",),
+    "vision":    ("google/gemini-2.5-flash",),
 }
 ```
 
-Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_MODEL_REASONING_FALLBACK=google/gemini-2.5-flash-lite OPENROUTER_STRIP_THINK=1 uv run …`. Slugs drift — confirm against OpenRouter's `/models` listing before relying.
+Override per-run: `OPENROUTER_MODEL_REASONING=deepseek/deepseek-r1 OPENROUTER_MODEL_REASONING_FALLBACK=google/gemini-2.5-flash OPENROUTER_STRIP_THINK=1 uv run …`. Slugs drift — confirm against OpenRouter's `/models` listing before relying.
 
 ## Out of scope (deliberate cuts)
 
@@ -80,7 +80,7 @@ Strongly recommended: 4-CV spike harness against OpenRouter (real money). Eval s
 Implemented:
 - Removed the direct Anthropic provider branch from `src/gander/llm.py`.
 - Added `GANDER_LLM_PROVIDER=openrouter` via the OpenAI-compatible `AsyncOpenAI` client at `https://openrouter.ai/api/v1`.
-- Default OpenRouter models changed per user preference: Gemini Flash primary and Gemini Flash Lite fallback for `reasoning`, `cheap`, `extract`, and `vision`.
+- Default OpenRouter models changed per user preference: Gemini Flash-Lite primary and Gemini Flash fallback for `reasoning`, `cheap`, `extract`, and `vision`.
 - Added `OPENROUTER_MODEL_{REASONING,CHEAP,EXTRACT,VISION}` and `OPENROUTER_MODEL_{SLOT}_FALLBACK` overrides, optional OpenRouter headers, and provider telemetry on `llm_call`.
 - OpenRouter chat paths now tolerate missing provider usage metadata by reporting 0 prompt/completion tokens instead of failing a successful completion.
 - OpenRouter JSON-mode responses now strip markdown JSON fences without enabling reasoning-trace stripping.

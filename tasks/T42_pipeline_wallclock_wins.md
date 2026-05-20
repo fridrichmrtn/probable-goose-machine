@@ -1,4 +1,4 @@
-# T42 — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, OpenRouter Flash defaults)
+# T42 — Pipeline wallclock wins (parallel DDG, L4c ∥ L5, OpenRouter Gemini defaults)
 
 Status: done — fast/live/UI-smoke verified
 Owner: software-engineer
@@ -50,20 +50,20 @@ Expected saving: ~3s on the warm-path budget (L4c is the cheap model; we save th
 
 ### D3 — OpenRouter model slots and fallbacks  ([src/gander/llm.py:60-110](../src/gander/llm.py#L60-L110), [140-180](../src/gander/llm.py#L140-L180))
 
-- Goal: Gemini Flash primary with Gemini Flash Lite fallback for all OpenRouter work, including L3 extraction and PDF vision ingest, to keep the production path cheap and fast.
-- Decision: `LogicalModel` now has dedicated `"extract"` and `"vision"` slots with `OPENROUTER_MODEL_{SLOT}` and `OPENROUTER_MODEL_{SLOT}_FALLBACK` overrides. OpenRouter defaults are Flash primary and Flash Lite fallback for `reasoning`, `cheap`, `extract`, and `vision`; MiniMax keeps its recorded baseline mapping plus legacy `api-vlm`.
+- Goal: Gemini Flash-Lite primary with Gemini Flash fallback for all OpenRouter work, including L3 extraction and PDF vision ingest, to keep the production path cheaper and faster while retaining the existing exception fallback path.
+- Decision: `LogicalModel` now has dedicated `"extract"` and `"vision"` slots with `OPENROUTER_MODEL_{SLOT}` and `OPENROUTER_MODEL_{SLOT}_FALLBACK` overrides. OpenRouter defaults are Flash-Lite primary and Flash fallback for `reasoning`, `cheap`, `extract`, and `vision`; MiniMax keeps its recorded baseline mapping plus legacy `api-vlm`.
 - Resolved design decision:
   - **Option A** — Override the existing two slots: `reasoning` → `google/gemini-2.5-flash`, `cheap` → `google/gemini-2.5-flash`. Simplest. Loses extract anchor fidelity (regression risk per the 81% senior result above).
   - **Option B (implemented first)** — Add a third logical slot `"extract"` to `LogicalModel` and `_OPENROUTER_MODELS`. L3 extract calls `model="extract"`; everything else stays on `reasoning` / `cheap`. Cleanest semantic separation; small surface change. New env var: `OPENROUTER_MODEL_EXTRACT`.
   - **Option C** — Per-stage env var override pattern (`OPENROUTER_MODEL_L3` etc.). Most flexible, biggest registry refactor, leaks pipeline-stage names into `llm.py`.
-- **Follow-up decision (2026-05-15)** — User chose cheap/fast over Haiku extract anchoring: Flash is now the primary OpenRouter model for extraction and vision, with Flash Lite as fallback. The Haiku spike result remains the trip-wire if acceptance/profile evidence regresses.
+- **Follow-up decision (2026-05-20)** — User chose the cheaper/faster Gemini axis: Flash-Lite is now the primary OpenRouter model for all slots, with Flash as fallback. The Haiku spike result remains the trip-wire if acceptance/profile evidence regresses.
 - Default OpenRouter registry:
   ```yaml
-  reasoning: google/gemini-2.5-flash
-  cheap:     google/gemini-2.5-flash
-  extract:   google/gemini-2.5-flash
-  vision:    google/gemini-2.5-flash
-  fallbacks: google/gemini-2.5-flash-lite per slot
+  reasoning: google/gemini-2.5-flash-lite
+  cheap:     google/gemini-2.5-flash-lite
+  extract:   google/gemini-2.5-flash-lite
+  vision:    google/gemini-2.5-flash-lite
+  fallbacks: google/gemini-2.5-flash per slot
   ```
 - Update `tests/test_llm.py` model-resolution tests + any acceptance tests that hardcode model strings.
 - Out of scope: changing MiniMax-side `_PROFILE_MODELS` defaults — MiniMax remains the recorded baseline.
@@ -112,16 +112,16 @@ Expected saving: ~12s per CV vs MiniMax baseline (six calls × ~2s avg instead o
 
 - **DDG rate limit (D1).** Small N today (~3–5 queries) makes a semaphore unnecessary, but if `build_queries` ever grows we'll need a `asyncio.Semaphore(3)` wrapper. Document the trip-wire in the salary module.
 - **UI ordering shift (D2).** Gradio currently sees stage transitions in a fixed order. Verify the UI doesn't assert ordering before merging; if it does, switch the snapshot loop to `as_completed` like L4a∥L4b already does.
-- **Extract anchor regression.** Spike shows Flash dropped to 81% senior anchor rate before the profile-smoke fixes. We are intentionally shipping Flash primary for cheap/fast production behavior; keep the spike numbers as the trip-wire and switch `OPENROUTER_MODEL_EXTRACT` back to Haiku/Sonnet-class routing if acceptance/profile evidence regresses.
+- **Extract anchor regression.** Spike shows Flash dropped to 81% senior anchor rate before the profile-smoke fixes, and Flash-Lite may have its own quality tradeoffs. We are intentionally shipping Flash-Lite primary for cheap/fast production behavior; keep the spike numbers as the trip-wire and switch `OPENROUTER_MODEL_EXTRACT` back to Flash or Haiku/Sonnet-class routing if acceptance/profile evidence regresses.
 - **Provider drift.** OpenRouter slugs occasionally rename. The existing `_OPENROUTER_MODELS` comment already flags this; same comment applies to the `extract` and `vision` slots plus their fallback env vars.
 
 ## Outcome
 
-Implemented D1–D3 locally on 2026-05-15. Salary DDG queries now fan out concurrently while preserving per-query failure tolerance and source prioritization; confidence and growth now run concurrently after score+salary finish; OpenRouter model routing has dedicated `extract` and `vision` slots and now defaults all OpenRouter slots to Gemini Flash primary with Gemini Flash Lite fallback. Fast verification passed:
+Implemented D1–D3 locally on 2026-05-15. Salary DDG queries now fan out concurrently while preserving per-query failure tolerance and source prioritization; confidence and growth now run concurrently after score+salary finish; OpenRouter model routing has dedicated `extract` and `vision` slots and now defaults all OpenRouter slots to Gemini Flash-Lite primary with Gemini Flash fallback. Fast verification passed:
 `uv run pytest tests/test_salary.py tests/test_pipeline_fast.py tests/test_llm.py tests/test_extract.py -m fast --strict-markers -v` (72 passed, 15 deselected).
 Full fast verification passed: `uv run pytest -m fast --strict-markers -v` (366 passed, 58 deselected).
 Live OpenRouter acceptance passed: `GANDER_LLM_PROVIDER=openrouter GANDER_INGEST_MODE=text uv run pytest tests/test_acceptance.py -m live --strict-markers --reruns 1 --reruns-delay 2 -v` (9 passed in 69.23s).
-Post-vision update: PR CI `openrouter-live` now runs the same acceptance suite with `GANDER_INGEST_MODE=vision` so the Flash/Flash Lite OpenRouter vision route is part of the normal quality and cost gate.
+Post-vision update: PR CI `openrouter-live` now runs the same acceptance suite with `GANDER_INGEST_MODE=vision` so the Flash-Lite/Flash OpenRouter vision route is part of the normal quality and cost gate.
 
 Manual/backend Gradio streaming smoke passed on 2026-05-15 using the real
 `app.handle()` path with app-default PDF vision ingest and OpenRouter downstream
