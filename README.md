@@ -211,10 +211,11 @@ GANDER_SMOKE_CV=/absolute/path/to/cv.pdf GANDER_LLM_PROVIDER=openrouter OPENROUT
 
 Current checked-in live corpus numbers are still pending an explicitly
 approved fresh provider-upload run; see `reports/SUMMARY.md`. The OpenRouter
-spike data that motivated the current defaults measured Gemini Flash at 1.4s
-p50 for the four-call extract/score probe, with $0.0043 provider-reported cost
-for those four calls. MiniMax M2.7-highspeed was slower on the same probe,
-around 16.6s p50, but had strong anchor survival.
+defaults use Gemini Flash-Lite primary with Gemini Flash as the per-slot
+fallback. The earlier spike that motivated the OpenRouter move measured Gemini
+Flash at 1.4s p50 for the four-call extract/score probe, with $0.0043
+provider-reported cost for those four calls. MiniMax M2.7-highspeed was slower
+on the same probe, around 16.6s p50, but had strong anchor survival.
 
 ## Bias And Limits
 

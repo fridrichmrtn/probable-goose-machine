@@ -93,16 +93,16 @@ def _usage_cost_usd(usage: Any) -> float | None:
 
 _OPENROUTER_MODELS: dict[LogicalModel, str] = {
     # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
-    "reasoning": "google/gemini-2.5-flash",
-    "cheap": "google/gemini-2.5-flash",
-    "extract": "google/gemini-2.5-flash",
-    "vision": "google/gemini-2.5-flash",
+    "reasoning": "google/gemini-2.5-flash-lite",
+    "cheap": "google/gemini-2.5-flash-lite",
+    "extract": "google/gemini-2.5-flash-lite",
+    "vision": "google/gemini-2.5-flash-lite",
 }
 _OPENROUTER_FALLBACK_MODELS: dict[LogicalModel, tuple[str, ...]] = {
-    "reasoning": ("google/gemini-2.5-flash-lite",),
-    "cheap": ("google/gemini-2.5-flash-lite",),
-    "extract": ("google/gemini-2.5-flash-lite",),
-    "vision": ("google/gemini-2.5-flash-lite",),
+    "reasoning": ("google/gemini-2.5-flash",),
+    "cheap": ("google/gemini-2.5-flash",),
+    "extract": ("google/gemini-2.5-flash",),
+    "vision": ("google/gemini-2.5-flash",),
 }
 
 # USD per 1M tokens, (prompt, completion).
