@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import statistics
 import time
 from pathlib import Path
 from typing import Literal
@@ -62,6 +63,9 @@ _RANK_TIER: dict[int, Literal["Low", "Medium", "High"]] = {
     1: "Medium",
     2: "High",
 }
+_SALARY_NUMBER_RE = re.compile(
+    r"(?<![\w.])(?:\d+(?:[.,]\d+)?\s*[kK]|\d{1,3}(?:[ .,\u00a0]\d{3})+|\d{5,7})(?![\w.])"
+)
 
 
 def _cv_floor(cv_quality: CVQualitySignals) -> Literal["Low", "Medium", "High"]:
@@ -72,6 +76,58 @@ def _cv_floor(cv_quality: CVQualitySignals) -> Literal["Low", "Medium", "High"]:
     if not cv_quality.location_detected:
         return "Medium"
     return "High"
+
+
+def _salary_numbers(snippet: str) -> list[float]:
+    values: list[float] = []
+    for match in _SALARY_NUMBER_RE.finditer(snippet):
+        token = match.group(0).strip().replace(" ", "").replace("\u00a0", "").lower()
+        try:
+            if token.endswith("k"):
+                value = float(token[:-1].replace(",", ".")) * 1000
+            else:
+                value = float(re.sub(r"\D", "", token))
+        except ValueError:
+            continue
+        if value >= 10_000:
+            values.append(value)
+    return values
+
+
+def _source_rubric_tier(sources: list[Source]) -> Literal["Low", "Medium", "High"] | None:
+    distinct_domains: set[str] = set()
+    numbers: list[float] = []
+    for source in sources:
+        domain = source.domain.strip().lower()
+        if domain in distinct_domains:
+            continue
+        distinct_domains.add(domain)
+        numbers.extend(_salary_numbers(source.snippet))
+
+    if len(distinct_domains) < 2:
+        return "Low"
+    if len(numbers) < 2:
+        return None
+
+    median = statistics.median(numbers)
+    if median <= 0:
+        return None
+    spread = max(abs(number - median) / median for number in numbers)
+    if spread > 0.50:
+        return "Low"
+    if len(distinct_domains) == 2 or spread >= 0.25:
+        return "Medium"
+    return "High"
+
+
+def _cap_salary_tier_by_sources(
+    model_tier: Literal["Low", "Medium", "High"],
+    sources: list[Source],
+) -> tuple[Literal["Low", "Medium", "High"], Literal["Low", "Medium", "High"] | None]:
+    source_tier = _source_rubric_tier(sources)
+    if source_tier is None or _TIER_RANK[source_tier] >= _TIER_RANK[model_tier]:
+        return model_tier, source_tier
+    return source_tier, source_tier
 
 
 def _apply_cv_floor(
@@ -186,7 +242,17 @@ async def judge(
                 user_message=_FAILURE_MSG,
                 debug_detail=f"complete_json returned {type(tier_obj).__name__}",
             )
-        salary_tier = tier_obj.tier
+        model_tier = tier_obj.tier
+        salary_tier, source_tier = _cap_salary_tier_by_sources(model_tier, sources)
+        if salary_tier != model_tier:
+            emit(
+                "confidence",
+                "confidence_source_rubric_applied",
+                model_tier=model_tier,
+                source_tier=source_tier,
+                final_salary_tier=salary_tier,
+                sources_count=len(sources),
+            )
         final_tier, cv_floor = _apply_cv_floor(salary_tier, cv_quality)
         if final_tier != salary_tier:
             emit(
