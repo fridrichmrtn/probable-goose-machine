@@ -40,9 +40,7 @@ def test_source_rubric_one_domain_without_numbers_does_not_cap() -> None:
     # Single domain that contributes zero parseable salary values is not a
     # "weak source" — it is "no source." Returning tier=None keeps the cap
     # off rather than treating absence as evidence.
-    result = evaluate_source_rubric(
-        [_source("platy.cz", "Analyst pay in Prague is competitive.")]
-    )
+    result = evaluate_source_rubric([_source("platy.cz", "Analyst pay in Prague is competitive.")])
 
     assert result.tier is None
     assert result.reason == "insufficient_numeric_evidence"
