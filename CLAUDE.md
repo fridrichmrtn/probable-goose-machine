@@ -11,7 +11,7 @@ This file is committed and team-shared. Personal overrides go in `CLAUDE.local.m
   - Sonnet: scoped research, code exploration, synthesis, implementation planning, and ordinary multi-step engineering work.
   - Opus: only when stakes, ambiguity, and novelty all converge, such as architecture from a vague brief, subtle legacy debugging, or high-impact trade-off decisions.
   - These tier guidelines apply to subagents you spawn. The orchestrator's model is selected by the user at session start.
-- Application runtime LLM: default to OpenRouter via the OpenAI-compatible API. `google/gemini-2.5-flash-lite` is primary for reasoning, cheap, extract, and vision slots; `google/gemini-2.5-flash` is the per-slot fallback.
+- Application runtime LLM: default to OpenRouter via the OpenAI-compatible API. `google/gemini-2.5-flash-lite` is primary for the `cheap`, `extract`, and `vision` slots with `google/gemini-2.5-flash` as the per-slot fallback. The `reasoning` slot (growth stage) keeps `google/gemini-2.5-flash` as primary with Flash-Lite as the fallback, because anchor-verified action generation needs the more capable model.
 - Keep provider-specific app code behind `gander.llm`. Anthropic prompt caching applies only when the application fallback provider is actually Anthropic.
 - Prefer concise execution for trivial edits; do not turn simple work into ceremony.
 - Context controls live in `.claude/settings.json` (shared) with personal overrides in `.claude/settings.local.json`. Keep 1M context disabled and compact around 80% unless a task explicitly needs long-context work.

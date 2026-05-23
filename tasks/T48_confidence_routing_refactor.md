@@ -44,7 +44,12 @@ Changing model order was therefore noisy and partially update-prone.
   field 1:1 regardless of which branch fired.
 - Keep `confidence_source_rubric_applied`, adding diagnostic fields for domain
   count, comparable value count, spread, and reason.
-- Replace separate OpenRouter primary/fallback dicts with one typed route table.
+- Replace separate OpenRouter primary/fallback dicts with one typed route table,
+  keyed per logical slot. The `cheap`, `extract`, and `vision` slots default to
+  `google/gemini-2.5-flash-lite` primary with `google/gemini-2.5-flash` as
+  fallback; the `reasoning` slot (growth stage) keeps full Flash as primary with
+  Flash-Lite as the fallback, because anchor-verified action generation was hit
+  by Flash-Lite's capability boundary on adversarial CZ fixtures.
 
 ## Verification
 

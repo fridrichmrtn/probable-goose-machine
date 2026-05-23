@@ -99,13 +99,27 @@ class _OpenRouterRoute:
 
 
 # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
+# `reasoning` is the growth-stage slot; Flash-Lite hit its capability boundary on
+# adversarial CZ fixtures (PRD §4.4 anchor-verified actions), so this slot keeps
+# full Flash as primary. The cheap/extract/vision slots default to Flash-Lite.
 _OPENROUTER_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
 _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
-    slot: _OpenRouterRoute(
+    "reasoning": _OpenRouterRoute(
+        primary="google/gemini-2.5-flash",
+        fallbacks=("google/gemini-2.5-flash-lite",),
+    ),
+    "cheap": _OpenRouterRoute(
         primary="google/gemini-2.5-flash-lite",
         fallbacks=("google/gemini-2.5-flash",),
-    )
-    for slot in _OPENROUTER_SLOTS
+    ),
+    "extract": _OpenRouterRoute(
+        primary="google/gemini-2.5-flash-lite",
+        fallbacks=("google/gemini-2.5-flash",),
+    ),
+    "vision": _OpenRouterRoute(
+        primary="google/gemini-2.5-flash-lite",
+        fallbacks=("google/gemini-2.5-flash",),
+    ),
 }
 
 # USD per 1M tokens, (prompt, completion).

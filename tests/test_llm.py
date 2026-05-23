@@ -28,6 +28,25 @@ class Echo(BaseModel):
 
 _LOGICAL_MODELS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
 
+_EXPECTED_DEFAULT_ROUTE: dict[LogicalModel, tuple[str, tuple[str, ...]]] = {
+    "reasoning": (
+        "google/gemini-2.5-flash",
+        ("google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"),
+    ),
+    "cheap": (
+        "google/gemini-2.5-flash-lite",
+        ("google/gemini-2.5-flash-lite", "google/gemini-2.5-flash"),
+    ),
+    "extract": (
+        "google/gemini-2.5-flash-lite",
+        ("google/gemini-2.5-flash-lite", "google/gemini-2.5-flash"),
+    ),
+    "vision": (
+        "google/gemini-2.5-flash-lite",
+        ("google/gemini-2.5-flash-lite", "google/gemini-2.5-flash"),
+    ),
+}
+
 
 def _clear_openrouter_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for logical in _LOGICAL_MODELS:
@@ -107,11 +126,9 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     assert str(captured["base_url"]) == "https://openrouter.ai/api/v1"
     assert captured["default_headers"]["X-Title"] == "Gander"
     for logical in _LOGICAL_MODELS:
-        assert client._resolve_model(logical) == "google/gemini-2.5-flash-lite"
-        assert client._resolve_models(logical) == (
-            "google/gemini-2.5-flash-lite",
-            "google/gemini-2.5-flash",
-        )
+        expected_primary, expected_models = _EXPECTED_DEFAULT_ROUTE[logical]
+        assert client._resolve_model(logical) == expected_primary
+        assert client._resolve_models(logical) == expected_models
 
     monkeypatch.setenv("OPENROUTER_MODEL_REASONING", "anthropic/claude-sonnet-4.5")
     monkeypatch.setenv("OPENROUTER_MODEL_CHEAP", "google/gemini-2.5-flash-lite")
@@ -143,11 +160,9 @@ def test_openrouter_default_route_for_each_slot(
     client = object.__new__(LLMClient)
     client._provider = "openrouter"
 
-    assert client._resolve_model(logical) == "google/gemini-2.5-flash-lite"
-    assert client._resolve_models(logical) == (
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
-    )
+    expected_primary, expected_models = _EXPECTED_DEFAULT_ROUTE[logical]
+    assert client._resolve_model(logical) == expected_primary
+    assert client._resolve_models(logical) == expected_models
 
 
 @pytest.mark.fast
