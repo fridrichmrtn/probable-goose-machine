@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from gander.llm import LLMClient, _strip_think
+from gander.llm import LLMClient, LogicalModel, _strip_think
 from gander.obs import current_stage, subscribe
 
 
@@ -24,6 +24,16 @@ def test_strip_think_handles_fences_and_thinkblocks() -> None:
 
 class Echo(BaseModel):
     message: str
+
+
+_LOGICAL_MODELS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
+
+
+def _clear_openrouter_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for logical in _LOGICAL_MODELS:
+        suffix = logical.upper()
+        monkeypatch.delenv(f"OPENROUTER_MODEL_{suffix}", raising=False)
+        monkeypatch.delenv(f"OPENROUTER_MODEL_{suffix}_FALLBACK", raising=False)
 
 
 class _RetryingLLMClient(LLMClient):
@@ -89,40 +99,19 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     monkeypatch.setattr("gander.llm.AsyncOpenAI", _FakeAsyncOpenAI)
     monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
-    monkeypatch.delenv("OPENROUTER_MODEL_REASONING", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_REASONING_FALLBACK", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", raising=False)
-    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
+    _clear_openrouter_model_env(monkeypatch)
 
     client = LLMClient()
 
     assert captured["api_key"] == "or-test"
     assert str(captured["base_url"]) == "https://openrouter.ai/api/v1"
     assert captured["default_headers"]["X-Title"] == "Gander"
-    assert client._resolve_model("reasoning") == "google/gemini-2.5-flash-lite"
-    assert client._resolve_model("cheap") == "google/gemini-2.5-flash-lite"
-    assert client._resolve_model("extract") == "google/gemini-2.5-flash-lite"
-    assert client._resolve_model("vision") == "google/gemini-2.5-flash-lite"
-    assert client._resolve_models("reasoning") == (
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
-    )
-    assert client._resolve_models("cheap") == (
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
-    )
-    assert client._resolve_models("extract") == (
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
-    )
-    assert client._resolve_models("vision") == (
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
-    )
+    for logical in _LOGICAL_MODELS:
+        assert client._resolve_model(logical) == "google/gemini-2.5-flash-lite"
+        assert client._resolve_models(logical) == (
+            "google/gemini-2.5-flash-lite",
+            "google/gemini-2.5-flash",
+        )
 
     monkeypatch.setenv("OPENROUTER_MODEL_REASONING", "anthropic/claude-sonnet-4.5")
     monkeypatch.setenv("OPENROUTER_MODEL_CHEAP", "google/gemini-2.5-flash-lite")
@@ -141,6 +130,47 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     assert client._resolve_models("vision") == (
         "qwen/qwen2.5-vl-72b-instruct",
         "google/gemini-2.5-flash",
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("logical", _LOGICAL_MODELS)
+def test_openrouter_default_route_for_each_slot(
+    monkeypatch: pytest.MonkeyPatch,
+    logical: LogicalModel,
+) -> None:
+    _clear_openrouter_model_env(monkeypatch)
+    client = object.__new__(LLMClient)
+    client._provider = "openrouter"
+
+    assert client._resolve_model(logical) == "google/gemini-2.5-flash-lite"
+    assert client._resolve_models(logical) == (
+        "google/gemini-2.5-flash-lite",
+        "google/gemini-2.5-flash",
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("logical", _LOGICAL_MODELS)
+def test_openrouter_route_env_override_and_duplicate_fallback_removal(
+    monkeypatch: pytest.MonkeyPatch,
+    logical: LogicalModel,
+) -> None:
+    _clear_openrouter_model_env(monkeypatch)
+    suffix = logical.upper()
+    monkeypatch.setenv(f"OPENROUTER_MODEL_{suffix}", "custom/primary")
+    monkeypatch.setenv(
+        f"OPENROUTER_MODEL_{suffix}_FALLBACK",
+        "custom/primary, custom/fallback-a, custom/fallback-b",
+    )
+    client = object.__new__(LLMClient)
+    client._provider = "openrouter"
+
+    assert client._resolve_model(logical) == "custom/primary"
+    assert client._resolve_models(logical) == (
+        "custom/primary",
+        "custom/fallback-a",
+        "custom/fallback-b",
     )
 
 

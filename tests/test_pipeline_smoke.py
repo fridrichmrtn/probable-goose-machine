@@ -45,6 +45,26 @@ async def _collect(it: object) -> list[Report]:
     return [r async for r in it]  # type: ignore[attr-defined]
 
 
+def _agreeing_salary_sources() -> list[Source]:
+    return [
+        Source(
+            url="https://platy.cz/x",  # type: ignore[arg-type]
+            snippet="Senior data roles earn around 100000 CZK per month.",
+            domain="platy.cz",
+        ),
+        Source(
+            url="https://profesia.cz/y",  # type: ignore[arg-type]
+            snippet="Senior data compensation is about 105000 CZK per month.",
+            domain="profesia.cz",
+        ),
+        Source(
+            url="https://glassdoor.com/z",  # type: ignore[arg-type]
+            snippet="Senior data roles average 110000 CZK per month in Prague.",
+            domain="glassdoor.com",
+        ),
+    ]
+
+
 @pytest.mark.live
 @pytest.mark.slow
 async def test_pipeline_smoke_end_to_end_mid_fixture() -> None:
@@ -128,13 +148,7 @@ async def test_pipeline_confidence_reflects_dropped_score_components(
             high=120000,
             currency="CZK",
             period="month",
-            sources=[
-                Source(
-                    url="https://platy.cz/x",  # type: ignore[arg-type]
-                    snippet="Senior data roles are well paid.",
-                    domain="platy.cz",
-                )
-            ],
+            sources=_agreeing_salary_sources(),
             reasoning="test",
         )
 
@@ -212,13 +226,7 @@ async def test_pipeline_confidence_reflects_unrecognized_role_source(
             high=120000,
             currency="CZK",
             period="month",
-            sources=[
-                Source(
-                    url="https://platy.cz/x",  # type: ignore[arg-type]
-                    snippet="Senior data roles are well paid.",
-                    domain="platy.cz",
-                )
-            ],
+            sources=_agreeing_salary_sources(),
             reasoning="test",
         )
 

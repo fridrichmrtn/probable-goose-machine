@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from openai import AsyncOpenAI
@@ -91,18 +92,20 @@ def _usage_cost_usd(usage: Any) -> float | None:
         return None
 
 
-_OPENROUTER_MODELS: dict[LogicalModel, str] = {
-    # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
-    "reasoning": "google/gemini-2.5-flash-lite",
-    "cheap": "google/gemini-2.5-flash-lite",
-    "extract": "google/gemini-2.5-flash-lite",
-    "vision": "google/gemini-2.5-flash-lite",
-}
-_OPENROUTER_FALLBACK_MODELS: dict[LogicalModel, tuple[str, ...]] = {
-    "reasoning": ("google/gemini-2.5-flash",),
-    "cheap": ("google/gemini-2.5-flash",),
-    "extract": ("google/gemini-2.5-flash",),
-    "vision": ("google/gemini-2.5-flash",),
+@dataclass(frozen=True)
+class _OpenRouterRoute:
+    primary: str
+    fallbacks: tuple[str, ...]
+
+
+# Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
+_OPENROUTER_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
+_OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
+    slot: _OpenRouterRoute(
+        primary="google/gemini-2.5-flash-lite",
+        fallbacks=("google/gemini-2.5-flash",),
+    )
+    for slot in _OPENROUTER_SLOTS
 }
 
 # USD per 1M tokens, (prompt, completion).
@@ -170,7 +173,7 @@ class LLMClient:
         if provider is None:
             self._resolve_provider(logical)
         env_key = f"OPENROUTER_MODEL_{logical.upper()}"
-        return os.environ.get(env_key, _OPENROUTER_MODELS[logical])
+        return os.environ.get(env_key, _OPENROUTER_ROUTES[logical].primary)
 
     def _resolve_models(
         self, logical: LogicalModel, provider: ProviderName | None = None
@@ -180,7 +183,7 @@ class LLMClient:
         env_key = f"OPENROUTER_MODEL_{logical.upper()}_FALLBACK"
         fallback_raw = os.environ.get(env_key)
         if fallback_raw is None:
-            fallbacks = _OPENROUTER_FALLBACK_MODELS[logical]
+            fallbacks = _OPENROUTER_ROUTES[logical].fallbacks
         else:
             fallbacks = tuple(model.strip() for model in fallback_raw.split(",") if model.strip())
         return (primary, *(model for model in fallbacks if model != primary))
