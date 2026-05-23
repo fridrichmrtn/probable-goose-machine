@@ -41,7 +41,7 @@ class _RetryingLLMClient(LLMClient):
         self._provider = "openrouter"
         self.calls = 0
 
-    def _resolve_model(self, logical: str, provider: str | None = None) -> str:
+    def _resolve_model(self, logical: str) -> str:
         return f"fake-{logical}"
 
     def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:

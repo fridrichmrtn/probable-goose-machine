@@ -169,9 +169,7 @@ class LLMClient:
             return self._provider
         return self._validate_provider(raw, env_key)
 
-    def _resolve_model(self, logical: LogicalModel, provider: ProviderName | None = None) -> str:
-        if provider is None:
-            self._resolve_provider(logical)
+    def _resolve_model(self, logical: LogicalModel) -> str:
         env_key = f"OPENROUTER_MODEL_{logical.upper()}"
         return os.environ.get(env_key, _OPENROUTER_ROUTES[logical].primary)
 
@@ -179,7 +177,7 @@ class LLMClient:
         self, logical: LogicalModel, provider: ProviderName | None = None
     ) -> tuple[str, ...]:
         provider = provider or self._resolve_provider(logical)
-        primary = self._resolve_model(logical, provider)
+        primary = self._resolve_model(logical)
         env_key = f"OPENROUTER_MODEL_{logical.upper()}_FALLBACK"
         fallback_raw = os.environ.get(env_key)
         if fallback_raw is None:

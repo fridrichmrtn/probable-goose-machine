@@ -24,10 +24,24 @@ Changing model order was therefore noisy and partially update-prone.
 - Keep `judge(...)`, report schemas, model slot names, and `OPENROUTER_MODEL_*`
   env vars unchanged.
 - Make the source rubric conservative:
-  - fewer than two distinct domains is `Low`;
+  - a single distinct domain that contributes at least one parsed salary value
+    is capped at `Low` (deliberate policy change vs. the inline pre-refactor
+    rubric, which returned `None` for `<2` domains regardless of evidence);
+  - zero parsed values across all sources returns `None` (no cap) under
+    reason `insufficient_numeric_evidence`;
   - one median value is computed per distinct domain;
   - ranges contribute to that domain median;
-  - mixed or ambiguous periods and missing numeric evidence do not cap.
+  - explicit period disagreement across domains (`mixed_period`) does not cap;
+  - a domain whose own snippet contains both "month" and "year" hints is
+    treated as ambiguous and returns `None`;
+  - domains with no period keyword are treated as conforming to any known
+    period, so a single labeled snippet mixed with unlabeled snippets still
+    caps as normal.
+- Emit `spread_known: bool` alongside `spread` on `confidence_source_rubric_applied`
+  so consumers can gate on field presence without inspecting `spread` for `None`.
+- Define `comparable_values` uniformly across every branch as "domains that
+  produced at least one parsed salary value." Dashboards can compare the
+  field 1:1 regardless of which branch fired.
 - Keep `confidence_source_rubric_applied`, adding diagnostic fields for domain
   count, comparable value count, spread, and reason.
 - Replace separate OpenRouter primary/fallback dicts with one typed route table.

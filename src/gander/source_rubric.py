@@ -124,30 +124,48 @@ def evaluate_source_rubric(sources: Sequence[Source]) -> SourceRubricResult:
             evidence.periods.add(hint)
 
     distinct_domains = len(by_domain)
+    # Uniform across every return branch: "domains that produced at least one
+    # parsed salary value." Dashboards consuming this field can compare it 1:1
+    # regardless of which branch fired.
+    comparable_values = sum(1 for evidence in by_domain.values() if evidence.values)
+
     if distinct_domains < 2:
+        if comparable_values == 0:
+            return SourceRubricResult(
+                tier=None,
+                reason="insufficient_numeric_evidence",
+                distinct_domains=distinct_domains,
+                comparable_values=comparable_values,
+            )
+        # Deliberate policy: a single domain — even with clean numeric evidence —
+        # is treated as weak and capped at Low. See T48 outcome notes.
         return SourceRubricResult(
             tier="Low",
             reason="fewer_than_two_domains",
             distinct_domains=distinct_domains,
-            comparable_values=sum(1 for evidence in by_domain.values() if evidence.values),
+            comparable_values=comparable_values,
         )
 
     domain_values: list[float] = []
     domain_periods: list[PeriodHint | None] = []
+    any_ambiguous_period = False
     for evidence in by_domain.values():
         if not evidence.values:
             continue
         if evidence.ambiguous_period or len(evidence.periods) > 1:
-            return SourceRubricResult(
-                tier=None,
-                reason="ambiguous_period",
-                distinct_domains=distinct_domains,
-                comparable_values=len(domain_values),
-            )
+            any_ambiguous_period = True
+            continue
         domain_values.append(statistics.median(evidence.values))
         domain_periods.append(next(iter(evidence.periods)) if evidence.periods else None)
 
-    comparable_values = len(domain_values)
+    if any_ambiguous_period:
+        return SourceRubricResult(
+            tier=None,
+            reason="ambiguous_period",
+            distinct_domains=distinct_domains,
+            comparable_values=comparable_values,
+        )
+
     if comparable_values < distinct_domains:
         return SourceRubricResult(
             tier=None,
@@ -156,18 +174,15 @@ def evaluate_source_rubric(sources: Sequence[Source]) -> SourceRubricResult:
             comparable_values=comparable_values,
         )
 
+    # Only refuse to cap when known periods explicitly disagree. Domains with
+    # no period keyword are treated as conforming to any known period — many
+    # search snippets carry a number without a "month"/"year" label, and the
+    # old strict-on-mixed-unknown branch silenced the rubric in the common case.
     known_periods = {period for period in domain_periods if period is not None}
     if len(known_periods) > 1:
         return SourceRubricResult(
             tier=None,
             reason="mixed_period",
-            distinct_domains=distinct_domains,
-            comparable_values=comparable_values,
-        )
-    if known_periods and any(period is None for period in domain_periods):
-        return SourceRubricResult(
-            tier=None,
-            reason="ambiguous_period",
             distinct_domains=distinct_domains,
             comparable_values=comparable_values,
         )

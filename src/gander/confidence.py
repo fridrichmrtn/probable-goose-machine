@@ -211,6 +211,7 @@ async def judge(
                 distinct_domains=source_result.distinct_domains,
                 comparable_values=source_result.comparable_values,
                 spread=source_result.spread,
+                spread_known=source_result.spread is not None,
                 reason=source_result.reason,
             )
         final_tier, cv_floor = _apply_cv_floor(salary_tier, cv_quality)
