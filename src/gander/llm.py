@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from openai import AsyncOpenAI
@@ -91,18 +92,34 @@ def _usage_cost_usd(usage: Any) -> float | None:
         return None
 
 
-_OPENROUTER_MODELS: dict[LogicalModel, str] = {
-    # Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
-    "reasoning": "google/gemini-2.5-flash-lite",
-    "cheap": "google/gemini-2.5-flash-lite",
-    "extract": "google/gemini-2.5-flash-lite",
-    "vision": "google/gemini-2.5-flash-lite",
-}
-_OPENROUTER_FALLBACK_MODELS: dict[LogicalModel, tuple[str, ...]] = {
-    "reasoning": ("google/gemini-2.5-flash",),
-    "cheap": ("google/gemini-2.5-flash",),
-    "extract": ("google/gemini-2.5-flash",),
-    "vision": ("google/gemini-2.5-flash",),
+@dataclass(frozen=True)
+class _OpenRouterRoute:
+    primary: str
+    fallbacks: tuple[str, ...]
+
+
+# Re-verify on OpenRouter catalog change; slugs drift faster than SDK APIs.
+# `reasoning` is the growth-stage slot; Flash-Lite hit its capability boundary on
+# adversarial CZ fixtures (PRD §4.4 anchor-verified actions), so this slot keeps
+# full Flash as primary. The cheap/extract/vision slots default to Flash-Lite.
+_OPENROUTER_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
+_OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
+    "reasoning": _OpenRouterRoute(
+        primary="google/gemini-2.5-flash",
+        fallbacks=("google/gemini-2.5-flash-lite",),
+    ),
+    "cheap": _OpenRouterRoute(
+        primary="google/gemini-2.5-flash-lite",
+        fallbacks=("google/gemini-2.5-flash",),
+    ),
+    "extract": _OpenRouterRoute(
+        primary="google/gemini-2.5-flash-lite",
+        fallbacks=("google/gemini-2.5-flash",),
+    ),
+    "vision": _OpenRouterRoute(
+        primary="google/gemini-2.5-flash-lite",
+        fallbacks=("google/gemini-2.5-flash",),
+    ),
 }
 
 # USD per 1M tokens, (prompt, completion).
@@ -166,21 +183,19 @@ class LLMClient:
             return self._provider
         return self._validate_provider(raw, env_key)
 
-    def _resolve_model(self, logical: LogicalModel, provider: ProviderName | None = None) -> str:
-        if provider is None:
-            self._resolve_provider(logical)
+    def _resolve_model(self, logical: LogicalModel) -> str:
         env_key = f"OPENROUTER_MODEL_{logical.upper()}"
-        return os.environ.get(env_key, _OPENROUTER_MODELS[logical])
+        return os.environ.get(env_key, _OPENROUTER_ROUTES[logical].primary)
 
     def _resolve_models(
         self, logical: LogicalModel, provider: ProviderName | None = None
     ) -> tuple[str, ...]:
         provider = provider or self._resolve_provider(logical)
-        primary = self._resolve_model(logical, provider)
+        primary = self._resolve_model(logical)
         env_key = f"OPENROUTER_MODEL_{logical.upper()}_FALLBACK"
         fallback_raw = os.environ.get(env_key)
         if fallback_raw is None:
-            fallbacks = _OPENROUTER_FALLBACK_MODELS[logical]
+            fallbacks = _OPENROUTER_ROUTES[logical].fallbacks
         else:
             fallbacks = tuple(model.strip() for model in fallback_raw.split(",") if model.strip())
         return (primary, *(model for model in fallbacks if model != primary))

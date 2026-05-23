@@ -50,6 +50,26 @@ def _sources_three_disagreeing() -> list[Source]:
     ]
 
 
+def _sources_three_agreeing() -> list[Source]:
+    return [
+        Source(
+            url="https://platy.cz/analyst",  # type: ignore[arg-type]
+            snippet="Data analysts in Prague typically earn around 100000 CZK per month.",
+            domain="platy.cz",
+        ),
+        Source(
+            url="https://profesia.cz/analyst",  # type: ignore[arg-type]
+            snippet="Senior analyst roles in the Czech market pay about 105000 CZK per month.",
+            domain="profesia.cz",
+        ),
+        Source(
+            url="https://glassdoor.com/analyst-prague",  # type: ignore[arg-type]
+            snippet="Analyst compensation in Prague averages 110000 CZK per month.",
+            domain="glassdoor.com",
+        ),
+    ]
+
+
 def _clean_cv_quality() -> CVQualitySignals:
     return CVQualitySignals(
         dropped_score_components=0,
@@ -182,6 +202,92 @@ async def test_source_rubric_caps_overconfident_step_a(
     assert cap_evt["model_tier"] == "High"
     assert cap_evt["source_tier"] == "Low"
     assert cap_evt["final_salary_tier"] == "Low"
+    assert cap_evt["distinct_domains"] == 3
+    assert cap_evt["comparable_values"] == 3
+    assert cap_evt["spread"] > 0.50
+    assert cap_evt["spread_known"] is True
+    assert cap_evt["reason"] == "source_disagreement"
+    step_a_evt = next(e for e in events if e["event"] == "confidence_step_a")
+    assert step_a_evt["salary_tier"] == "Low"
+    assert step_a_evt["tier"] == "Low"
+
+
+@pytest.mark.fast
+async def test_source_rubric_cap_emits_spread_known_false_when_spread_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # When the cap is driven by fewer_than_two_domains, the rubric never
+    # computes a spread. The emitted event must still expose a typed
+    # spread_known field so downstream consumers can gate cleanly.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return _TierOnly(tier="High", rationale_short="one decent source")
+
+    async def fake_complete_text(self: LLMClient, **kwargs: Any) -> str:
+        return "Confidence in this estimate is Low because evidence is thin."
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
+
+    one_source = [
+        Source(
+            url="https://platy.cz/analyst",  # type: ignore[arg-type]
+            snippet="Analysts in Prague earn around 100000 CZK per month.",
+            domain="platy.cz",
+        ),
+    ]
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await judge(
+            sources=one_source,
+            low=80000,
+            high=120000,
+            currency="CZK",
+            period="month",
+            cv_quality=_clean_cv_quality(),
+        )
+
+    assert isinstance(result, Confidence)
+    assert result.tier == "Low"
+    cap_evt = next(e for e in events if e["event"] == "confidence_source_rubric_applied")
+    assert cap_evt["reason"] == "fewer_than_two_domains"
+    assert cap_evt["spread"] is None
+    assert cap_evt["spread_known"] is False
+    assert cap_evt["distinct_domains"] == 1
+    assert cap_evt["comparable_values"] == 1
+
+
+@pytest.mark.fast
+async def test_source_rubric_never_upgrades_low_step_a(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return _TierOnly(tier="Low", rationale_short="model judged evidence insufficient")
+
+    async def fake_complete_text(self: LLMClient, **kwargs: Any) -> str:
+        return "Confidence in this estimate is Low because evidence is insufficient."
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await judge(
+            sources=_sources_three_agreeing(),
+            low=100000,
+            high=110000,
+            currency="CZK",
+            period="month",
+            cv_quality=_clean_cv_quality(),
+        )
+
+    assert isinstance(result, Confidence)
+    assert result.tier == "Low"
+    assert not [e for e in events if e["event"] == "confidence_source_rubric_applied"]
     step_a_evt = next(e for e in events if e["event"] == "confidence_step_a")
     assert step_a_evt["salary_tier"] == "Low"
     assert step_a_evt["tier"] == "Low"
