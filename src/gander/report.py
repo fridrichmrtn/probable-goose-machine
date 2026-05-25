@@ -442,19 +442,22 @@ def _footer(report: Report) -> str:
         for name, weight in COMPONENT_WEIGHTS.items()
     )
     # Format with 4 decimals on cost; latency is rendered in ms so the reviewer
-    # can compare to the 60s budget without unit conversion. Provider latency
-    # is summed across LLM calls and can exceed wall clock when calls overlap.
+    # can compare to the 60s budget without unit conversion.
     totals_line = (
         f"_Total cost: ${report.total_cost_usd:.4f} · "
-        f"Provider latency: {report.total_latency_ms:,} ms · "
-        f"Wall clock: {report.wall_clock_ms:,} ms_"
+        f"LLM time (sum): {report.total_latency_ms:,} ms · "
+        f"Total elapsed: {report.wall_clock_ms:,} ms_"
+    )
+    notices = "".join(
+        f'<p class="gander-report-notice">{_html_inline(notice)}</p>' for notice in report.notices
     )
     return (
-        "<details>"
+        notices + "<details>"
         "<summary>How is this scored?</summary>\n\n"
         "Component weights:\n\n"
         f"{weight_rows}\n\n"
         f"{totals_line}\n\n"
+        "_LLM time can exceed total elapsed when provider calls run in parallel._\n\n"
         "</details>"
     )
 

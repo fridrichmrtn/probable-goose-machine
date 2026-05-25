@@ -231,6 +231,8 @@ class Report(BaseModel):
     total_latency_ms: int = 0
     # Pipeline wall-clock elapsed time at the moment this snapshot was built.
     wall_clock_ms: int = 0
+    # Non-fatal run notices surfaced in the rendered footer.
+    notices: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_exact_status_keys(self) -> Report:

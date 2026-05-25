@@ -12,8 +12,8 @@ from urllib.parse import urlparse
 
 from ddgs import DDGS
 from pydantic import ValidationError
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
+from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit
@@ -40,6 +40,8 @@ _SALARY_SEARCH_MAX_RESULTS = 20
 _SALARY_LLM_SOURCE_LIMIT = 8
 _DEFAULT_SALARY_SEARCH_TIMEOUT_S = 6
 _DEFAULT_SALARY_SEARCH_TOTAL_TIMEOUT_S = 20
+_MAX_SALARY_SEARCH_TIMEOUT_S = 15
+_MAX_SALARY_SEARCH_TOTAL_TIMEOUT_S = 60.0
 _JUNIOR_CZK_MONTH_HIGH_CAP = 90_000
 # CZ baseline only: the curated boards we trust for CZ profiles. Outside CZ we
 # stop applying this list and let live-search ranking stand — the live-search
@@ -192,35 +194,27 @@ def _salary_search_backends() -> str:
     return ",".join(backends) if backends else _DEFAULT_SALARY_SEARCH_BACKENDS
 
 
-def _env_float(name: str, default: float, *, min_value: float = 0.1) -> float:
-    raw = os.environ.get(name)
-    if raw is None:
-        return float(default)
-    try:
-        return max(min_value, float(raw))
-    except ValueError:
-        return float(default)
-
-
-def _env_int(name: str, default: int, *, min_value: int = 1) -> int:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    try:
-        return max(min_value, int(raw))
-    except ValueError:
-        return default
-
-
 def _salary_search_timeout_s() -> int:
-    return _env_int("GANDER_SALARY_SEARCH_TIMEOUT_S", _DEFAULT_SALARY_SEARCH_TIMEOUT_S)
+    return env_int(
+        "GANDER_SALARY_SEARCH_TIMEOUT_S",
+        _DEFAULT_SALARY_SEARCH_TIMEOUT_S,
+        max_value=_MAX_SALARY_SEARCH_TIMEOUT_S,
+    )
 
 
 def _salary_search_total_timeout_s() -> float:
-    return _env_float(
+    return env_float(
         "GANDER_SALARY_SEARCH_TOTAL_TIMEOUT_S",
         _DEFAULT_SALARY_SEARCH_TOTAL_TIMEOUT_S,
+        max_value=_MAX_SALARY_SEARCH_TOTAL_TIMEOUT_S,
     )
+
+
+def _remaining_search_timeout_s(deadline: float) -> float:
+    remaining = deadline - time.perf_counter()
+    if remaining <= 0:
+        raise TimeoutError("salary search timed out")
+    return remaining
 
 
 def _salary_query_year(today: date | None = None) -> int:
@@ -379,10 +373,10 @@ def build_queries(profile: Profile, *, today: date | None = None) -> list[str]:
     return queries[:5]
 
 
-@retry(stop=stop_after_attempt(2), wait=wait_exponential_jitter(initial=1, max=3), reraise=True)
-def _ddg_text(query: str) -> list[dict[str, Any]]:
+def _ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
     backends = _salary_search_backends()
-    with DDGS(timeout=_salary_search_timeout_s()) as ddg:
+    timeout = _salary_search_timeout_s() if timeout_s is None else timeout_s
+    with DDGS(timeout=timeout) as ddg:  # type: ignore[arg-type]
         try:
             return list(
                 ddg.text(
@@ -465,10 +459,15 @@ async def search(
     search_backends = _salary_search_backends()
     raw_results: list[dict[str, Any]] = []
     failed_queries: list[dict[str, str]] = []
+    total_timeout_s = _salary_search_total_timeout_s()
+    deadline = time.perf_counter() + total_timeout_s
 
     async def _run_query(query: str) -> tuple[list[dict[str, Any]], dict[str, str] | None]:
         try:
-            return await asyncio.to_thread(_ddg_text, query), None
+            timeout_s = min(
+                float(_salary_search_timeout_s()), _remaining_search_timeout_s(deadline)
+            )
+            return await asyncio.to_thread(_ddg_text, query, timeout_s), None
         except Exception as exc:
             # DDG occasionally rejects one query shape (e.g. site:a OR site:b)
             # while the others succeed. Treat single-query failures as expected
@@ -481,7 +480,7 @@ async def search(
     try:
         gathered = await asyncio.wait_for(
             asyncio.gather(*(_run_query(q) for q in queries)),
-            timeout=_salary_search_total_timeout_s(),
+            timeout=total_timeout_s,
         )
     except TimeoutError as exc:
         emit(
@@ -498,7 +497,7 @@ async def search(
             country=country,
             currency_hint=currency_hint,
             sources_per_tld={},
-            timeout_s=_salary_search_total_timeout_s(),
+            timeout_s=total_timeout_s,
             reason="total_timeout",
         )
         raise RuntimeError(f"{_INSUFFICIENT_DATA_MSG} (search timeout)") from exc
@@ -603,6 +602,12 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                     "currency_hint": currency_hint,
                     "period_hint": period_hint,
                     "years": profile.detected_years_experience,
+                    "geography_note": (
+                        "geography unknown; broad USD/year search is a market-blind "
+                        "reference, not a localized personal estimate"
+                        if country == "XX"
+                        else None
+                    ),
                 },
                 "results": [s.model_dump(mode="json") for s in sources],
             }

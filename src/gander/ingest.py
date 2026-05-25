@@ -15,6 +15,7 @@ import pdfplumber
 import pypdf
 
 from gander import obs
+from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.sections import NORMALIZED_SECTION_NAMES, SECTION_NAMES, normalize_section_name
@@ -30,9 +31,10 @@ LOW_EVIDENCE_MSG = (
     "and that sections like Experience or Education are clearly labelled, then try again."
 )
 VISION_BUDGET_MSG = (
-    "This PDF is too large for safe vision transcription. Try a shorter PDF, "
-    "or use a selectable-text PDF with GANDER_PDF_INGEST_MODE=text."
+    "This PDF has too many pages to transcribe reliably. Try a shorter PDF, "
+    "or upload a text-based PDF where text is selectable."
 )
+VISION_BUDGET_FALLBACK_NOTICE = "Vision skipped: PDF over budget; used text extraction."
 
 MIN_TEXT_CHARS = 100
 # The length gate exists ONLY to keep long paragraph sentences that contain a
@@ -47,8 +49,13 @@ _PDF_INGEST_MODES = {"vision", "text"}
 _DOCX_INGEST_MODES = {"llm", "text"}
 _DEFAULT_VISION_DPI = 160
 _DEFAULT_VISION_MAX_PAGES = 8
+# A4 at 160 dpi is roughly 2.2 Mpx; this allows larger/slides-style pages
+# without letting a single rendered page dominate memory or provider spend.
 _DEFAULT_VISION_MAX_PIXELS_PER_PAGE = 6_000_000
+# Aggregate rendered PNG budget. This protects provider payload and cost even
+# when each individual page is within the pixel budget.
 _DEFAULT_VISION_MAX_TOTAL_IMAGE_BYTES = 48_000_000
+_DEFAULT_VISION_MAX_PDF_BYTES = 10_000_000
 _DEFAULT_VISION_CONCURRENCY = 4
 _MIN_DOCX_SOURCE_OVERLAP = 0.70
 
@@ -135,51 +142,34 @@ def _vision_dpi() -> int:
         return _DEFAULT_VISION_DPI
 
 
-def _env_int(name: str, default: int, *, min_value: int = 1, max_value: int | None = None) -> int:
-    raw = os.environ.get(name)
-    if raw is None:
-        value = default
-    else:
-        try:
-            value = int(raw)
-        except ValueError:
-            value = default
-    value = max(min_value, value)
-    if max_value is not None:
-        value = min(max_value, value)
-    return value
-
-
 def _vision_max_pages() -> int:
-    return _env_int("GANDER_VISION_MAX_PAGES", _DEFAULT_VISION_MAX_PAGES)
+    return env_int("GANDER_VISION_MAX_PAGES", _DEFAULT_VISION_MAX_PAGES)
 
 
 def _vision_max_pixels_per_page() -> int:
-    return _env_int(
+    return env_int(
         "GANDER_VISION_MAX_PIXELS_PER_PAGE",
         _DEFAULT_VISION_MAX_PIXELS_PER_PAGE,
     )
 
 
 def _vision_max_total_image_bytes() -> int:
-    return _env_int(
+    return env_int(
         "GANDER_VISION_MAX_TOTAL_IMAGE_BYTES",
         _DEFAULT_VISION_MAX_TOTAL_IMAGE_BYTES,
     )
 
 
+def _vision_max_pdf_bytes() -> int:
+    return env_int("GANDER_VISION_MAX_PDF_BYTES", _DEFAULT_VISION_MAX_PDF_BYTES)
+
+
 def _vision_concurrency() -> int:
-    return _env_int("GANDER_VISION_CONCURRENCY", _DEFAULT_VISION_CONCURRENCY, max_value=8)
+    return env_int("GANDER_VISION_CONCURRENCY", _DEFAULT_VISION_CONCURRENCY, max_value=8)
 
 
 def _vision_timeout_s() -> float:
-    raw = os.environ.get("GANDER_VISION_TIMEOUT_S")
-    if raw is None:
-        return 120.0
-    try:
-        return max(0.1, float(raw))
-    except ValueError:
-        return 120.0
+    return env_float("GANDER_VISION_TIMEOUT_S", 120.0)
 
 
 def _is_all_caps_header(s: str) -> bool:
@@ -313,6 +303,13 @@ async def _extract_pdf(file_bytes: bytes, *, mode: str | None = None) -> str:
         obs.emit("ingest", "ingest_llm_fallback", file_type="pdf", reason=exc.reason)
         text = _extract_pdf_text(file_bytes)
         if len(text.strip()) >= MIN_TEXT_CHARS:
+            obs.emit(
+                "ingest",
+                "vision_budget_fallback_degraded",
+                file_type="pdf",
+                reason=exc.reason,
+                notice=VISION_BUDGET_FALLBACK_NOTICE,
+            )
             return text
         raise
     except _IngestLLMReject as exc:
@@ -429,9 +426,19 @@ def _render_pdf_pages_for_vision(file_bytes: bytes, dpi: int) -> _RenderedPdf:
     max_pages = _vision_max_pages()
     max_pixels = _vision_max_pixels_per_page()
     max_total_bytes = _vision_max_total_image_bytes()
+    max_pdf_bytes = _vision_max_pdf_bytes()
     pages: list[bytes] = []
     total_image_bytes = 0
     max_page_pixels = 0
+    if len(file_bytes) > max_pdf_bytes:
+        obs.emit(
+            "ingest",
+            "vision_budget_rejected",
+            reason="pdf_bytes",
+            pdf_bytes=len(file_bytes),
+            max_pdf_bytes=max_pdf_bytes,
+        )
+        raise _VisionBudgetExceeded(f"pdf_bytes={len(file_bytes)} max_pdf_bytes={max_pdf_bytes}")
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     try:
         page_count = doc.page_count

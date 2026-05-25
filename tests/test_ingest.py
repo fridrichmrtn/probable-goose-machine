@@ -16,6 +16,7 @@ from gander.ingest import (
     EMPTY_MSG,
     SCANNED_MSG,
     UNKNOWN_MSG,
+    VISION_BUDGET_FALLBACK_NOTICE,
     VISION_BUDGET_MSG,
     _annotate_sections,
     _repair_inline_section_breaks,
@@ -360,6 +361,8 @@ async def test_pdf_over_vision_page_budget_falls_back_to_text_without_vlm(
     assert rejected["reason"] == "too_many_pages"
     fallback = next(e for e in events if e["event"] == "ingest_llm_fallback")
     assert fallback["reason"].startswith("page_count=3")
+    degraded = next(e for e in events if e["event"] == "vision_budget_fallback_degraded")
+    assert degraded["notice"] == VISION_BUDGET_FALLBACK_NOTICE
 
 
 @pytest.mark.fast
@@ -389,6 +392,70 @@ async def test_pdf_over_vision_budget_with_text_poor_pdf_returns_budget_failure(
     assert result.user_message == VISION_BUDGET_MSG
     assert result.debug_detail is not None
     assert "page_count=2" in result.debug_detail
+
+
+@pytest.mark.fast
+def test_pdf_vision_raw_byte_budget_rejects_before_fitz_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = _pdf_bytes([["Summary", "Selectable text content for byte budget."]])
+    monkeypatch.setenv("GANDER_VISION_MAX_PDF_BYTES", str(len(pdf_bytes) - 1))
+
+    def _unexpected_open(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("raw byte budget should fire before fitz.open")
+
+    monkeypatch.setattr(ingest.fitz, "open", _unexpected_open)
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append), pytest.raises(Exception, match="pdf_bytes"):
+        ingest._render_pdf_pages_for_vision(pdf_bytes, dpi=120)
+
+    rejected = next(e for e in events if e["event"] == "vision_budget_rejected")
+    assert rejected["reason"] == "pdf_bytes"
+    assert rejected["pdf_bytes"] == len(pdf_bytes)
+    assert rejected["max_pdf_bytes"] == len(pdf_bytes) - 1
+
+
+@pytest.mark.fast
+def test_pdf_vision_page_pixel_budget_emits_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = _pdf_bytes([["Summary", "Selectable text content for pixel budget."]])
+    monkeypatch.setenv("GANDER_VISION_MAX_PIXELS_PER_PAGE", "1")
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append), pytest.raises(Exception, match="page_pixels"):
+        ingest._render_pdf_pages_for_vision(pdf_bytes, dpi=120)
+
+    rejected = next(e for e in events if e["event"] == "vision_budget_rejected")
+    assert rejected["reason"] == "page_pixels"
+    assert rejected["page_index"] == 0
+    assert rejected["page_pixels"] > 1
+    assert rejected["max_pixels"] == 1
+
+
+@pytest.mark.fast
+def test_pdf_vision_total_image_byte_budget_mid_render_emits_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = _pdf_bytes(
+        [
+            ["Summary", "First page selectable text content."],
+            ["Experience", "Second page selectable text content."],
+        ]
+    )
+    rendered_pages = ingest._render_pdf_pages(pdf_bytes, dpi=120)
+    monkeypatch.setenv("GANDER_VISION_MAX_TOTAL_IMAGE_BYTES", str(len(rendered_pages[0]) + 1))
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append), pytest.raises(Exception, match="total_image_bytes"):
+        ingest._render_pdf_pages_for_vision(pdf_bytes, dpi=120)
+
+    rejected = next(e for e in events if e["event"] == "vision_budget_rejected")
+    assert rejected["reason"] == "total_image_bytes"
+    assert rejected["page_count"] == 2
+    assert rejected["total_image_bytes"] > len(rendered_pages[0]) + 1
+    assert rejected["max_total_image_bytes"] == len(rendered_pages[0]) + 1
 
 
 @pytest.mark.fast

@@ -142,11 +142,24 @@ Implemented:
 - Fast tests that previously required LFS binary fixtures now use generated
   in-memory fixtures where practical.
 
+Review follow-up:
+
+- The `_is_cz_location(None)` change is a deliberate migration: before T49, a
+  CV with both `detected_country=None` and `detected_location=None` silently
+  used CZ/Praha/CZK queries; after T49 it resolves to `XX` and emits broad
+  USD/year, geography-unknown queries. This avoids inventing CZ locality when
+  extraction has no geography signal.
+- Unknown-geography salary payloads now include a `geography_note` instructing
+  the estimator to treat XX results as a market-blind USD reference, not a
+  localized personal estimate.
+- Over-budget selectable-text PDFs now surface a report notice when vision is
+  skipped and deterministic text extraction is used.
+
 Verified:
 
 - `uv run ruff check .` -> passed.
 - `uv run ruff format --check .` -> passed.
 - `uv run mypy src/` -> passed.
-- `uv run pytest -q -o addopts= tests/test_salary.py tests/test_ingest.py tests/test_llm.py tests/test_pipeline_fast.py tests/test_render.py tests/test_schemas.py tests/test_failures.py tests/test_ddg_cassettes.py -m fast`
-  -> `253 passed, 18 deselected`.
-- `uv run pytest -q -o addopts= -m fast` -> `530 passed, 96 deselected`.
+- `uv run pytest -q -o addopts= tests/test_config.py tests/test_salary.py tests/test_ingest.py tests/test_llm.py tests/test_pipeline_fast.py tests/test_render.py tests/test_schemas.py tests/test_failures.py tests/test_privacy_copy.py tests/test_ddg_cassettes.py -m fast`
+  -> `266 passed, 18 deselected` after PR #38 review fixes.
+- `uv run pytest -q -o addopts= -m fast` -> `543 passed, 96 deselected`.

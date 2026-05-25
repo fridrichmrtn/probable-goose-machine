@@ -96,6 +96,7 @@ class _Run:
     total_cost_usd: float = 0.0
     total_latency_ms: int = 0
     started_at: float = field(default_factory=time.perf_counter)
+    notices: list[str] = field(default_factory=list)
 
     def snapshot(self) -> Report:
         return Report(
@@ -110,6 +111,7 @@ class _Run:
             total_cost_usd=self.total_cost_usd,
             total_latency_ms=self.total_latency_ms,
             wall_clock_ms=int((time.perf_counter() - self.started_at) * 1000),
+            notices=list(self.notices),
         )
 
 
@@ -146,6 +148,10 @@ def _make_accumulator(run: _Run) -> Any:
 
     def _accumulate(record: dict[str, Any]) -> None:
         if record.get("event") != "llm_call":
+            if record.get("event") == "vision_budget_fallback_degraded":
+                notice = record.get("notice")
+                if isinstance(notice, str) and notice not in run.notices:
+                    run.notices.append(notice)
             return
         cost = record.get("usd_cost")
         if isinstance(cost, int | float):

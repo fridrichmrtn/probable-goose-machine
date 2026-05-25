@@ -199,6 +199,28 @@ async def test_happy_path_final_report_fully_populated(
 
 
 @pytest.mark.fast
+async def test_pipeline_captures_degraded_ingest_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+
+    async def _ingest_with_notice(file_bytes: bytes, filename: str) -> str:
+        obs.emit(
+            "ingest",
+            "vision_budget_fallback_degraded",
+            notice="Vision skipped: PDF over budget; used text extraction.",
+            reason="page_count=9 max_pages=8",
+        )
+        return "raw text"
+
+    monkeypatch.setattr(pipeline, "extract_text", _ingest_with_notice)
+
+    reports = await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    assert reports[-1].notices == ["Vision skipped: PDF over budget; used text extraction."]
+
+
+@pytest.mark.fast
 async def test_happy_path_yields_in_expected_sequence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

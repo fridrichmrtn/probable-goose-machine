@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -126,6 +127,47 @@ def test_build_queries_unknown_geography_uses_broad_usd_not_cz() -> None:
     assert "CZK" not in joined
     assert "site:platy.cz" not in joined
     assert "site:profesia.cz" not in joined
+
+
+@pytest.mark.fast
+async def test_estimate_salary_marks_unknown_geography_as_market_blind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ddg_results = [
+        {"href": "https://example.com/a", "body": "Senior data scientist USD salary"},
+        {"href": "https://example.com/b", "body": "Data science compensation USD"},
+    ]
+    _patch_ddgs(monkeypatch, MagicMock(return_value=ddg_results))
+    estimate = SalaryEstimate(
+        low=140_000,
+        high=190_000,
+        currency="USD",
+        period="year",
+        sources=[
+            Source(
+                url="https://example.com/a",  # type: ignore[arg-type]
+                snippet="Senior data scientist USD salary",
+                domain="example.com",
+            )
+        ],
+        reasoning="Market-blind USD reference because geography is unknown.",
+    )
+    captured: dict[str, Any] = {}
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return estimate
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    result = await estimate_salary(
+        _cz_profile(location=None).model_copy(update={"detected_country": None})
+    )
+
+    assert isinstance(result, SalaryEstimate)
+    payload = json.loads(captured["user"])
+    assert payload["context"]["country"] is None
+    assert "market-blind" in payload["context"]["geography_note"]
 
 
 @pytest.mark.fast
@@ -272,10 +314,10 @@ async def test_estimate_salary_rejects_llm_urls_not_in_search_results(
 async def test_estimate_salary_retries_each_query_independently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Per-query resilience contract: when every query fails, tenacity does
-    # 2 attempts PER query (not just on the first one). One flaky query no
-    # longer aborts the whole loop — each is tried independently, and only
-    # the aggregate <2-sources check collapses the stage.
+    # Per-query resilience contract: one flaky query no longer aborts the whole
+    # loop. Tenacity retries are intentionally gone so DDG threads do not keep
+    # sleeping behind the total timeout; each query gets configured backends and
+    # the local `auto` backend fallback once.
     text_mock = MagicMock(side_effect=RuntimeError("ddg rate limit"))
     _patch_ddgs(monkeypatch, text_mock)
 
@@ -287,9 +329,9 @@ async def test_estimate_salary_retries_each_query_independently(
 
     assert isinstance(result, StageFailure)
     assert result.stage == "salary"
-    # Every built query is attempted. Each tenacity attempt tries configured
-    # backends, then the `auto` fallback.
-    assert text_mock.call_count == 4 * len(queries)
+    # Every built query is attempted. Each one tries configured backends, then
+    # the `auto` fallback.
+    assert text_mock.call_count == 2 * len(queries)
 
 
 @pytest.mark.fast
@@ -312,7 +354,7 @@ async def test_estimate_salary_survives_single_query_failure(
     queries = build_queries(_cz_profile())
     bad_query = queries[0]
 
-    def fake_ddg_text(query: str) -> list[dict[str, Any]]:
+    def fake_ddg_text(query: str, _timeout_s: float | None = None) -> list[dict[str, Any]]:
         if query == bad_query:
             raise RuntimeError("ddg rejects site: OR site: shape")
         return good_results
@@ -372,7 +414,7 @@ async def test_estimate_salary_total_search_timeout_returns_stage_failure(
 ) -> None:
     monkeypatch.setenv("GANDER_SALARY_SEARCH_TOTAL_TIMEOUT_S", "0.01")
 
-    def slow_ddg_text(_query: str) -> list[dict[str, Any]]:
+    def slow_ddg_text(_query: str, _timeout_s: float | None = None) -> list[dict[str, Any]]:
         time.sleep(0.2)
         return [{"href": "https://example.com/slow", "body": "slow result"}]
 
@@ -391,6 +433,27 @@ async def test_estimate_salary_total_search_timeout_returns_stage_failure(
 
 
 @pytest.mark.fast
+async def test_salary_search_bounds_ddgs_timeout_by_total_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    text_mock = MagicMock(
+        return_value=[
+            {"href": "https://example.com/a", "body": "salary row a"},
+            {"href": "https://example.com/b", "body": "salary row b"},
+        ]
+    )
+    fake_ctor = _patch_ddgs(monkeypatch, text_mock)
+    monkeypatch.setenv("GANDER_SALARY_SEARCH_TIMEOUT_S", "99")
+    monkeypatch.setenv("GANDER_SALARY_SEARCH_TOTAL_TIMEOUT_S", "0.5")
+
+    sources = await salary_mod.search(["salary query"], country="XX", currency_hint="USD")
+
+    assert len(sources) == 2
+    timeout = fake_ctor.call_args.kwargs["timeout"]
+    assert 0 < timeout <= 0.5
+
+
+@pytest.mark.fast
 async def test_search_runs_queries_concurrently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -398,7 +461,7 @@ async def test_search_runs_queries_concurrently(
     max_active = 0
     lock = threading.Lock()
 
-    def fake_ddg_text(query: str) -> list[dict[str, Any]]:
+    def fake_ddg_text(query: str, _timeout_s: float | None = None) -> list[dict[str, Any]]:
         nonlocal active, max_active
         with lock:
             active += 1
@@ -501,7 +564,7 @@ async def test_search_prioritizes_known_salary_domains_before_trimming(
         },
     ]
 
-    def fake_ddg_text(_query: str) -> list[dict[str, Any]]:
+    def fake_ddg_text(_query: str, _timeout_s: float | None = None) -> list[dict[str, Any]]:
         return raw_results
 
     monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
@@ -814,6 +877,8 @@ def test_salary_prompt_3shot_present() -> None:
     assert "head" in lower
     assert "carve-out" in lower, "Rule 4 carve-out language must be present"
     assert "anchor" in lower, "seniority anchoring instruction must be present"
+    assert "geography_note" in body
+    assert "market-blind USD reference" in body
 
 
 def _country_profile(
@@ -853,7 +918,8 @@ def test_build_queries_non_cz_is_country_aware(
 ) -> None:
     """Non-CZ profiles emit country + local-currency tokens, no `site:` lock."""
     profile = _country_profile(country=country, location=location)
-    queries = build_queries(profile)
+    today = date(2026, 5, 25)
+    queries = build_queries(profile, today=today)
     joined = " || ".join(queries)
 
     assert any(currency in q for q in queries), (
@@ -869,7 +935,7 @@ def test_build_queries_non_cz_is_country_aware(
     assert "site:glassdoor.com OR site:levels.fyi" not in joined
     # No hardcoded EUR current-year cross-check unless the local currency genuinely IS EUR.
     if currency != "EUR":
-        assert f"EUR {date.today().year}" not in joined, (
+        assert f"EUR {today.year}" not in joined, (
             f"{country} must not carry a hardcoded EUR token: {queries!r}"
         )
     # No CZK token outside CZ.
@@ -1088,7 +1154,7 @@ async def test_search_preserves_live_order_outside_cz(
         {"href": "https://www.levels.fyi/data-scientist", "body": "levels.fyi DS"},
     ]
 
-    def fake_ddg_text(_query: str) -> list[dict[str, Any]]:
+    def fake_ddg_text(_query: str, _timeout_s: float | None = None) -> list[dict[str, Any]]:
         return raw_results
 
     monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
@@ -1118,7 +1184,7 @@ async def test_salary_search_event_includes_country_and_tld_histogram(
         {"href": "https://www.glassdoor.com/x", "body": "Tokyo DS"},
     ]
 
-    def fake_ddg_text(_query: str) -> list[dict[str, Any]]:
+    def fake_ddg_text(_query: str, _timeout_s: float | None = None) -> list[dict[str, Any]]:
         return raw_results
 
     monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
@@ -1126,7 +1192,7 @@ async def test_salary_search_event_includes_country_and_tld_histogram(
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
         await salary_mod.search(
-            ["senior data scientist Tokyo Japan JPY 2026"],
+            [f"senior data scientist Tokyo Japan JPY {salary_mod._salary_query_year()}"],
             country="JP",
             currency_hint="JPY",
         )

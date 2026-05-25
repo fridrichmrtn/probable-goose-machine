@@ -47,7 +47,7 @@ def _ddg_cassette_key(query: str) -> str:
     return "generic_cz_data"
 
 
-def _replay_ddg_text(query: str) -> list[dict[str, Any]]:
+def _replay_ddg_text(query: str, _timeout_s: float | None = None) -> list[dict[str, Any]]:
     cassettes = _load_ddg_cassettes()
     key = _ddg_cassette_key(query)
     rows = cassettes.get(key) or cassettes["generic_cz_data"]

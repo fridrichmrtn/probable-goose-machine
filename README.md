@@ -133,8 +133,10 @@ models, but Gander does not use the direct Anthropic SDK/provider path.
 
 By default, PDF pages are rendered to images and uploaded unredacted to
 OpenRouter/Gemini for transcription. DOCX files use deterministic local text
-extraction unless `GANDER_DOCX_INGEST_MODE=llm` is set. Uploaded files are not
-retained by Gander after processing.
+extraction unless `GANDER_DOCX_INGEST_MODE=llm` is set. Setting
+`GANDER_DOCX_INGEST_MODE=llm` also uploads unredacted DOCX text to the
+configured LLM provider. Uploaded files are not retained by Gander after
+processing.
 
 To avoid PDF vision upload and use deterministic local PDF text extraction
 instead:
@@ -145,6 +147,10 @@ GANDER_PDF_INGEST_MODE=text uv run python app.py
 
 `GANDER_INGEST_MODE` remains as a legacy fallback when file-specific modes are
 unset. Private real-CV live testing is opt-in only.
+
+PDF vision is also bounded server-side by `GANDER_VISION_MAX_PDF_BYTES`,
+`GANDER_VISION_MAX_PAGES`, rendered-page pixel limits, and total rendered image
+bytes so large files cannot silently expand provider cost.
 
 ## Deployment Recovery
 

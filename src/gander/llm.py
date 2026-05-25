@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -12,6 +13,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from gander import obs
+from gander.config import env_float
 
 LogicalModel = Literal["reasoning", "cheap", "extract", "vision"]
 ProviderName = Literal["openrouter"]
@@ -129,22 +131,23 @@ _DEFAULT_LLM_TIMEOUT_S = 60.0
 _DEFAULT_VISION_TIMEOUT_S = 120.0
 
 
-def _env_float(name: str, default: float, *, min_value: float = 0.1) -> float:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    try:
-        return max(min_value, float(raw))
-    except ValueError:
-        return default
-
-
 def _llm_timeout_s() -> float:
-    return _env_float("GANDER_LLM_TIMEOUT_S", _DEFAULT_LLM_TIMEOUT_S)
+    return env_float("GANDER_LLM_TIMEOUT_S", _DEFAULT_LLM_TIMEOUT_S)
 
 
 def _vision_timeout_s() -> float:
-    return _env_float("GANDER_VISION_TIMEOUT_S", _DEFAULT_VISION_TIMEOUT_S)
+    return env_float("GANDER_VISION_TIMEOUT_S", _DEFAULT_VISION_TIMEOUT_S)
+
+
+def _deadline_after(timeout_s: float) -> float:
+    return time.perf_counter() + timeout_s
+
+
+def _remaining_timeout_s(deadline: float) -> float:
+    remaining = deadline - time.perf_counter()
+    if remaining <= 0:
+        raise TimeoutError("LLM call timed out")
+    return remaining
 
 
 class LLMClient:
@@ -253,6 +256,7 @@ class LLMClient:
         provider = self._resolve_provider(model)
         resolved_models = self._resolve_models(model, provider)
         t0 = time.perf_counter()
+        deadline = _deadline_after(_llm_timeout_s())
         prompt_tokens = 0
         completion_tokens = 0
         provider_cost_usd: float | None = None
@@ -271,6 +275,7 @@ class LLMClient:
                                 + f"\n\nYour previous output failed validation: {validation_err}"
                                 + "\n\nReturn corrected JSON only."
                             )
+                        attempt_timeout_s = _remaining_timeout_s(deadline)
                         attempted_models.append(resolved)
                         (
                             text,
@@ -278,14 +283,17 @@ class LLMClient:
                             attempt_completion,
                             finish_reason,
                             attempt_cost_usd,
-                        ) = await self._chat_json(
-                            resolved,
-                            system,
-                            current_user,
-                            temperature,
-                            max_tokens=max_tokens,
-                            timeout_s=_llm_timeout_s(),
-                            provider=provider,
+                        ) = await asyncio.wait_for(
+                            self._chat_json(
+                                resolved,
+                                system,
+                                current_user,
+                                temperature,
+                                max_tokens=max_tokens,
+                                timeout_s=attempt_timeout_s,
+                                provider=provider,
+                            ),
+                            timeout=attempt_timeout_s,
                         )
                         prompt_tokens += attempt_prompt
                         completion_tokens += attempt_completion
@@ -351,6 +359,7 @@ class LLMClient:
         provider = self._resolve_provider(model)
         resolved_models = self._resolve_models(model, provider)
         t0 = time.perf_counter()
+        deadline = _deadline_after(_llm_timeout_s())
         prompt_tokens = 0
         completion_tokens = 0
         provider_cost_usd: float | None = None
@@ -360,6 +369,7 @@ class LLMClient:
             last_err: Exception | None = None
             for model_i, resolved in enumerate(resolved_models):
                 try:
+                    attempt_timeout_s = _remaining_timeout_s(deadline)
                     attempted_models.append(resolved)
                     (
                         text,
@@ -367,14 +377,17 @@ class LLMClient:
                         attempt_completion,
                         finish_reason,
                         attempt_cost_usd,
-                    ) = await self._chat_text(
-                        resolved,
-                        system,
-                        user,
-                        temperature,
-                        max_tokens=max_tokens,
-                        timeout_s=_llm_timeout_s(),
-                        provider=provider,
+                    ) = await asyncio.wait_for(
+                        self._chat_text(
+                            resolved,
+                            system,
+                            user,
+                            temperature,
+                            max_tokens=max_tokens,
+                            timeout_s=attempt_timeout_s,
+                            provider=provider,
+                        ),
+                        timeout=attempt_timeout_s,
                     )
                     prompt_tokens += attempt_prompt
                     completion_tokens += attempt_completion
