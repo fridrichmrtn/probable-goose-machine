@@ -17,7 +17,6 @@ DDG/LLM seams stay protected even as the stage workers evolve.
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -102,12 +101,25 @@ async def _collect(it: Any) -> list[Report]:
     return [r async for r in it]
 
 
-def _read_cv_fixture_bytes(name: str) -> bytes:
-    fixture = Path(__file__).resolve().parent / "fixtures" / "cvs" / name
-    file_bytes = fixture.read_bytes()
-    if file_bytes.startswith(b"version https://git-lfs.github.com/"):
-        pytest.fail(f"{fixture.name} is an unresolved LFS pointer. Run `git lfs pull`.")
-    return file_bytes
+def _docx_bytes(paragraphs: list[str]) -> bytes:
+    import docx as _docx
+
+    document = _docx.Document()
+    for paragraph in paragraphs:
+        document.add_paragraph(paragraph)
+    buf = BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+def _synthetic_cv_docx_bytes() -> bytes:
+    return _docx_bytes(
+        [
+            "Summary Junior Data Analyst with Python SQL dashboards and stakeholder reporting.",
+            "Experience Built weekly KPI dashboard for synthetic finance support team.",
+            "Education CVUT FIT Prague BSc Informatics.",
+        ]
+    )
 
 
 def _patch_non_salary_stages(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,7 +164,7 @@ def _patch_ddgs(monkeypatch: pytest.MonkeyPatch, text_mock: MagicMock) -> None:
     fake_instance = MagicMock()
     fake_instance.__enter__.return_value.text = text_mock
     fake_instance.__exit__.return_value = False
-    monkeypatch.setattr("gander.salary.DDGS", lambda: fake_instance)
+    monkeypatch.setattr("gander.salary.DDGS", lambda **_kwargs: fake_instance)
 
 
 # ---------- ingest-layer failures (real code path, no mocking) ---------------
@@ -294,10 +306,7 @@ async def test_extract_validation_error_cascades_to_every_downstream_stage(
     monkeypatch.setattr(LLMClient, "complete_json", _always_raise)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
-    # Use a real CV docx so ingest succeeds and we actually reach extract.
-    fixture_name = "01_junior_da_novotny.docx"
-    file_bytes = _read_cv_fixture_bytes(fixture_name)
-    reports = await _collect(pipeline.run(file_bytes, fixture_name))
+    reports = await _collect(pipeline.run(_synthetic_cv_docx_bytes(), "cv.docx"))
     final = reports[-1]
 
     assert isinstance(final.profile, StageFailure)
@@ -352,11 +361,9 @@ async def test_low_evidence_profile_cascades_to_every_downstream_stage(
     monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
 
-    # Real docx so ingest+redact actually run; the anchors above won't appear
-    # in the redacted text, so drop_unverified strips every item.
-    fixture_name = "01_junior_da_novotny.docx"
-    file_bytes = _read_cv_fixture_bytes(fixture_name)
-    reports = await _collect(pipeline.run(file_bytes, fixture_name))
+    # Synthetic docx so ingest+redact actually run; the anchors above won't
+    # appear in the redacted text, so drop_unverified strips every item.
+    reports = await _collect(pipeline.run(_synthetic_cv_docx_bytes(), "cv.docx"))
     final = reports[-1]
 
     assert isinstance(final.profile, StageFailure)

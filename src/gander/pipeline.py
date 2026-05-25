@@ -18,12 +18,15 @@ Spec drift notes (T15 task file vs canonical schema):
   T15 schema patch) rather than zero-filled sentinels. The renderer treats
   `None` as "not yet rendered", so the body is empty until profile completes.
 * `total_cost_usd` / `total_latency_ms` are populated by the subscriber on
-  every yield. The footer in `gander.report` interpolates them.
+  every yield. `total_latency_ms` is summed provider-call latency; `wall_clock_ms`
+  is measured from pipeline start for every snapshot. The footer in
+  `gander.report` interpolates them.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -92,6 +95,7 @@ class _Run:
     )
     total_cost_usd: float = 0.0
     total_latency_ms: int = 0
+    started_at: float = field(default_factory=time.perf_counter)
 
     def snapshot(self) -> Report:
         return Report(
@@ -105,6 +109,7 @@ class _Run:
             redacted_cv_text=self.redacted_cv_text,
             total_cost_usd=self.total_cost_usd,
             total_latency_ms=self.total_latency_ms,
+            wall_clock_ms=int((time.perf_counter() - self.started_at) * 1000),
         )
 
 

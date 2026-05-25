@@ -125,6 +125,26 @@ _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
 # USD per 1M tokens, (prompt, completion).
 # OpenRouter normally reports usage.cost; this table is only a local fallback.
 MODEL_PRICES: dict[str, tuple[float, float]] = {}
+_DEFAULT_LLM_TIMEOUT_S = 60.0
+_DEFAULT_VISION_TIMEOUT_S = 120.0
+
+
+def _env_float(name: str, default: float, *, min_value: float = 0.1) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return max(min_value, float(raw))
+    except ValueError:
+        return default
+
+
+def _llm_timeout_s() -> float:
+    return _env_float("GANDER_LLM_TIMEOUT_S", _DEFAULT_LLM_TIMEOUT_S)
+
+
+def _vision_timeout_s() -> float:
+    return _env_float("GANDER_VISION_TIMEOUT_S", _DEFAULT_VISION_TIMEOUT_S)
 
 
 class LLMClient:
@@ -264,6 +284,7 @@ class LLMClient:
                             current_user,
                             temperature,
                             max_tokens=max_tokens,
+                            timeout_s=_llm_timeout_s(),
                             provider=provider,
                         )
                         prompt_tokens += attempt_prompt
@@ -352,6 +373,7 @@ class LLMClient:
                         user,
                         temperature,
                         max_tokens=max_tokens,
+                        timeout_s=_llm_timeout_s(),
                         provider=provider,
                     )
                     prompt_tokens += attempt_prompt
@@ -403,16 +425,17 @@ class LLMClient:
         image_bytes: bytes,
         prompt: str,
         mime_type: str = "image/png",
-        timeout_s: float = 120.0,
+        timeout_s: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
         """Transcribe one rendered page through OpenRouter vision."""
         self._resolve_provider("vision")
+        resolved_timeout_s = _vision_timeout_s() if timeout_s is None else timeout_s
         return await self._complete_openrouter_vision_text(
             image_bytes=image_bytes,
             prompt=prompt,
             mime_type=mime_type,
-            timeout_s=timeout_s,
+            timeout_s=resolved_timeout_s,
             max_tokens=max_tokens,
         )
 
@@ -498,6 +521,7 @@ class LLMClient:
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        timeout_s: float | None = None,
         provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
@@ -514,6 +538,8 @@ class LLMClient:
         }
         if max_tokens is not None:
             openrouter_kwargs["max_tokens"] = max_tokens
+        if timeout_s is not None:
+            openrouter_kwargs["timeout"] = timeout_s
         response_o = await client_o.chat.completions.create(**openrouter_kwargs)
         choice_o = response_o.choices[0]
         text_o = choice_o.message.content or ""
@@ -546,6 +572,7 @@ class LLMClient:
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        timeout_s: float | None = None,
         provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
@@ -561,6 +588,8 @@ class LLMClient:
         }
         if max_tokens is not None:
             openrouter_kwargs["max_tokens"] = max_tokens
+        if timeout_s is not None:
+            openrouter_kwargs["timeout"] = timeout_s
         response_o = await client_o.chat.completions.create(**openrouter_kwargs)
         choice_o = response_o.choices[0]
         text_o = choice_o.message.content or ""

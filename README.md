@@ -131,12 +131,13 @@ The current supported provider value is `openrouter`.
 OpenRouter model slugs may point at Anthropic, Gemini, OpenAI, or other hosted
 models, but Gander does not use the direct Anthropic SDK/provider path.
 
-By default, PDF pages are rendered to images and sent to OpenRouter/Gemini for
-transcription. DOCX files use deterministic local text extraction unless
-`GANDER_DOCX_INGEST_MODE=llm` is set. Uploaded files are not retained by Gander
-after processing.
+By default, PDF pages are rendered to images and uploaded unredacted to
+OpenRouter/Gemini for transcription. DOCX files use deterministic local text
+extraction unless `GANDER_DOCX_INGEST_MODE=llm` is set. Uploaded files are not
+retained by Gander after processing.
 
-To use deterministic local PDF text extraction:
+To avoid PDF vision upload and use deterministic local PDF text extraction
+instead:
 
 ```bash
 GANDER_PDF_INGEST_MODE=text uv run python app.py

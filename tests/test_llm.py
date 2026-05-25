@@ -73,6 +73,7 @@ class _RetryingLLMClient(LLMClient):
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        timeout_s: float | None = None,
         provider: str | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         self.calls += 1
@@ -547,6 +548,26 @@ async def test_openrouter_complete_json_forwards_max_tokens(
 
 
 @pytest.mark.fast
+async def test_openrouter_complete_json_forwards_timeout_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_LLM_TIMEOUT_S", "12.5")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+
+    await client.complete_json(
+        system='You echo. Return JSON {"message": "..."}.',
+        user="Echo back the word pong.",
+        schema=Echo,
+        model="cheap",
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["timeout"] == 12.5
+
+
+@pytest.mark.fast
 async def test_openrouter_complete_text_forwards_max_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -567,6 +588,26 @@ async def test_openrouter_complete_text_forwards_max_tokens(
 
 
 @pytest.mark.fast
+async def test_openrouter_complete_text_forwards_timeout_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_LLM_TIMEOUT_S", "13")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Plain rationale."
+
+    await client.complete_text(
+        system="Be concise.",
+        user="Summarize the year.",
+        model="cheap",
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["timeout"] == 13.0
+
+
+@pytest.mark.fast
 async def test_openrouter_complete_vision_text_forwards_max_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -583,6 +624,25 @@ async def test_openrouter_complete_vision_text_forwards_max_tokens(
 
     assert fake_completions.kwargs is not None
     assert fake_completions.kwargs["max_tokens"] == 1500
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_vision_text_uses_timeout_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_VISION_TIMEOUT_S", "8.5")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Page transcript"
+
+    await client.complete_vision_text(
+        image_bytes=b"\x89PNG\r\n\x1a\nfake",
+        prompt="Transcribe this page.",
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["timeout"] == 8.5
 
 
 @pytest.mark.fast

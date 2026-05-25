@@ -442,10 +442,12 @@ def _footer(report: Report) -> str:
         for name, weight in COMPONENT_WEIGHTS.items()
     )
     # Format with 4 decimals on cost; latency is rendered in ms so the reviewer
-    # can compare to the 60s budget without unit conversion.
+    # can compare to the 60s budget without unit conversion. Provider latency
+    # is summed across LLM calls and can exceed wall clock when calls overlap.
     totals_line = (
         f"_Total cost: ${report.total_cost_usd:.4f} · "
-        f"Total latency: {report.total_latency_ms:,} ms_"
+        f"Provider latency: {report.total_latency_ms:,} ms · "
+        f"Wall clock: {report.wall_clock_ms:,} ms_"
     )
     return (
         "<details>"

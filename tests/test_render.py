@@ -555,10 +555,14 @@ def test_render_body_footer_interpolates_cost_and_latency_totals() -> None:
         raw_cv_text="x",
         total_cost_usd=0.0234,
         total_latency_ms=12_345,
+        wall_clock_ms=6_789,
     )
     out = render_body(report)
     assert "$0.0234" in out
+    assert "Provider latency" in out
     assert "12,345 ms" in out
+    assert "Wall clock" in out
+    assert "6,789 ms" in out
     # Legacy placeholder gone.
     assert "populated by T15" not in out
 
