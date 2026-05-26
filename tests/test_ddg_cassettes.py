@@ -8,6 +8,7 @@ import pytest
 import gander.salary as salary_mod
 
 pytestmark = pytest.mark.fast
+_YEAR = salary_mod._salary_query_year()
 
 _CONFTEST_PATH = Path(__file__).with_name("conftest.py")
 _SPEC = importlib.util.spec_from_file_location("ddg_conftest_under_test", _CONFTEST_PATH)
@@ -25,8 +26,8 @@ class _LiveItem:
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
-        ("head of data science manager salary Praha CZK 2025", "senior_manager_prague"),
-        ("data scientist manager salary Prague CZK 2025", "senior_manager_prague"),
+        (f"head of data science manager salary Praha CZK {_YEAR}", "senior_manager_prague"),
+        (f"data scientist manager salary Prague CZK {_YEAR}", "senior_manager_prague"),
         ("junior data analyst salary Praha site:platy.cz", "junior_data_analyst_prague"),
         ("staff machine learning engineer salary Praha site:platy.cz", "staff_mle_prague"),
         ("data scientist salary Prague site:platy.cz", "data_scientist_prague"),
@@ -38,7 +39,7 @@ def test_ddg_cassette_key_routes_specific_cz_queries(query: str, expected: str) 
 
 def test_ddg_cassette_key_rejects_non_cz_queries_without_cassette() -> None:
     with pytest.raises(RuntimeError, match="No DDG cassette"):
-        ddg_hooks._ddg_cassette_key("staff machine learning engineer salary Tokyo JPY 2025")
+        ddg_hooks._ddg_cassette_key(f"staff machine learning engineer salary Tokyo JPY {_YEAR}")
 
 
 def test_live_ddg_hook_restores_original_transport(monkeypatch: pytest.MonkeyPatch) -> None:

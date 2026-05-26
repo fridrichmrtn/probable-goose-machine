@@ -341,6 +341,8 @@ def test_report_accepts_none_blocks_for_pipeline_streaming() -> None:
     # Cost/latency aggregates default to zero before any llm_call fires.
     assert report.total_cost_usd == 0.0
     assert report.total_latency_ms == 0
+    assert report.wall_clock_ms == 0
+    assert report.notices == []
 
 
 @pytest.mark.fast
@@ -350,9 +352,21 @@ def test_report_carries_cost_and_latency_totals() -> None:
         raw_cv_text="",
         total_cost_usd=0.0123,
         total_latency_ms=4567,
+        wall_clock_ms=1234,
     )
     assert report.total_cost_usd == pytest.approx(0.0123)
     assert report.total_latency_ms == 4567
+    assert report.wall_clock_ms == 1234
+
+
+@pytest.mark.fast
+def test_report_carries_notices() -> None:
+    report = Report(
+        statuses=_statuses(),
+        raw_cv_text="",
+        notices=["Vision skipped: PDF over budget; used text extraction."],
+    )
+    assert report.notices == ["Vision skipped: PDF over budget; used text extraction."]
 
 
 @pytest.mark.fast

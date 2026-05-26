@@ -69,6 +69,7 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 - [x] **T46** — Salary stage: country-agnostic, live-search-first (`tasks/T46_salary_multi_market.md`) — *implemented on branch `t46-salary-multi-market`; fast salary/country coverage and PR #35 live CI green*
 - [x] **T47** — Education scoring rubric: degree-band calibration (`tasks/T47_education_calibration.md`) — *PhD and bias live regressions passed in PR #35 `openrouter-live`*
 - [x] **T48** — Confidence source rubric + OpenRouter route-table refactor (`tasks/T48_confidence_routing_refactor.md`) — *focused checks pass; full fast blocked by unresolved DOCX LFS pointers*
+- [x] **T49** — Architecture hardening from code-review audit (`tasks/T49_architecture_hardening.md`) — *salary geography/year freshness, PDF/provider budgets, privacy copy, timeouts, latency semantics, LFS hygiene; fast suite green*
 
 ## Provider plumbing
 - [x] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *PR #25, required `openrouter-live` CI pass*

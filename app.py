@@ -146,9 +146,9 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         gr.HTML(_HERO_CSS + _HERO_HTML)
         file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
         gr.HTML(
-            '<p class="gander-caption">PDF or DOCX, max 10 MB. PDF pages are '
-            "transcribed with OpenRouter/Gemini; DOCX files are read locally by "
-            "default. Files are not retained by Gander.</p>"
+            '<p class="gander-caption">PDF or DOCX, max 10 MB. PDFs are uploaded '
+            "to OpenRouter/Gemini as page images for transcription; DOCX is read "
+            "locally. Uploads are not retained by Gander.</p>"
         )
         run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from typing import Any
 
 import pytest
@@ -73,6 +75,7 @@ class _RetryingLLMClient(LLMClient):
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        timeout_s: float | None = None,
         provider: str | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         self.calls += 1
@@ -217,10 +220,13 @@ class _FakeChatCompletions:
             "Usage", (), {"prompt_tokens": 3, "completion_tokens": 4, "cost": 0.00042}
         )()
         self.fail_models: set[str] = set()
+        self.delay_s = 0.0
 
     async def create(self, **kwargs: Any) -> Any:
         self.kwargs = kwargs
         self.all_kwargs.append(kwargs)
+        if self.delay_s:
+            await asyncio.sleep(self.delay_s)
         if kwargs["model"] in self.fail_models:
             raise RuntimeError(f"synthetic outage for {kwargs['model']}")
         return type(
@@ -547,6 +553,26 @@ async def test_openrouter_complete_json_forwards_max_tokens(
 
 
 @pytest.mark.fast
+async def test_openrouter_complete_json_forwards_timeout_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_LLM_TIMEOUT_S", "12.5")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+
+    await client.complete_json(
+        system='You echo. Return JSON {"message": "..."}.',
+        user="Echo back the word pong.",
+        schema=Echo,
+        model="cheap",
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["timeout"] == pytest.approx(12.5, abs=0.05)
+
+
+@pytest.mark.fast
 async def test_openrouter_complete_text_forwards_max_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -567,6 +593,74 @@ async def test_openrouter_complete_text_forwards_max_tokens(
 
 
 @pytest.mark.fast
+async def test_openrouter_complete_text_forwards_timeout_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_LLM_TIMEOUT_S", "13")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Plain rationale."
+
+    await client.complete_text(
+        system="Be concise.",
+        user="Summarize the year.",
+        model="cheap",
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["timeout"] == pytest.approx(13.0, abs=0.05)
+
+
+@pytest.mark.fast
+async def test_complete_json_timeout_is_wall_budget_across_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_LLM_TIMEOUT_S", "0")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.delay_s = 1.0
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError):
+        await client.complete_json(
+            system='You echo. Return JSON {"message": "..."}.',
+            user="Echo back the word pong.",
+            schema=Echo,
+            model="cheap",
+        )
+
+    assert time.perf_counter() - t0 < 0.5
+    assert len(fake_completions.all_kwargs) <= 2
+    assert fake_completions.all_kwargs[0]["timeout"] == pytest.approx(0.1, abs=0.05)
+
+
+@pytest.mark.fast
+async def test_complete_text_timeout_is_wall_budget_across_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_CHEAP_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_LLM_TIMEOUT_S", "0")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.delay_s = 1.0
+    fake_completions.content = "Plain rationale."
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError):
+        await client.complete_text(
+            system="Be concise.",
+            user="Summarize the year.",
+            model="cheap",
+        )
+
+    assert time.perf_counter() - t0 < 0.5
+    assert len(fake_completions.all_kwargs) <= 2
+    assert fake_completions.all_kwargs[0]["timeout"] == pytest.approx(0.1, abs=0.05)
+
+
+@pytest.mark.fast
 async def test_openrouter_complete_vision_text_forwards_max_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -583,6 +677,25 @@ async def test_openrouter_complete_vision_text_forwards_max_tokens(
 
     assert fake_completions.kwargs is not None
     assert fake_completions.kwargs["max_tokens"] == 1500
+
+
+@pytest.mark.fast
+async def test_openrouter_complete_vision_text_uses_timeout_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
+    monkeypatch.setenv("GANDER_VISION_TIMEOUT_S", "8.5")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Page transcript"
+
+    await client.complete_vision_text(
+        image_bytes=b"\x89PNG\r\n\x1a\nfake",
+        prompt="Transcribe this page.",
+    )
+
+    assert fake_completions.kwargs is not None
+    assert fake_completions.kwargs["timeout"] == 8.5
 
 
 @pytest.mark.fast

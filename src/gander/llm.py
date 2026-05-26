@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -12,6 +13,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from gander import obs
+from gander.config import env_float
 
 LogicalModel = Literal["reasoning", "cheap", "extract", "vision"]
 ProviderName = Literal["openrouter"]
@@ -125,6 +127,27 @@ _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
 # USD per 1M tokens, (prompt, completion).
 # OpenRouter normally reports usage.cost; this table is only a local fallback.
 MODEL_PRICES: dict[str, tuple[float, float]] = {}
+_DEFAULT_LLM_TIMEOUT_S = 60.0
+_DEFAULT_VISION_TIMEOUT_S = 120.0
+
+
+def _llm_timeout_s() -> float:
+    return env_float("GANDER_LLM_TIMEOUT_S", _DEFAULT_LLM_TIMEOUT_S)
+
+
+def _vision_timeout_s() -> float:
+    return env_float("GANDER_VISION_TIMEOUT_S", _DEFAULT_VISION_TIMEOUT_S)
+
+
+def _deadline_after(timeout_s: float) -> float:
+    return time.perf_counter() + timeout_s
+
+
+def _remaining_timeout_s(deadline: float) -> float:
+    remaining = deadline - time.perf_counter()
+    if remaining <= 0:
+        raise TimeoutError("LLM call timed out")
+    return remaining
 
 
 class LLMClient:
@@ -233,6 +256,7 @@ class LLMClient:
         provider = self._resolve_provider(model)
         resolved_models = self._resolve_models(model, provider)
         t0 = time.perf_counter()
+        deadline = _deadline_after(_llm_timeout_s())
         prompt_tokens = 0
         completion_tokens = 0
         provider_cost_usd: float | None = None
@@ -251,6 +275,7 @@ class LLMClient:
                                 + f"\n\nYour previous output failed validation: {validation_err}"
                                 + "\n\nReturn corrected JSON only."
                             )
+                        attempt_timeout_s = _remaining_timeout_s(deadline)
                         attempted_models.append(resolved)
                         (
                             text,
@@ -258,13 +283,17 @@ class LLMClient:
                             attempt_completion,
                             finish_reason,
                             attempt_cost_usd,
-                        ) = await self._chat_json(
-                            resolved,
-                            system,
-                            current_user,
-                            temperature,
-                            max_tokens=max_tokens,
-                            provider=provider,
+                        ) = await asyncio.wait_for(
+                            self._chat_json(
+                                resolved,
+                                system,
+                                current_user,
+                                temperature,
+                                max_tokens=max_tokens,
+                                timeout_s=attempt_timeout_s,
+                                provider=provider,
+                            ),
+                            timeout=attempt_timeout_s,
                         )
                         prompt_tokens += attempt_prompt
                         completion_tokens += attempt_completion
@@ -330,6 +359,7 @@ class LLMClient:
         provider = self._resolve_provider(model)
         resolved_models = self._resolve_models(model, provider)
         t0 = time.perf_counter()
+        deadline = _deadline_after(_llm_timeout_s())
         prompt_tokens = 0
         completion_tokens = 0
         provider_cost_usd: float | None = None
@@ -339,6 +369,7 @@ class LLMClient:
             last_err: Exception | None = None
             for model_i, resolved in enumerate(resolved_models):
                 try:
+                    attempt_timeout_s = _remaining_timeout_s(deadline)
                     attempted_models.append(resolved)
                     (
                         text,
@@ -346,13 +377,17 @@ class LLMClient:
                         attempt_completion,
                         finish_reason,
                         attempt_cost_usd,
-                    ) = await self._chat_text(
-                        resolved,
-                        system,
-                        user,
-                        temperature,
-                        max_tokens=max_tokens,
-                        provider=provider,
+                    ) = await asyncio.wait_for(
+                        self._chat_text(
+                            resolved,
+                            system,
+                            user,
+                            temperature,
+                            max_tokens=max_tokens,
+                            timeout_s=attempt_timeout_s,
+                            provider=provider,
+                        ),
+                        timeout=attempt_timeout_s,
                     )
                     prompt_tokens += attempt_prompt
                     completion_tokens += attempt_completion
@@ -403,16 +438,17 @@ class LLMClient:
         image_bytes: bytes,
         prompt: str,
         mime_type: str = "image/png",
-        timeout_s: float = 120.0,
+        timeout_s: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
         """Transcribe one rendered page through OpenRouter vision."""
         self._resolve_provider("vision")
+        resolved_timeout_s = _vision_timeout_s() if timeout_s is None else timeout_s
         return await self._complete_openrouter_vision_text(
             image_bytes=image_bytes,
             prompt=prompt,
             mime_type=mime_type,
-            timeout_s=timeout_s,
+            timeout_s=resolved_timeout_s,
             max_tokens=max_tokens,
         )
 
@@ -498,6 +534,7 @@ class LLMClient:
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        timeout_s: float | None = None,
         provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
@@ -514,6 +551,8 @@ class LLMClient:
         }
         if max_tokens is not None:
             openrouter_kwargs["max_tokens"] = max_tokens
+        if timeout_s is not None:
+            openrouter_kwargs["timeout"] = timeout_s
         response_o = await client_o.chat.completions.create(**openrouter_kwargs)
         choice_o = response_o.choices[0]
         text_o = choice_o.message.content or ""
@@ -546,6 +585,7 @@ class LLMClient:
         user: str,
         temperature: float,
         max_tokens: int | None = None,
+        timeout_s: float | None = None,
         provider: ProviderName | None = None,
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
@@ -561,6 +601,8 @@ class LLMClient:
         }
         if max_tokens is not None:
             openrouter_kwargs["max_tokens"] = max_tokens
+        if timeout_s is not None:
+            openrouter_kwargs["timeout"] = timeout_s
         response_o = await client_o.chat.completions.create(**openrouter_kwargs)
         choice_o = response_o.choices[0]
         text_o = choice_o.message.content or ""

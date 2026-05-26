@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import time
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import pdfplumber
 import pypdf
 
 from gander import obs
+from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.sections import NORMALIZED_SECTION_NAMES, SECTION_NAMES, normalize_section_name
@@ -28,6 +30,11 @@ LOW_EVIDENCE_MSG = (
     "If this is a CV, check that the text is selectable (not a scanned image) "
     "and that sections like Experience or Education are clearly labelled, then try again."
 )
+VISION_BUDGET_MSG = (
+    "This PDF has too many pages to transcribe reliably. Try a shorter PDF, "
+    "or upload a text-based PDF where text is selectable."
+)
+VISION_BUDGET_FALLBACK_NOTICE = "Vision skipped: PDF over budget; used text extraction."
 
 MIN_TEXT_CHARS = 100
 # The length gate exists ONLY to keep long paragraph sentences that contain a
@@ -41,6 +48,15 @@ _INGEST_MODES = {"vision", "text"}
 _PDF_INGEST_MODES = {"vision", "text"}
 _DOCX_INGEST_MODES = {"llm", "text"}
 _DEFAULT_VISION_DPI = 160
+_DEFAULT_VISION_MAX_PAGES = 8
+# A4 at 160 dpi is roughly 2.2 Mpx; this allows larger/slides-style pages
+# without letting a single rendered page dominate memory or provider spend.
+_DEFAULT_VISION_MAX_PIXELS_PER_PAGE = 6_000_000
+# Aggregate rendered PNG budget. This protects provider payload and cost even
+# when each individual page is within the pixel budget.
+_DEFAULT_VISION_MAX_TOTAL_IMAGE_BYTES = 48_000_000
+_DEFAULT_VISION_MAX_PDF_BYTES = 10_000_000
+_DEFAULT_VISION_CONCURRENCY = 4
 _MIN_DOCX_SOURCE_OVERLAP = 0.70
 
 _SIDEBAR_TOKENS = (
@@ -67,6 +83,19 @@ class _IngestLLMReject(Exception):
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(reason)
+
+
+class _VisionBudgetExceeded(Exception):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+@dataclass(frozen=True)
+class _RenderedPdf:
+    pages: list[bytes]
+    total_image_bytes: int
+    max_page_pixels: int
 
 
 def _load_prompt(name: str) -> str:
@@ -111,6 +140,36 @@ def _vision_dpi() -> int:
         return min(300, max(120, int(raw)))
     except ValueError:
         return _DEFAULT_VISION_DPI
+
+
+def _vision_max_pages() -> int:
+    return env_int("GANDER_VISION_MAX_PAGES", _DEFAULT_VISION_MAX_PAGES)
+
+
+def _vision_max_pixels_per_page() -> int:
+    return env_int(
+        "GANDER_VISION_MAX_PIXELS_PER_PAGE",
+        _DEFAULT_VISION_MAX_PIXELS_PER_PAGE,
+    )
+
+
+def _vision_max_total_image_bytes() -> int:
+    return env_int(
+        "GANDER_VISION_MAX_TOTAL_IMAGE_BYTES",
+        _DEFAULT_VISION_MAX_TOTAL_IMAGE_BYTES,
+    )
+
+
+def _vision_max_pdf_bytes() -> int:
+    return env_int("GANDER_VISION_MAX_PDF_BYTES", _DEFAULT_VISION_MAX_PDF_BYTES)
+
+
+def _vision_concurrency() -> int:
+    return env_int("GANDER_VISION_CONCURRENCY", _DEFAULT_VISION_CONCURRENCY, max_value=8)
+
+
+def _vision_timeout_s() -> float:
+    return env_float("GANDER_VISION_TIMEOUT_S", 120.0)
 
 
 def _is_all_caps_header(s: str) -> bool:
@@ -176,6 +235,19 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
             mode = _pdf_ingest_mode()
             try:
                 text = await _extract_pdf(file_bytes, mode=mode)
+            except _VisionBudgetExceeded as exc:
+                obs.emit(
+                    "ingest",
+                    "rejected",
+                    reason="vision_budget_exceeded",
+                    detail=exc.reason,
+                    duration_ms=_ms(),
+                )
+                return StageFailure(
+                    stage="ingest",
+                    user_message=VISION_BUDGET_MSG,
+                    debug_detail=exc.reason,
+                )
             except Exception as exc:
                 obs.emit("ingest", "rejected", reason="corrupt", duration_ms=_ms())
                 return StageFailure(
@@ -227,6 +299,19 @@ async def _extract_pdf(file_bytes: bytes, *, mode: str | None = None) -> str:
 
     try:
         return await _extract_pdf_vlm(file_bytes)
+    except _VisionBudgetExceeded as exc:
+        obs.emit("ingest", "ingest_llm_fallback", file_type="pdf", reason=exc.reason)
+        text = _extract_pdf_text(file_bytes)
+        if len(text.strip()) >= MIN_TEXT_CHARS:
+            obs.emit(
+                "ingest",
+                "vision_budget_fallback_degraded",
+                file_type="pdf",
+                reason=exc.reason,
+                notice=VISION_BUDGET_FALLBACK_NOTICE,
+            )
+            return text
+        raise
     except _IngestLLMReject as exc:
         obs.emit("ingest", "ingest_llm_fallback", file_type="pdf", reason=exc.reason)
     except (httpx.HTTPError, RuntimeError, TimeoutError, ValueError) as exc:
@@ -337,9 +422,79 @@ def _render_pdf_pages(file_bytes: bytes, dpi: int | None = None) -> list[bytes]:
     return pages
 
 
+def _render_pdf_pages_for_vision(file_bytes: bytes, dpi: int) -> _RenderedPdf:
+    max_pages = _vision_max_pages()
+    max_pixels = _vision_max_pixels_per_page()
+    max_total_bytes = _vision_max_total_image_bytes()
+    max_pdf_bytes = _vision_max_pdf_bytes()
+    pages: list[bytes] = []
+    total_image_bytes = 0
+    max_page_pixels = 0
+    if len(file_bytes) > max_pdf_bytes:
+        obs.emit(
+            "ingest",
+            "vision_budget_rejected",
+            reason="pdf_bytes",
+            pdf_bytes=len(file_bytes),
+            max_pdf_bytes=max_pdf_bytes,
+        )
+        raise _VisionBudgetExceeded(f"pdf_bytes={len(file_bytes)} max_pdf_bytes={max_pdf_bytes}")
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    try:
+        page_count = doc.page_count
+        if page_count > max_pages:
+            obs.emit(
+                "ingest",
+                "vision_budget_rejected",
+                reason="too_many_pages",
+                page_count=page_count,
+                max_pages=max_pages,
+            )
+            raise _VisionBudgetExceeded(f"page_count={page_count} max_pages={max_pages}")
+        for page_index, page in enumerate(doc):
+            pix = page.get_pixmap(dpi=dpi, alpha=False)
+            page_pixels = pix.width * pix.height
+            max_page_pixels = max(max_page_pixels, page_pixels)
+            if page_pixels > max_pixels:
+                obs.emit(
+                    "ingest",
+                    "vision_budget_rejected",
+                    reason="page_pixels",
+                    page_index=page_index,
+                    page_pixels=page_pixels,
+                    max_pixels=max_pixels,
+                )
+                raise _VisionBudgetExceeded(
+                    f"page_index={page_index} page_pixels={page_pixels} max_pixels={max_pixels}"
+                )
+            png = pix.tobytes("png")
+            total_image_bytes += len(png)
+            if total_image_bytes > max_total_bytes:
+                obs.emit(
+                    "ingest",
+                    "vision_budget_rejected",
+                    reason="total_image_bytes",
+                    page_count=len(pages) + 1,
+                    total_image_bytes=total_image_bytes,
+                    max_total_image_bytes=max_total_bytes,
+                )
+                raise _VisionBudgetExceeded(
+                    f"total_image_bytes={total_image_bytes} max_total_image_bytes={max_total_bytes}"
+                )
+            pages.append(png)
+    finally:
+        doc.close()
+    return _RenderedPdf(
+        pages=pages,
+        total_image_bytes=total_image_bytes,
+        max_page_pixels=max_page_pixels,
+    )
+
+
 async def _extract_pdf_vlm(file_bytes: bytes) -> str:
     dpi = _vision_dpi()
-    pages = _render_pdf_pages(file_bytes, dpi=dpi)
+    rendered = _render_pdf_pages_for_vision(file_bytes, dpi=dpi)
+    pages = rendered.pages
     if not pages:
         raise _IngestLLMReject("page_render_failed")
 
@@ -351,15 +506,22 @@ async def _extract_pdf_vlm(file_bytes: bytes) -> str:
         page_count=len(pages),
         dpi=dpi,
         size_bytes=len(file_bytes),
+        total_image_bytes=rendered.total_image_bytes,
+        max_page_pixels=rendered.max_page_pixels,
+        vision_pages_sent=len(pages),
     )
 
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(_vision_concurrency())
+    timeout_s = _vision_timeout_s()
 
     async def _transcribe(i: int, png: bytes) -> str:
         page_t0 = time.perf_counter()
         async with sem:
             page_text = await client.complete_vision_text(
-                image_bytes=png, prompt=prompt, max_tokens=1500
+                image_bytes=png,
+                prompt=prompt,
+                timeout_s=timeout_s,
+                max_tokens=1500,
             )
         page_text = _strip_transcript_fences(page_text)
         if not page_text.strip():

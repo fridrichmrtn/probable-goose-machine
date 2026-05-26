@@ -85,8 +85,8 @@ class Profile(BaseModel):
     detected_role: str
     detected_location: str | None
     # ISO-3166 alpha-2 (CZ, DE, JP, US, GB, …). When null, salary.py falls back
-    # to the `_is_cz_location` regex on `detected_location` and defaults to "CZ"
-    # — preserving legacy behavior for ambiguous or CZ-leaning CVs.
+    # to the `_is_cz_location` regex on `detected_location`; unknown geography
+    # resolves to the salary stage's broad USD/year search policy.
     detected_country: str | None = None
     detected_years_experience: int = Field(ge=0, le=70)
 
@@ -225,10 +225,14 @@ class Report(BaseModel):
     # ingest-failed snapshot (which never reaches `redact()`) still validates.
     redacted_cv_text: str = ""
     # Populated by the L6 pipeline subscriber on every yield; aggregates the
-    # `usd_cost` and `duration_ms` fields emitted by gander.llm `llm_call`
-    # events. Footer in gander.report interpolates these.
+    # `usd_cost` and provider-call `duration_ms` fields emitted by gander.llm
+    # `llm_call` events. This is summed provider latency, not wall-clock time.
     total_cost_usd: float = 0.0
     total_latency_ms: int = 0
+    # Pipeline wall-clock elapsed time at the moment this snapshot was built.
+    wall_clock_ms: int = 0
+    # Non-fatal run notices surfaced in the rendered footer.
+    notices: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_exact_status_keys(self) -> Report:

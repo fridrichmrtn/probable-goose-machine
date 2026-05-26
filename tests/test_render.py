@@ -555,12 +555,35 @@ def test_render_body_footer_interpolates_cost_and_latency_totals() -> None:
         raw_cv_text="x",
         total_cost_usd=0.0234,
         total_latency_ms=12_345,
+        wall_clock_ms=6_789,
     )
     out = render_body(report)
     assert "$0.0234" in out
+    assert "LLM time (sum)" in out
     assert "12,345 ms" in out
+    assert "Total elapsed" in out
+    assert "6,789 ms" in out
+    assert "LLM time can exceed total elapsed" in out
     # Legacy placeholder gone.
     assert "populated by T15" not in out
+
+
+@pytest.mark.fast
+def test_render_body_footer_surfaces_notices() -> None:
+    report = Report(
+        profile=_profile(),
+        score=_score(),
+        salary=_salary(),
+        confidence=_confidence(),
+        growth=_growth(),
+        statuses=_statuses(),
+        raw_cv_text="x",
+        notices=["Vision skipped: PDF over budget; used text extraction."],
+    )
+
+    out = render_body(report)
+
+    assert "Vision skipped: PDF over budget; used text extraction." in out
 
 
 # ---------- render_body — None = pending (T15 streaming) ----------

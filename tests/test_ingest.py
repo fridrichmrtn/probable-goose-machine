@@ -16,6 +16,8 @@ from gander.ingest import (
     EMPTY_MSG,
     SCANNED_MSG,
     UNKNOWN_MSG,
+    VISION_BUDGET_FALLBACK_NOTICE,
+    VISION_BUDGET_MSG,
     _annotate_sections,
     _repair_inline_section_breaks,
     extract_text,
@@ -318,6 +320,145 @@ async def test_pdf_vlm_parallel_preserves_page_order_and_bounds_concurrency(
 
 
 @pytest.mark.fast
+def test_vision_concurrency_env_is_clamped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GANDER_VISION_CONCURRENCY", "99")
+    assert ingest._vision_concurrency() == 8
+
+    monkeypatch.setenv("GANDER_VISION_CONCURRENCY", "0")
+    assert ingest._vision_concurrency() == 1
+
+
+@pytest.mark.fast
+async def test_pdf_over_vision_page_budget_falls_back_to_text_without_vlm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_PDF_INGEST_MODE", "vision")
+    monkeypatch.setenv("GANDER_VISION_MAX_PAGES", "2")
+    pdf_bytes = _pdf_bytes(
+        [
+            [
+                "Summary",
+                f"Page {i} text PDF fallback content with Python SQL and dashboards.",
+                "Experience Built monitoring workflows for synthetic teams.",
+                "Education CVUT FIT Prague MSc Informatics.",
+            ]
+            for i in range(3)
+        ]
+    )
+
+    async def _unexpected_vlm(self: LLMClient, **_kwargs: object) -> str:
+        raise AssertionError("over-budget PDF must not call vision transcription")
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _unexpected_vlm)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_text(pdf_bytes, "cv.pdf")
+
+    assert isinstance(result, str)
+    assert "Page 0 text PDF fallback content" in result
+    rejected = next(e for e in events if e["event"] == "vision_budget_rejected")
+    assert rejected["reason"] == "too_many_pages"
+    fallback = next(e for e in events if e["event"] == "ingest_llm_fallback")
+    assert fallback["reason"].startswith("page_count=3")
+    degraded = next(e for e in events if e["event"] == "vision_budget_fallback_degraded")
+    assert degraded["notice"] == VISION_BUDGET_FALLBACK_NOTICE
+
+
+@pytest.mark.fast
+async def test_pdf_over_vision_budget_with_text_poor_pdf_returns_budget_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GANDER_PDF_INGEST_MODE", "vision")
+    monkeypatch.setenv("GANDER_VISION_MAX_PAGES", "1")
+    reportlab_canvas = pytest.importorskip("reportlab.pdfgen.canvas")
+    buf = BytesIO()
+    c = reportlab_canvas.Canvas(buf)
+    for _ in range(2):
+        c.setFillColorRGB(0.2, 0.2, 0.2)
+        c.rect(50, 50, 200, 200, fill=1, stroke=0)
+        c.showPage()
+    c.save()
+
+    async def _unexpected_vlm(self: LLMClient, **_kwargs: object) -> str:
+        raise AssertionError("over-budget PDF must not call vision transcription")
+
+    monkeypatch.setattr(LLMClient, "complete_vision_text", _unexpected_vlm)
+
+    result = await extract_text(buf.getvalue(), "scanned.pdf")
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "ingest"
+    assert result.user_message == VISION_BUDGET_MSG
+    assert result.debug_detail is not None
+    assert "page_count=2" in result.debug_detail
+
+
+@pytest.mark.fast
+def test_pdf_vision_raw_byte_budget_rejects_before_fitz_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = _pdf_bytes([["Summary", "Selectable text content for byte budget."]])
+    monkeypatch.setenv("GANDER_VISION_MAX_PDF_BYTES", str(len(pdf_bytes) - 1))
+
+    def _unexpected_open(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("raw byte budget should fire before fitz.open")
+
+    monkeypatch.setattr(ingest.fitz, "open", _unexpected_open)
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append), pytest.raises(Exception, match="pdf_bytes"):
+        ingest._render_pdf_pages_for_vision(pdf_bytes, dpi=120)
+
+    rejected = next(e for e in events if e["event"] == "vision_budget_rejected")
+    assert rejected["reason"] == "pdf_bytes"
+    assert rejected["pdf_bytes"] == len(pdf_bytes)
+    assert rejected["max_pdf_bytes"] == len(pdf_bytes) - 1
+
+
+@pytest.mark.fast
+def test_pdf_vision_page_pixel_budget_emits_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = _pdf_bytes([["Summary", "Selectable text content for pixel budget."]])
+    monkeypatch.setenv("GANDER_VISION_MAX_PIXELS_PER_PAGE", "1")
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append), pytest.raises(Exception, match="page_pixels"):
+        ingest._render_pdf_pages_for_vision(pdf_bytes, dpi=120)
+
+    rejected = next(e for e in events if e["event"] == "vision_budget_rejected")
+    assert rejected["reason"] == "page_pixels"
+    assert rejected["page_index"] == 0
+    assert rejected["page_pixels"] > 1
+    assert rejected["max_pixels"] == 1
+
+
+@pytest.mark.fast
+def test_pdf_vision_total_image_byte_budget_mid_render_emits_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = _pdf_bytes(
+        [
+            ["Summary", "First page selectable text content."],
+            ["Experience", "Second page selectable text content."],
+        ]
+    )
+    rendered_pages = ingest._render_pdf_pages(pdf_bytes, dpi=120)
+    monkeypatch.setenv("GANDER_VISION_MAX_TOTAL_IMAGE_BYTES", str(len(rendered_pages[0]) + 1))
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append), pytest.raises(Exception, match="total_image_bytes"):
+        ingest._render_pdf_pages_for_vision(pdf_bytes, dpi=120)
+
+    rejected = next(e for e in events if e["event"] == "vision_budget_rejected")
+    assert rejected["reason"] == "total_image_bytes"
+    assert rejected["page_count"] == 2
+    assert rejected["total_image_bytes"] > len(rendered_pages[0]) + 1
+    assert rejected["max_total_image_bytes"] == len(rendered_pages[0]) + 1
+
+
+@pytest.mark.fast
 async def test_pdf_vlm_cancels_siblings_on_first_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -545,14 +686,21 @@ async def test_docx_fixture_vision_mode_preserves_role_and_sections(
 ) -> None:
     monkeypatch.setenv("GANDER_INGEST_MODE", "vision")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
-    fixture = _FIXTURE_DIR / "01_junior_da_novotny.docx"
+    source = [
+        "Summary",
+        "Junior Data Analyst with Python SQL dashboards and stakeholder reporting.",
+        "Experience",
+        "Built weekly KPI dashboard for synthetic finance support team.",
+        "Education",
+        "CVUT FIT Prague BSc Informatics.",
+    ]
 
     async def _echo_source(self: LLMClient, *, user: str, **_kwargs: object) -> str:
         return user.split("SOURCE DOCX TEXT:\n", 1)[1]
 
     monkeypatch.setattr(LLMClient, "complete_text", _echo_source)
 
-    result = await extract_text(fixture.read_bytes(), fixture.name)
+    result = await extract_text(_docx_bytes(source), "cv.docx")
 
     assert isinstance(result, str)
     assert "Junior Data Analyst" in result
@@ -745,19 +893,16 @@ def test_inline_languages_list_not_promoted() -> None:
 
 @pytest.mark.fast
 async def test_observability_emits_start_and_done_for_docx_fixture() -> None:
-    fixture = _FIXTURE_DIR / "01_junior_da_novotny.docx"
-    data = fixture.read_bytes()
-    # Fail loudly on unresolved LFS pointers (fresh checkout w/o `git lfs pull`
-    # or CI without `lfs: true`). Otherwise the test would surface as a cryptic
-    # zip-parse failure inside extract_text. — Copilot PR #2 finding.
-    if data.startswith(b"version https://git-lfs.github.com/"):
-        pytest.fail(
-            f"{fixture.name} is an unresolved LFS pointer. "
-            "Run `git lfs pull` (CI uses `actions/checkout@v4` with `lfs: true`)."
-        )
+    data = _docx_bytes(
+        [
+            "Summary Senior Data Scientist with Python SQL LightGBM monitoring dashboards.",
+            "Experience Owned fraud model lifecycle for synthetic finance platform.",
+            "Education CVUT FIT Prague MSc Informatics 2021.",
+        ]
+    )
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        result = await extract_text(data, fixture.name)
+        result = await extract_text(data, "cv.docx")
     assert isinstance(result, str)
 
     starts = [e for e in events if e["event"] == "start" and e["stage"] == "ingest"]

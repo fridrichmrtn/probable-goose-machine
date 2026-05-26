@@ -199,6 +199,28 @@ async def test_happy_path_final_report_fully_populated(
 
 
 @pytest.mark.fast
+async def test_pipeline_captures_degraded_ingest_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+
+    async def _ingest_with_notice(file_bytes: bytes, filename: str) -> str:
+        obs.emit(
+            "ingest",
+            "vision_budget_fallback_degraded",
+            notice="Vision skipped: PDF over budget; used text extraction.",
+            reason="page_count=9 max_pages=8",
+        )
+        return "raw text"
+
+    monkeypatch.setattr(pipeline, "extract_text", _ingest_with_notice)
+
+    reports = await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    assert reports[-1].notices == ["Vision skipped: PDF over budget; used text extraction."]
+
+
+@pytest.mark.fast
 async def test_happy_path_yields_in_expected_sequence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -466,6 +488,32 @@ async def test_cost_and_latency_accumulate_from_obs_emit(
     final = reports[-1]
     assert final.total_cost_usd == pytest.approx(0.035)
     assert final.total_latency_ms == 350
+    assert final.wall_clock_ms >= 0
+
+
+@pytest.mark.fast
+async def test_wall_clock_is_distinct_from_summed_provider_latency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+
+    async def _score_emit(redacted: RedactedCV, profile: Profile) -> Score:
+        await asyncio.sleep(0.02)
+        obs.emit("score", "llm_call", usd_cost=0.01, duration_ms=1000)
+        return _score()
+
+    async def _salary_emit(profile: Profile) -> SalaryEstimate:
+        await asyncio.sleep(0.02)
+        obs.emit("salary", "llm_call", usd_cost=0.02, duration_ms=1000)
+        return _salary()
+
+    monkeypatch.setattr(pipeline, "score_profile", _score_emit)
+    monkeypatch.setattr(pipeline, "estimate_salary", _salary_emit)
+
+    final = (await _collect(pipeline.run(b"x", "cv.pdf")))[-1]
+
+    assert final.total_latency_ms == 2000
+    assert 0 <= final.wall_clock_ms < final.total_latency_ms
 
 
 @pytest.mark.fast

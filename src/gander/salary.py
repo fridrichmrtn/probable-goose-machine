@@ -5,14 +5,15 @@ import json
 import os
 import re
 import time
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from ddgs import DDGS
 from pydantic import ValidationError
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
+from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import LLMClient
 from gander.obs import emit
@@ -37,6 +38,10 @@ _INSUFFICIENT_DATA_MSG = "Insufficient market data for this profile"
 _DEFAULT_SALARY_SEARCH_BACKENDS = "brave,duckduckgo,yahoo,mojeek"
 _SALARY_SEARCH_MAX_RESULTS = 20
 _SALARY_LLM_SOURCE_LIMIT = 8
+_DEFAULT_SALARY_SEARCH_TIMEOUT_S = 6
+_DEFAULT_SALARY_SEARCH_TOTAL_TIMEOUT_S = 20
+_MAX_SALARY_SEARCH_TIMEOUT_S = 15
+_MAX_SALARY_SEARCH_TOTAL_TIMEOUT_S = 60.0
 _JUNIOR_CZK_MONTH_HIGH_CAP = 90_000
 # CZ baseline only: the curated boards we trust for CZ profiles. Outside CZ we
 # stop applying this list and let live-search ranking stand — the live-search
@@ -189,9 +194,36 @@ def _salary_search_backends() -> str:
     return ",".join(backends) if backends else _DEFAULT_SALARY_SEARCH_BACKENDS
 
 
+def _salary_search_timeout_s() -> int:
+    return env_int(
+        "GANDER_SALARY_SEARCH_TIMEOUT_S",
+        _DEFAULT_SALARY_SEARCH_TIMEOUT_S,
+        max_value=_MAX_SALARY_SEARCH_TIMEOUT_S,
+    )
+
+
+def _salary_search_total_timeout_s() -> float:
+    return env_float(
+        "GANDER_SALARY_SEARCH_TOTAL_TIMEOUT_S",
+        _DEFAULT_SALARY_SEARCH_TOTAL_TIMEOUT_S,
+        max_value=_MAX_SALARY_SEARCH_TOTAL_TIMEOUT_S,
+    )
+
+
+def _remaining_search_timeout_s(deadline: float) -> float:
+    remaining = deadline - time.perf_counter()
+    if remaining <= 0:
+        raise TimeoutError("salary search timed out")
+    return remaining
+
+
+def _salary_query_year(today: date | None = None) -> int:
+    return (today or date.today()).year
+
+
 def _is_cz_location(location: str | None) -> bool:
     if not location:
-        return True
+        return False
     return bool(_CZ_TOKEN_PATTERN.search(location))
 
 
@@ -268,7 +300,7 @@ def _apply_sanity_caps(profile: Profile, estimate: SalaryEstimate) -> SalaryEsti
     return estimate
 
 
-def build_queries(profile: Profile) -> list[str]:
+def build_queries(profile: Profile, *, today: date | None = None) -> list[str]:
     """Build 2-3 locality-first search queries with country/currency hints.
 
     Pure function. No I/O.
@@ -291,6 +323,7 @@ def build_queries(profile: Profile) -> list[str]:
     country = _resolve_country(profile)
     country_name = _country_display_name(country)
     currency = country_to_currency(country)
+    year = _salary_query_year(today)
 
     queries: list[str]
     if country == "CZ":
@@ -298,44 +331,52 @@ def build_queries(profile: Profile) -> list[str]:
         queries = [
             f"{role} salary {city} site:platy.cz",
             f"{role} salary {city} site:profesia.cz",
-            f"{role} mzda CZK 2025",
+            f"{role} mzda CZK {year}",
         ]
         if not (profile.is_management and canonical and profile.detected_years_experience >= 10):
             queries.append(f"{role} salary czech republic site:glassdoor.com")
-        mgmt_currency_token = "CZK 2025"
+        mgmt_currency_token = f"CZK {year}"
         mgmt_city = city
+    elif country == "XX":
+        queries = [
+            f"{role} salary USD {year}",
+            f"{role} compensation USD {year}",
+        ]
+        mgmt_currency_token = f"USD {year}"
+        mgmt_city = ""
     else:
         # Non-CZ: live-search-first. No site: lock-in. Country name disambiguates;
         # the local currency token primes the search engine toward local boards.
         location_hint = location.strip() if location else (country_name or "")
         city_or_country = location_hint or (country_name or "")
-        queries = [f"{role} salary {city_or_country} {currency} 2025".strip()]
+        queries = [f"{role} salary {city_or_country} {currency} {year}".strip()]
         if country_name:
-            queries.append(f"{role} {country_name} compensation 2025")
+            queries.append(f"{role} {country_name} compensation {year}")
         else:
-            queries.append(f"{role} salary {currency} 2025")
-        mgmt_currency_token = f"{currency} 2025"
+            queries.append(f"{role} salary {currency} {year}")
+        mgmt_currency_token = f"{currency} {year}"
         mgmt_city = city_or_country
 
     if profile.is_management and canonical:
-        queries.insert(0, f"{canonical} manager salary {mgmt_city} {mgmt_currency_token}".strip())
+        query_parts = [canonical, "manager salary", mgmt_city, mgmt_currency_token]
+        queries.insert(0, " ".join(part for part in query_parts if part).strip())
 
     if profile.detected_years_experience >= 10:
         if country == "CZ":
-            queries.append(f"senior {role} salary EUR Europe")
+            queries.append(f"senior {role} salary EUR Europe {year}")
         elif country_name:
-            queries.append(f"senior {role} salary {country_name} {currency}")
+            queries.append(f"senior {role} salary {country_name} {currency} {year}")
         else:
-            queries.append(f"senior {role} salary {currency}")
+            queries.append(f"senior {role} salary {currency} {year}")
 
     # Cap covers all attached signals: 2-3 locality + optional management + optional senior.
     return queries[:5]
 
 
-@retry(stop=stop_after_attempt(2), wait=wait_exponential_jitter(initial=1, max=3), reraise=True)
-def _ddg_text(query: str) -> list[dict[str, Any]]:
+def _ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
     backends = _salary_search_backends()
-    with DDGS() as ddg:
+    timeout = _salary_search_timeout_s() if timeout_s is None else timeout_s
+    with DDGS(timeout=timeout) as ddg:  # type: ignore[arg-type]
         try:
             return list(
                 ddg.text(
@@ -418,10 +459,15 @@ async def search(
     search_backends = _salary_search_backends()
     raw_results: list[dict[str, Any]] = []
     failed_queries: list[dict[str, str]] = []
+    total_timeout_s = _salary_search_total_timeout_s()
+    deadline = time.perf_counter() + total_timeout_s
 
     async def _run_query(query: str) -> tuple[list[dict[str, Any]], dict[str, str] | None]:
         try:
-            return await asyncio.to_thread(_ddg_text, query), None
+            timeout_s = min(
+                float(_salary_search_timeout_s()), _remaining_search_timeout_s(deadline)
+            )
+            return await asyncio.to_thread(_ddg_text, query, timeout_s), None
         except Exception as exc:
             # DDG occasionally rejects one query shape (e.g. site:a OR site:b)
             # while the others succeed. Treat single-query failures as expected
@@ -431,7 +477,32 @@ async def search(
 
     # build_queries caps fan-out at five today. If that grows, add a small
     # semaphore here before DDG starts rate-limiting one runner IP.
-    for results, failure in await asyncio.gather(*(_run_query(q) for q in queries)):
+    try:
+        gathered = await asyncio.wait_for(
+            asyncio.gather(*(_run_query(q) for q in queries)),
+            timeout=total_timeout_s,
+        )
+    except TimeoutError as exc:
+        emit(
+            "salary",
+            "salary_search",
+            n_queries=len(queries),
+            raw_results=0,
+            candidate_sources=0,
+            dedup_results=0,
+            dropped_invalid_url=0,
+            failed_queries=len(queries),
+            search_backends=search_backends,
+            query_max_results=_SALARY_SEARCH_MAX_RESULTS,
+            country=country,
+            currency_hint=currency_hint,
+            sources_per_tld={},
+            timeout_s=total_timeout_s,
+            reason="total_timeout",
+        )
+        raise RuntimeError(f"{_INSUFFICIENT_DATA_MSG} (search timeout)") from exc
+
+    for results, failure in gathered:
         raw_results.extend(results)
         if failure is not None:
             failed_queries.append(failure)
@@ -531,6 +602,12 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                     "currency_hint": currency_hint,
                     "period_hint": period_hint,
                     "years": profile.detected_years_experience,
+                    "geography_note": (
+                        "geography unknown; broad USD/year search is a market-blind "
+                        "reference, not a localized personal estimate"
+                        if country == "XX"
+                        else None
+                    ),
                 },
                 "results": [s.model_dump(mode="json") for s in sources],
             }
