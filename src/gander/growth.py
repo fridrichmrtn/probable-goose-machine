@@ -439,8 +439,23 @@ def _compute_employer_hints(redacted: RedactedCV, profile: Profile) -> tuple[lis
     if timeline:
         current_hint = [e.header for e in timeline if e.is_current]
         closed_hint = [e.header for e in timeline if not e.is_current]
+        emit(
+            "growth",
+            "growth_employer_hints",
+            source="timeline",
+            current_count=len(current_hint),
+            closed_count=len(closed_hint),
+        )
         return current_hint, closed_hint
-    return _extract_current_employer_hint(redacted, profile), []
+    current_hint = _extract_current_employer_hint(redacted, profile)
+    emit(
+        "growth",
+        "growth_employer_hints",
+        source="anchor_fallback",
+        current_count=len(current_hint),
+        closed_count=0,
+    )
+    return current_hint, []
 
 
 def _build_user_message(
@@ -534,6 +549,7 @@ def _filter_actions(
                 "growth_action_dropped",
                 reason="unverified_anchor",
                 what=action.what[:80],
+                quote=action.anchor.quote[:120],
             )
             _record(_Drop(index, action.what, "unverified_anchor", None, action.anchor.quote))
             continue

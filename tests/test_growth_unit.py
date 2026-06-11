@@ -1371,6 +1371,92 @@ def test_payload_bug_pdf_shape() -> None:
     assert any("TD SYNNEX" in h for h in closed)
 
 
+@pytest.mark.fast
+def test_compute_employer_hints_emits_timeline_event() -> None:
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        current, closed = growth_mod._compute_employer_hints(_bug_pdf_redacted(), _profile())
+
+    assert len(current) == 2
+    assert len(closed) == 2
+    evt = next(e for e in events if e["event"] == "growth_employer_hints")
+    assert evt["stage"] == "growth"
+    assert evt["source"] == "timeline"
+    assert evt["current_count"] == 2
+    assert evt["closed_count"] == 2
+
+
+@pytest.mark.fast
+def test_compute_employer_hints_emits_fallback_event() -> None:
+    quote = "Lead the unified observability platform across product analytics teams"
+    redacted = RedactedCV(
+        text=f"Some intro line.\n{quote}.\nJanuary 2024 - Present\n",
+        audit_log=[],
+    )
+    profile = _profile().model_copy(
+        update={
+            "experience": [
+                ProfileItem(
+                    text="Lead Platform Engineer",
+                    anchor=Anchor(quote=quote, section=None),
+                )
+            ]
+        }
+    )
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        current, closed = growth_mod._compute_employer_hints(redacted, profile)
+
+    assert current == ["Lead Platform Engineer"]
+    assert closed == []
+    evt = next(e for e in events if e["event"] == "growth_employer_hints")
+    assert evt["source"] == "anchor_fallback"
+    assert evt["current_count"] == 1
+    assert evt["closed_count"] == 0
+
+
+@pytest.mark.fast
+async def test_unverified_anchor_drop_event_includes_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    fabricated = "this quote does not appear anywhere inside the source cv text body"
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what="Drive the Snowflake adoption rollout for the analytics platform",
+                mechanism="owning the warehouse migration lifts you into the staff-data band",
+                quote=fabricated,
+                section=None,
+            ),
+            *_five_verified_actions()[:3],
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    drop_evt = next(
+        e
+        for e in events
+        if e["event"] == "growth_action_dropped" and e["reason"] == "unverified_anchor"
+    )
+    # The rejected quote travels with the event so live-run drops are debuggable
+    # without re-running the model (capped at 120 chars).
+    assert drop_evt["quote"] == fabricated
+
+
 # --- Workstream C: forward-setting validator ---
 
 
@@ -1386,6 +1472,22 @@ def _make_action(what: str, quote: str = _QUOTE_FRAUD) -> GrowthAction:
 def test_validator_passes_action_targeting_current_employer() -> None:
     action = _make_action(
         "Lead the LLM evaluation harness rollout at Stealth Mode Startup over two quarters",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+        closed_employers=["Senior Manager — TD SYNNEX"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_passes_current_employer_override() -> None:
+    # F25: a closed employer named as evidence is fine when the action's
+    # setting is the current employer — the current-hit override wins.
+    action = _make_action(
+        "Bring the TD SYNNEX pricing playbook to Stealth Mode Startup as a "
+        "quarterly cost-model deliverable",
     )
     result = _violates_forward_setting(
         action,
@@ -1754,3 +1856,187 @@ async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remai
         if e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
     ]
     assert len(drop_evts) == 1
+
+
+@pytest.mark.fast
+async def test_plan_growth_keeps_current_employer_override_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    override_what = (
+        "Bring the TD SYNNEX pricing playbook to Stealth Mode Startup as a "
+        "quarterly cost-model deliverable"
+    )
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what=override_what,
+                mechanism="cross-employer playbook transfer signals the senior-manager band",
+                quote=_QUOTE_FRAUD,
+            ),
+            *_five_verified_actions()[:2],
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    def fake_hints(_redacted: RedactedCV, _profile: Profile) -> tuple[list[str], list[str]]:
+        return ["Member of Staff — Stealth Mode Startup"], ["Senior Manager — TD SYNNEX"]
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(growth_mod, "_compute_employer_hints", fake_hints)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert result[0].what == override_what
+    assert not any(
+        e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
+        for e in events
+    )
+
+
+@pytest.mark.fast
+async def test_plan_growth_keeps_same_company_promotion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    promotion_what = (
+        "Lead the pricing experimentation platform at Alza.cz as the incoming senior data scientist"
+    )
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what=promotion_what,
+                mechanism="platform ownership at the same employer is the promotion signal",
+                quote=_QUOTE_FRAUD,
+            ),
+            *_five_verified_actions()[:2],
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    def fake_hints(_redacted: RedactedCV, _profile: Profile) -> tuple[list[str], list[str]]:
+        # Same company appears in both hints: promoted in place (F26).
+        return ["Senior Data Scientist — Alza.cz"], ["Data Scientist — Alza.cz"]
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(growth_mod, "_compute_employer_hints", fake_hints)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert result[0].what == promotion_what
+    assert not any(
+        e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
+        for e in events
+    )
+
+
+@pytest.mark.fast
+async def test_plan_growth_fails_after_both_attempts_produce_zero_survivors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what="Drive the Snowflake adoption rollout for the analytics platform",
+                mechanism="owning the warehouse migration lifts you into the staff-data band",
+                quote="this quote does not appear anywhere inside the source cv text body",
+                section=None,
+            ),
+            _action(
+                what="Publish an OSS contribution to a streaming framework you maintain",
+                mechanism="external signal shifts you to staff-IC band in CZ market",
+                quote="another fabricated quote that the verifier will not find anywhere here",
+                section=None,
+            ),
+        ]
+    )
+    calls = 0
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "growth"
+    assert result.user_message == "Could not generate this section reliably"
+    assert calls == 2
+    assert len([e for e in events if e["event"] == "growth_retry"]) == 1
+
+    failure_evt = next(
+        e
+        for e in events
+        if e["event"] == "stage_failure" and e["reason"] == "insufficient_verified_actions"
+    )
+    assert failure_evt["survived"] == 0
+    assert failure_evt["returned"] == 2
+    assert failure_evt["drop_reasons"] == {"unverified_anchor": 2}
+
+
+@pytest.mark.fast
+async def test_plan_growth_degrades_when_second_attempt_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    first = _GrowthList(actions=_five_verified_actions()[:1])
+
+    calls = 0
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return first
+        raise RuntimeError("simulated provider outage on top-up call")
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    # A failed top-up call must not discard the verified survivor from
+    # attempt one: degrade to the pooled partial list instead of failing.
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0].what == first.actions[0].what
+
+    error_evt = next(e for e in events if e["event"] == "growth_attempt_error")
+    assert error_evt["reason"] == "llm_error"
+    assert error_evt["exc_type"] == "RuntimeError"
+    assert error_evt["attempt"] == 1
+
+    degraded_evt = next(e for e in events if e["event"] == "growth_degraded")
+    assert degraded_evt["count"] == 1
+    assert not any(e["event"] == "stage_failure" for e in events)

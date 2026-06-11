@@ -67,3 +67,45 @@ def test_provider_upload_requires_explicit_consent() -> None:
     assert error is not None
     assert "--allow-provider-upload" in error
     assert eval_corpus._provider_upload_consent_error(True) is None
+
+
+def test_summarize_growth_ok_degraded_failed() -> None:
+    from types import SimpleNamespace
+
+    from gander.errors import StageFailure
+
+    growth_events: list[dict[str, object]] = [
+        {"stage": "growth", "event": "growth_action_dropped", "reason": "unverified_anchor"},
+        {"stage": "growth", "event": "growth_action_dropped", "reason": "unverified_anchor"},
+        {"stage": "growth", "event": "growth_action_dropped", "reason": "ban_phrase"},
+        {"stage": "growth", "event": "growth_retry", "reason": "insufficient_verified_actions"},
+        {"stage": "growth", "event": "growth_degraded", "count": 1},
+    ]
+
+    ok = eval_corpus._summarize_growth(SimpleNamespace(growth=["a", "b", "c"]), [])
+    assert ok.status == "ok"
+    assert ok.drops_by_reason == {}
+    assert ok.retries == 0
+    assert eval_corpus._format_growth_drops(ok) == "-"
+
+    degraded = eval_corpus._summarize_growth(SimpleNamespace(growth=["a"]), growth_events)
+    assert degraded.status == "degraded"
+    assert degraded.drops_by_reason == {"unverified_anchor": 2, "ban_phrase": 1}
+    assert degraded.retries == 1
+    assert eval_corpus._format_growth_drops(degraded) == "ban_phrase:1, unverified_anchor:2"
+
+    failure = StageFailure(stage="growth", user_message="Could not generate this section reliably")
+    failed = eval_corpus._summarize_growth(SimpleNamespace(growth=failure), growth_events)
+    assert failed.status == "failed"
+
+    missing = eval_corpus._summarize_growth(SimpleNamespace(growth=None), [])
+    assert missing.status == "failed"
+
+
+def test_growth_failure_exit_threshold() -> None:
+    # Exactly at the 25% threshold is acceptable; only strictly above fails.
+    assert eval_corpus._growth_failure_rate_exceeded(["ok", "ok", "ok", "failed"]) is False
+    assert eval_corpus._growth_failure_rate_exceeded(["ok", "ok", "failed", "failed"]) is True
+    # Degraded partial lists are not failures (PRD §4.5).
+    assert eval_corpus._growth_failure_rate_exceeded(["degraded"] * 4) is False
+    assert eval_corpus._growth_failure_rate_exceeded([]) is False

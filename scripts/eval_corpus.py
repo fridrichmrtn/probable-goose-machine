@@ -8,7 +8,9 @@ Exit codes:
     0 = all fixtures produced a meaningful report.
     1 = at least one fixture had a top-level pipeline failure
         (profile or score returned StageFailure — the report
-        cannot be judged meaningfully without them).
+        cannot be judged meaningfully without them), OR the growth
+        stage failed outright on more than GROWTH_FAILURE_RATE_MAX
+        of the corpus (degraded partial lists do not count as failed).
     2 = setup error: fixture dir missing, no fixtures matched,
         provider API key missing, provider upload not explicitly allowed,
         or an unresolved Git LFS pointer was found.
@@ -37,6 +39,7 @@ import os
 import sys
 import time
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -46,6 +49,8 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "reports"
 SUPPORTED_SUFFIXES = (".pdf", ".docx")
 PROFILE_CHOICES = ("local", "ci")
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/"
+GROWTH_FAILURE_RATE_MAX = 0.25
+_GROWTH_EVENT_NAMES = ("growth_action_dropped", "growth_retry", "growth_degraded")
 PROVIDER_KEYS = {
     "openrouter": "OPENROUTER_API_KEY",
 }
@@ -168,15 +173,62 @@ def _top_growth_action(report: object) -> str:
     return "—"
 
 
-async def _run_one(file_bytes: bytes, filename: str) -> object:
-    from gander import pipeline
+@dataclass(frozen=True)
+class GrowthStats:
+    status: str  # "ok" (>=3 actions) | "degraded" (1-2) | "failed" (StageFailure)
+    drops_by_reason: dict[str, int]
+    retries: int
+
+
+async def _run_one(file_bytes: bytes, filename: str) -> tuple[object, list[dict[str, object]]]:
+    from gander import obs, pipeline
+
+    growth_events: list[dict[str, object]] = []
+
+    def _on_event(rec: dict[str, object]) -> None:
+        if rec.get("stage") == "growth" and rec.get("event") in _GROWTH_EVENT_NAMES:
+            growth_events.append(rec)
 
     final: object = None
-    async for snap in pipeline.run(file_bytes, filename):
-        final = snap
+    with obs.subscribe(_on_event):
+        async for snap in pipeline.run(file_bytes, filename):
+            final = snap
     if final is None:
         raise RuntimeError(f"pipeline.run yielded zero reports for {filename}")
-    return final
+    return final, growth_events
+
+
+def _summarize_growth(report: object, growth_events: list[dict[str, object]]) -> GrowthStats:
+    growth = getattr(report, "growth", None)
+    if isinstance(growth, list) and len(growth) >= 3:
+        status = "ok"
+    elif isinstance(growth, list) and growth:
+        status = "degraded"
+    else:
+        status = "failed"
+
+    drops_by_reason: dict[str, int] = {}
+    retries = 0
+    for rec in growth_events:
+        if rec.get("event") == "growth_action_dropped":
+            reason = str(rec.get("reason", "unknown"))
+            drops_by_reason[reason] = drops_by_reason.get(reason, 0) + 1
+        elif rec.get("event") == "growth_retry":
+            retries += 1
+    return GrowthStats(status=status, drops_by_reason=drops_by_reason, retries=retries)
+
+
+def _format_growth_drops(stats: GrowthStats) -> str:
+    if not stats.drops_by_reason:
+        return "-"
+    return ", ".join(f"{reason}:{count}" for reason, count in sorted(stats.drops_by_reason.items()))
+
+
+def _growth_failure_rate_exceeded(statuses: list[str]) -> bool:
+    if not statuses:
+        return False
+    failed = sum(1 for s in statuses if s == "failed")
+    return failed / len(statuses) > GROWTH_FAILURE_RATE_MAX
 
 
 def _has_top_level_failure(report: object) -> bool:
@@ -230,7 +282,7 @@ def _write_summary(
 
     header_cols = (
         "| # | CV | Format | Score | Salary | Confidence "
-        "| Top growth action | Cost (USD) | Latency (s) |"
+        "| Top growth action | Growth status | Growth drops | Cost (USD) | Latency (s) |"
     )
     header_lines = [
         f"# Eval corpus run — {timestamp}",
@@ -238,7 +290,7 @@ def _write_summary(
         f"Profile: `{profile}` (GANDER_MODEL_PROFILE)",
         "",
         header_cols,
-        "|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     table_lines = []
     for i, row in enumerate(rows, start=1):
@@ -246,12 +298,19 @@ def _write_summary(
             f"| {i:02d} | {_cell(row['cv'])} | {_cell(row['format'])} "
             f"| {_cell(row['score'])} | {_cell(row['salary'])} "
             f"| {_cell(row['confidence'])} | {_cell(row['growth'])} "
+            f"| {_cell(row['growth_status'])} | {_cell(row['growth_drops'])} "
             f"| ${float(row['cost']):.4f} | {float(row['latency']):.1f} |"  # type: ignore[arg-type]
         )
+    statuses = [str(row["growth_status"]) for row in rows]
+    growth_counts = {s: statuses.count(s) for s in ("ok", "degraded", "failed")}
     totals_lines = [
         "",
         f"**Totals**: {len(rows)} reports, ${total_cost_usd:.4f} total spend, "
         f"avg latency {avg_latency:.1f}s, max latency {max_latency:.1f}s.",
+        "",
+        f"**Growth**: {growth_counts['ok']} ok, {growth_counts['degraded']} degraded, "
+        f"{growth_counts['failed']} failed "
+        f"(failure threshold {GROWTH_FAILURE_RATE_MAX:.0%}).",
         "",
     ]
 
@@ -305,13 +364,14 @@ async def _run_corpus(
             )
             return 2
         t0 = time.perf_counter()
-        report = await _run_one(file_bytes, path.name)
+        report, growth_events = await _run_one(file_bytes, path.name)
         latency_s = time.perf_counter() - t0
 
         cost_usd = float(getattr(report, "total_cost_usd", 0.0) or 0.0)
         latencies.append(latency_s)
         total_cost += cost_usd
 
+        growth_stats = _summarize_growth(report, growth_events)
         _write_individual_report(output_dir, path, report, latency_s)
         rows.append(
             {
@@ -321,6 +381,8 @@ async def _run_corpus(
                 "salary": _format_salary(report),
                 "confidence": _format_confidence(report),
                 "growth": _top_growth_action(report),
+                "growth_status": growth_stats.status,
+                "growth_drops": _format_growth_drops(growth_stats),
                 "cost": cost_usd,
                 "latency": latency_s,
             }
@@ -335,6 +397,16 @@ async def _run_corpus(
     if top_level_failures:
         print(
             "Top-level failures (profile/score) in: " + ", ".join(top_level_failures),
+            file=sys.stderr,
+        )
+        return 1
+
+    statuses = [str(row["growth_status"]) for row in rows]
+    if _growth_failure_rate_exceeded(statuses):
+        failed = sum(1 for s in statuses if s == "failed")
+        print(
+            f"Growth stage failed on {failed}/{len(statuses)} fixtures, "
+            f"above the {GROWTH_FAILURE_RATE_MAX:.0%} threshold.",
             file=sys.stderr,
         )
         return 1
