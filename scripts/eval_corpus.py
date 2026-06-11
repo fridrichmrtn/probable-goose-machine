@@ -50,7 +50,13 @@ SUPPORTED_SUFFIXES = (".pdf", ".docx")
 PROFILE_CHOICES = ("local", "ci")
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/"
 GROWTH_FAILURE_RATE_MAX = 0.25
-_GROWTH_EVENT_NAMES = ("growth_action_dropped", "growth_retry", "growth_degraded")
+_GROWTH_EVENT_NAMES = (
+    "growth_action_dropped",
+    "growth_retry",
+    "growth_degraded",
+    "growth_attempt_error",
+    "stage_failure",
+)
 PROVIDER_KEYS = {
     "openrouter": "OPENROUTER_API_KEY",
 }
@@ -175,9 +181,13 @@ def _top_growth_action(report: object) -> str:
 
 @dataclass(frozen=True)
 class GrowthStats:
-    status: str  # "ok" (>=3 actions) | "degraded" (1-2) | "failed" (StageFailure)
+    # "ok" (>=3 actions) | "degraded" (1-2) | "skipped" (upstream cascade,
+    # growth never ran) | "failed" (genuine growth StageFailure)
+    status: str
     drops_by_reason: dict[str, int]
     retries: int
+    attempt_errors: dict[str, int]
+    failure_reason: str | None = None
 
 
 async def _run_one(file_bytes: bytes, filename: str) -> tuple[object, list[dict[str, object]]]:
@@ -198,37 +208,68 @@ async def _run_one(file_bytes: bytes, filename: str) -> tuple[object, list[dict[
     return final, growth_events
 
 
+# Prefix shared by pipeline._CASCADE_PROFILE_FAILED["growth"] and the
+# _GROWTH_NO_BASELINE/_GROWTH_NEEDS_* constants — a StageFailure carrying it
+# means growth never ran, vs. the §4.6 copy a genuine growth failure carries.
+_GROWTH_CASCADE_PREFIX = "Cannot generate growth plan without"
+
+
 def _summarize_growth(report: object, growth_events: list[dict[str, object]]) -> GrowthStats:
     growth = getattr(report, "growth", None)
     if isinstance(growth, list) and len(growth) >= 3:
         status = "ok"
     elif isinstance(growth, list) and growth:
         status = "degraded"
+    elif str(getattr(growth, "user_message", "")).startswith(_GROWTH_CASCADE_PREFIX):
+        status = "skipped"
     else:
         status = "failed"
 
     drops_by_reason: dict[str, int] = {}
+    attempt_errors: dict[str, int] = {}
     retries = 0
+    failure_reason: str | None = None
     for rec in growth_events:
-        if rec.get("event") == "growth_action_dropped":
+        event = rec.get("event")
+        if event == "growth_action_dropped":
             reason = str(rec.get("reason", "unknown"))
             drops_by_reason[reason] = drops_by_reason.get(reason, 0) + 1
-        elif rec.get("event") == "growth_retry":
+        elif event == "growth_retry":
             retries += 1
-    return GrowthStats(status=status, drops_by_reason=drops_by_reason, retries=retries)
+        elif event == "growth_attempt_error":
+            reason = str(rec.get("reason", "unknown"))
+            attempt_errors[reason] = attempt_errors.get(reason, 0) + 1
+        elif event == "stage_failure":
+            failure_reason = str(rec.get("reason", "unknown"))
+    return GrowthStats(
+        status=status,
+        drops_by_reason=drops_by_reason,
+        retries=retries,
+        attempt_errors=attempt_errors,
+        failure_reason=failure_reason,
+    )
 
 
 def _format_growth_drops(stats: GrowthStats) -> str:
-    if not stats.drops_by_reason:
-        return "-"
-    return ", ".join(f"{reason}:{count}" for reason, count in sorted(stats.drops_by_reason.items()))
+    parts = [f"{reason}:{count}" for reason, count in sorted(stats.drops_by_reason.items())]
+    parts.extend(
+        f"attempt_error[{reason}]:{count}" for reason, count in sorted(stats.attempt_errors.items())
+    )
+    if stats.retries:
+        parts.append(f"retries:{stats.retries}")
+    if stats.status == "failed" and stats.failure_reason is not None:
+        parts.append(f"failure:{stats.failure_reason}")
+    return ", ".join(parts) if parts else "-"
 
 
 def _growth_failure_rate_exceeded(statuses: list[str]) -> bool:
-    if not statuses:
+    # "skipped" rows never ran growth (upstream cascade) — exclude them from
+    # both sides so a salary shortfall cannot fail CI blaming the growth stage.
+    ran = [s for s in statuses if s != "skipped"]
+    if not ran:
         return False
-    failed = sum(1 for s in statuses if s == "failed")
-    return failed / len(statuses) > GROWTH_FAILURE_RATE_MAX
+    failed = sum(1 for s in ran if s == "failed")
+    return failed / len(ran) > GROWTH_FAILURE_RATE_MAX
 
 
 def _has_top_level_failure(report: object) -> bool:
@@ -302,15 +343,15 @@ def _write_summary(
             f"| ${float(row['cost']):.4f} | {float(row['latency']):.1f} |"  # type: ignore[arg-type]
         )
     statuses = [str(row["growth_status"]) for row in rows]
-    growth_counts = {s: statuses.count(s) for s in ("ok", "degraded", "failed")}
+    growth_counts = {s: statuses.count(s) for s in ("ok", "degraded", "skipped", "failed")}
     totals_lines = [
         "",
         f"**Totals**: {len(rows)} reports, ${total_cost_usd:.4f} total spend, "
         f"avg latency {avg_latency:.1f}s, max latency {max_latency:.1f}s.",
         "",
         f"**Growth**: {growth_counts['ok']} ok, {growth_counts['degraded']} degraded, "
-        f"{growth_counts['failed']} failed "
-        f"(failure threshold {GROWTH_FAILURE_RATE_MAX:.0%}).",
+        f"{growth_counts['skipped']} skipped, {growth_counts['failed']} failed "
+        f"(failure threshold {GROWTH_FAILURE_RATE_MAX:.0%} of non-skipped).",
         "",
     ]
 
@@ -403,9 +444,10 @@ async def _run_corpus(
 
     statuses = [str(row["growth_status"]) for row in rows]
     if _growth_failure_rate_exceeded(statuses):
-        failed = sum(1 for s in statuses if s == "failed")
+        ran = [s for s in statuses if s != "skipped"]
+        failed = sum(1 for s in ran if s == "failed")
         print(
-            f"Growth stage failed on {failed}/{len(statuses)} fixtures, "
+            f"Growth stage failed on {failed}/{len(ran)} fixtures that ran it, "
             f"above the {GROWTH_FAILURE_RATE_MAX:.0%} threshold.",
             file=sys.stderr,
         )

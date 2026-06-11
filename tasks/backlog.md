@@ -387,3 +387,22 @@ Report: tasks/T50_dev-report.md (in dev/t50-growth-stage-hardening)
 - [qa-engineer] GrowthStats.retries computed and asserted but never surfaced — no SUMMARY column or aggregate; render it or delete it.
 - [qa-engineer] softener scope (what-only; mechanism exempt) is a locked decision with no pinning test; widening to mechanism would be a false-drop regression with green CI.
 - [qa-engineer] tests/test_timeline.py:69 — open-ended parametrize covers "2022 -", "2022 –", "ledna 2022 -" but not the no-space em-dash "2022—" variant the dev-plan names.
+
+## t50-growth-stage-hardening PR-review round — 2026-06-11
+
+Deferred from the PR #39 review-fix round:
+
+- src/gander/growth.py:675 — the outer `except Exception` turns any non-LLM
+  exception into a StageFailure even when the cross-attempt pool already holds
+  1-2 verified survivors; a late rendering/emit bug discards a shippable
+  degraded result.
+- src/gander/growth.py `_setting_violation` — a location-suffix target variant
+  ("Acme Retail, Prague" vs hint "Acme Retail s.r.o.") still drops: neither
+  token sequence contains the other. Needs a suffix-stripping normalization or
+  prompt guidance before it shows up in live fixtures.
+- scripts/eval_corpus.py — `growth_degraded` events are captured into
+  `growth_events` but the summarizer never reads them; degraded status is
+  inferred from list length instead. Use the payload or stop capturing it.
+- src/gander/growth.py — degraded and stage_failure emits still report only
+  the last attempt's `returned`/`drop_reasons`; attempt-1 drop history is
+  invisible when attempt 2 returns an empty list. Aggregate across attempts.

@@ -26,6 +26,7 @@ from gander.tenure import (
 
 _YEAR_MARKER_RE: Final = re.compile(r"\[YEAR\]")
 _BARE_YEAR_RE: Final = re.compile(r"\b(?:19|20)\d{2}\b")
+_YEAR_SHAPED_RE: Final = re.compile(r"\[YEAR\]|\b(?:19|20)\d{2}\b")
 _DASH_CHARS: Final = ("—", "–", "-")
 _BULLET_GLYPHS: Final = ("-", "*", "•", "–", "—")
 
@@ -81,10 +82,17 @@ def _is_current_range(right_of_dash: str) -> bool:
     # the role has no recorded end.
     if not right_of_dash.strip():
         return True
-    # An end year at or beyond the current year is still running ("2022 - 2026"
+    # Only the FIRST year-shaped token is the range endpoint. Later bare years
+    # are annotations ("2018 - 2021 (extension option 2026)" — annotation
+    # years survive redaction because redact.py masks years only in
+    # range-shaped contexts) and must not flip a closed entry to current.
+    # A redacted endpoint ("[YEAR]") is unknown → treat as closed.
+    first = _YEAR_SHAPED_RE.search(right_of_dash)
+    if first is None or first.group() == "[YEAR]":
+        return False
+    # An end year at or beyond the current year is still running ("2022 — 2026"
     # written mid-2026). Closed by construction once the year passes.
-    years = [int(m) for m in _BARE_YEAR_RE.findall(right_of_dash)]
-    return bool(years) and max(years) >= date.today().year
+    return int(first.group()) >= date.today().year
 
 
 def _is_section_heading(line: str) -> bool:

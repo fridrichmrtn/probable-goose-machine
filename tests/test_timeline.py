@@ -51,8 +51,10 @@ def test_scan_classifies_closed_when_only_years() -> None:
 
 @pytest.mark.fast
 def test_scan_marks_current_when_end_year_reaches_current_year() -> None:
-    # Year built dynamically so the test does not rot when the year changes.
-    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 - {date.today().year}\n"
+    # Em-dash range: redact.py masks only hyphen/en-dash year ranges, so this
+    # shape reaches the scanner unredacted. Year built dynamically so the
+    # test does not rot when the year changes.
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 — {date.today().year}\n"
     entries = scan_employer_timeline(text)
     assert len(entries) == 1
     assert entries[0].is_current is True
@@ -60,10 +62,60 @@ def test_scan_marks_current_when_end_year_reaches_current_year() -> None:
 
 @pytest.mark.fast
 def test_scan_marks_current_when_end_year_in_future() -> None:
-    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 - {date.today().year + 1}\n"
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 — {date.today().year + 1}\n"
     entries = scan_employer_timeline(text)
     assert len(entries) == 1
     assert entries[0].is_current is True
+
+
+@pytest.mark.fast
+def test_scan_em_dash_closed_range_stays_closed() -> None:
+    text = "## Work Experience\nPlatform Lead — Berry s.r.o.\n2014 — 2016\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+def test_scan_annotation_year_does_not_flip_closed_entry() -> None:
+    # Only the endpoint (first year-shaped token after the dash) decides
+    # is_current; a future annotation year must not flip a closed range.
+    text = (
+        "## Work Experience\nData Engineer — Past Company\n"
+        f"2018 - 2021 (extension option {date.today().year})\n"
+    )
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+def test_scan_annotation_year_after_redacted_range_stays_closed() -> None:
+    # Post-redaction shape: "2018 - 2021" was masked but the annotation year
+    # outside the range context survived redact.py.
+    text = (
+        "## Work Experience\nData Engineer — Past Company\n"
+        f"[YEAR] - [YEAR] (extension option {date.today().year})\n"
+    )
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    ("date_line", "expected_current"),
+    [
+        ("[YEAR] - [YEAR]", False),  # redacted endpoint is unknown → closed
+        ("[YEAR] -", True),  # open-ended range
+        ("[YEAR] - Present", True),  # present token wins
+    ],
+)
+def test_scan_redacted_endpoint_shapes(date_line: str, expected_current: bool) -> None:
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n{date_line}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is expected_current
 
 
 @pytest.mark.fast

@@ -158,3 +158,45 @@ LFS-pointer environmental baseline, which never grew).
 Not verified here: live acceptance and `scripts/eval_corpus.py` against real
 model output (needs `OPENROUTER_API_KEY`) — Gemini actually emitting
 `setting`/`target_employer` is gated on that run.
+
+## PR review round (2026-06-11)
+
+Inputs: 6 external comments on PR #39 (3 Copilot, 2 Codex, 1 author) plus a
+multi-agent self-review (26 findings). Consolidated into one fix plan; the
+rest deferred to `tasks/backlog.md`.
+
+What changed:
+
+- `timeline.py` — endpoint-only end-year rule: the first year-shaped token
+  after the dash decides `is_current` (`[YEAR]` → closed, bare year compared
+  to today, none → closed). Annotation years ("(extension option 2026)") no
+  longer flip closed entries. Timeline tests rewritten to redaction-realistic
+  shapes (em-dash ranges survive `redact.py`; hyphen/en-dash ranges become
+  `[YEAR] - [YEAR]`).
+- `growth.py` `_setting_violation` rework — dash-split hint segments plus the
+  full header, token-sequence containment matching (fixes O2-style short
+  employers and ING-vs-Consulting substring false matches), a >=2-alnum
+  degenerate gate, a new `closed_employer_target` drop reason with its own
+  retry-message branch, and silent `target_employer` sanitization on
+  non-current settings.
+- Drop/retry mechanics — `_action_key` on normalized `what` only (re-anchored
+  duplicates dedup); `_QUOTE_SNIPPET_LIMIT = 120` applied to both the emit
+  and the `_Drop` record; retry asks for "{needed} to {max_new} NEW
+  action(s)" headroom instead of "exactly N".
+- `eval_corpus.py` — captures `growth_attempt_error` and `stage_failure`
+  events; `GrowthStats` gains `attempt_errors`/`failure_reason`; new
+  "skipped" status for upstream-cascade StageFailures (user_message prefix
+  "Cannot generate growth plan without"); the failure-rate gate and SUMMARY
+  exclude skipped rows from both sides; drops column renders attempt errors,
+  retries, and failure reason.
+- `prompts/growth.md` — rule 5 states the actual ban-phrase scan scope
+  (what + mechanism), `current_employer_hint` description matches timeline
+  semantics, rule 7 notes closed-employer targets are rejected
+  programmatically.
+- Tests — schema pins for required `setting`; growth-unit regressions for
+  every behavior above; eval-corpus tests for skipped detection, gate
+  exclusion, and the new telemetry columns.
+
+Verification: pre-commit, mypy strict on `src/`, and `pytest -m "not live"`
+against the 32-failure LFS baseline (environmental, unchanged). `verify.py`,
+`_BAN_PHRASES`, and the §4.6 failure string untouched.

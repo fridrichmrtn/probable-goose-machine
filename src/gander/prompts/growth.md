@@ -6,7 +6,7 @@ You receive a JSON object with these fields:
 - `detected_role`: the candidate's current role.
 - `detected_location`: the candidate's market (CZ-default).
 - `detected_years_experience`: integer years.
-- `current_employer_hint`: experience items that appear near a present/current date token.
+- `current_employer_hint`: headers of work-experience entries whose date range is still running — each value is the joined header line(s) above the date range, e.g. "Senior ML Engineer — Acme Retail s.r.o.".
 - `closed_employer_hint`: experience entries whose date range has ended. Past evidence only — never the target of an action.
 - `dropped_components`: scoring components that could not be verified and contributed 0.
 - `components`: the four scoring components `{name, score_0_100, justification}` from L4a — these name the candidate's strongest skills and weakest gaps.
@@ -36,10 +36,10 @@ HARD RULES — read carefully, violations cause the action to be dropped:
 2. Every `mechanism` MUST explain how the action moves salary in CZ-market terms — name the band shift, market signal, or rate-delta concretely (e.g. "moves you from IC to tech-lead band, which in CZ market adds 30-50k CZK/mo", or "unlocks the senior-platform rate of ~+25% over current midpoint").
 3. `time_horizon_months` MUST be an integer in [1, 24]. Out-of-range values are rejected.
 4. `anchor.quote` MUST be a verbatim substring of `redacted_cv`, at least 8 consecutive words, copied character-for-character. No paraphrasing, no ellipses, no edits. For `anchor.section`, copy the visible CV section header exactly as printed (do not translate it), or set `section` to null if uncertain.
-5. DO NOT propose any of these banned actions, in any phrasing: "complete a PhD", "found a startup", "improve communication", "learn more", "network more". These are generic non-conformant outputs per PRD §4.4.
+5. DO NOT propose any of these banned actions, in any phrasing: "complete a PhD", "found a startup", "improve communication", "learn more", "network more". These are generic non-conformant outputs per PRD §4.4. Both `what` and `mechanism` are scanned for these phrases — do not use them in either field.
 6. DO NOT use softener phrases: "consider", "explore", "look into". Actions must be concrete imperatives — "Lead X", "Ship Y", "Own the Z migration", "Take the on-call rotation for ...".
 7. Every action MUST declare where it happens via `setting`:
-   - `"current_employer"` — the action happens at the candidate's current job. `target_employer` MUST be copied verbatim from an entry in `current_employer_hint`; a `target_employer` that does not match the hint causes the action to be dropped.
+   - `"current_employer"` — the action happens at the candidate's current job. `target_employer` MUST be copied verbatim from an entry in `current_employer_hint`; a `target_employer` that does not match the hint causes the action to be dropped, and a `target_employer` naming an employer from `closed_employer_hint` is rejected programmatically.
    - `"future_role"` — the action targets a next role, next employer, interview, or future move. Set `target_employer` to null.
    - `"capability_artifact"` — a capability artefact with no employer attached: open-source contribution, certification, paper, side project. Set `target_employer` to null.
    An employer from `closed_employer_hint` MAY appear inside `what` ONLY as past-experience evidence motivating a forward action (e.g. "Use the TD SYNNEX experience to land a next role at a CZ-market data leader"), with `setting` `"future_role"` or `"capability_artifact"` — a closed employer is never where the action happens (no "Rebuild the X system you owned at TD SYNNEX"). Past-employer evidence is also welcome in `anchor.quote`. If `current_employer_hint` is empty, prefer `"future_role"` or `"capability_artifact"`.

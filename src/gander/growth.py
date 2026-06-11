@@ -215,29 +215,70 @@ def _normalize_for_match(text: str) -> str:
     return " ".join(cleaned.split())
 
 
-def _setting_violation(action: GrowthAction, current_employers: list[str]) -> str | None:
+def _hint_segments(headers: list[str]) -> list[list[str]]:
+    """Tokenized match candidates per hint header: each dash-separated part
+    ("Title — Company" → "Title", "Company") plus the full header. Splitting
+    happens before normalization so hyphenated names ("Acme-Retail") stay
+    whole; em/en-dash company joins still match via the full-header candidate.
+    Empty headers yield no candidates — they must never match anything."""
+    segments: list[list[str]] = []
+    for header in headers:
+        for part in [*re.split(r"\s+-\s+|[—–]", header), header]:
+            tokens = _normalize_for_match(part).split()
+            if tokens:
+                segments.append(tokens)
+    return segments
+
+
+def _tokens_match(a: list[str], b: list[str]) -> bool:
+    """True when one token list appears as a contiguous subsequence of the
+    other. Token-level containment keeps "ING" from matching inside
+    "Consulting" while letting short verbatim employers ("O2") through."""
+
+    def contains(haystack: list[str], needle: list[str]) -> bool:
+        if not needle or len(needle) > len(haystack):
+            return False
+        return any(
+            haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
+        )
+
+    return contains(a, b) or contains(b, a)
+
+
+def _setting_violation(
+    action: GrowthAction,
+    current_employers: list[str],
+    closed_employers: list[str],
+) -> tuple[str, str] | None:
     """Validate the model's declared setting instead of keyword-guessing.
 
-    Only `current_employer` declarations are checkable: the target must
-    fuzzy-match a current-employer hint (normalized substring, either
-    direction). A target whose normalized form has fewer than 3 alphanumeric
-    characters (" ", "—", "a", "of") would substring-match almost any hint,
-    so it skips the match and drops as unverified. `future_role` /
-    `capability_artifact` have no employer to verify. With no hints the check
-    is skipped — same as the old gate, and the `growth_employer_hints` event
-    keeps that state observable.
+    Only `current_employer` declarations are checkable. The target must
+    token-match a current-employer hint segment (contiguous token subsequence,
+    either direction). A target matching only a closed-employer hint is a
+    `closed_employer_target` violation — actions never happen at a past
+    employer. A target matching neither, or whose normalized form has fewer
+    than 2 alphanumeric characters, drops as `unverified_target_employer`.
+    `future_role` / `capability_artifact` have no employer to verify. With no
+    current hints only the closed check applies — otherwise same skip as the
+    old gate, kept observable via the `growth_employer_hints` event.
     """
-    if action.setting != "current_employer" or not current_employers:
+    if action.setting != "current_employer":
         return None
     if not action.target_employer:
-        return "missing_target"
-    target = _normalize_for_match(action.target_employer)
-    if sum(c.isalnum() for c in target) >= 3:
-        for header in current_employers:
-            hint = _normalize_for_match(header)
-            if target in hint or hint in target:
-                return None
-    return action.target_employer[:40]
+        if current_employers:
+            return ("unverified_target_employer", "missing_target")
+        return None
+    detail = action.target_employer[:40]
+    normalized = _normalize_for_match(action.target_employer)
+    if sum(c.isalnum() for c in normalized) >= 2:
+        target_tokens = normalized.split()
+        if any(_tokens_match(target_tokens, seg) for seg in _hint_segments(current_employers)):
+            return None
+        if any(_tokens_match(target_tokens, seg) for seg in _hint_segments(closed_employers)):
+            return ("closed_employer_target", detail)
+    if not current_employers:
+        return None
+    return ("unverified_target_employer", detail)
 
 
 def _compute_employer_hints(redacted: RedactedCV, profile: Profile) -> tuple[list[str], list[str]]:
@@ -300,23 +341,29 @@ def _build_user_message(
 class _Drop(NamedTuple):
     idx: int
     what: str
-    # "ban_phrase" | "softener_phrase" | "unverified_anchor" | "unverified_target_employer"
+    # "ban_phrase" | "softener_phrase" | "unverified_anchor"
+    # | "unverified_target_employer" | "closed_employer_target"
     reason: str
     detail: str | None  # matched phrase / employer token
-    quote: str | None  # rejected anchor quote, unverified_anchor only
+    quote: str | None  # rejected anchor quote (first 120 chars), unverified_anchor only
+
+
+# Caps the rejected anchor quote stored on drop events and _Drop records so a
+# runaway model quote cannot bloat telemetry or the retry prompt.
+_QUOTE_SNIPPET_LIMIT = 120
 
 
 def _action_key(action: GrowthAction) -> str:
-    def norm(s: str) -> str:
-        return " ".join(s.casefold().split())
-
-    return norm(action.what) + "\x00" + norm(action.anchor.quote)
+    # Keyed on normalized `what` only: the same action re-anchored on retry
+    # (different quote) must not pool twice and ship as a duplicate.
+    return " ".join(action.what.casefold().split())
 
 
 def _filter_actions(
     actions: list[GrowthAction],
     redacted_text: str,
     current_employers: list[str],
+    closed_employers: list[str],
 ) -> tuple[list[GrowthAction], list[_Drop], dict[str, int]]:
     survivors: list[GrowthAction] = []
     drops: list[_Drop] = []
@@ -327,6 +374,10 @@ def _filter_actions(
         drop_reasons[drop.reason] = drop_reasons.get(drop.reason, 0) + 1
 
     for index, action in enumerate(actions):
+        if action.setting != "current_employer" and action.target_employer is not None:
+            # Prompt rule 7 says target_employer must be null here; the field
+            # is never rendered, so silently normalize instead of dropping.
+            action = action.model_copy(update={"target_employer": None})
         banned = _check_ban_phrase(action)
         if banned is not None:
             emit(
@@ -355,22 +406,29 @@ def _filter_actions(
                 "growth_action_dropped",
                 reason="unverified_anchor",
                 what=action.what[:80],
-                quote=action.anchor.quote[:120],
+                quote=action.anchor.quote[:_QUOTE_SNIPPET_LIMIT],
             )
-            _record(_Drop(index, action.what, "unverified_anchor", None, action.anchor.quote))
+            _record(
+                _Drop(
+                    index,
+                    action.what,
+                    "unverified_anchor",
+                    None,
+                    action.anchor.quote[:_QUOTE_SNIPPET_LIMIT],
+                )
+            )
             continue
-        setting_violation = _setting_violation(action, current_employers)
+        setting_violation = _setting_violation(action, current_employers, closed_employers)
         if setting_violation is not None:
+            reason, detail = setting_violation
             emit(
                 "growth",
                 "growth_action_dropped",
-                reason="unverified_target_employer",
+                reason=reason,
                 what=action.what[:80],
-                detail=setting_violation,
+                detail=detail,
             )
-            _record(
-                _Drop(index, action.what, "unverified_target_employer", setting_violation, None)
-            )
+            _record(_Drop(index, action.what, reason, detail, None))
             continue
         survivors.append(action)
     return survivors, drops, drop_reasons
@@ -409,10 +467,19 @@ def _build_retry_user_message(
                     f"current-employer hint(s): {hints}. Copy the employer verbatim from "
                     'the hint, or use setting "future_role" or "capability_artifact".'
                 )
+            elif drop.reason == "closed_employer_target":
+                hints = ", ".join(current_employers) if current_employers else "none"
+                lines.append(
+                    f'  Declared target_employer "{drop.detail}" is a past employer per '
+                    "closed_employer_hint — an action never happens at a closed employer. "
+                    f"Set the action at a current employer ({hints}) or use setting "
+                    '"future_role" or "capability_artifact".'
+                )
             elif drop.detail:
                 lines.append(f"  Matched: {drop.detail}")
+    max_new = 5 - len(kept)
     lines.append(
-        f"Return a JSON object with exactly {needed} NEW action(s) in the same schema. "
+        f"Return a JSON object with {needed} to {max_new} NEW action(s) in the same schema. "
         "Do not include the kept actions."
     )
     return "\n".join(lines)
@@ -445,7 +512,7 @@ async def plan_growth(
             )
 
             base_user_message = user_message
-            # Survivors pool across attempts (keyed on normalized what+quote), so a
+            # Survivors pool across attempts (keyed on normalized what), so a
             # verified action from attempt 1 is never discarded by a weaker attempt 2.
             pool: dict[str, GrowthAction] = {}
             last_returned = 0
@@ -510,7 +577,7 @@ async def plan_growth(
                     )
 
                 attempt_survivors, drops, drop_reasons = _filter_actions(
-                    raw.actions, redacted.text, current_hint
+                    raw.actions, redacted.text, current_hint, closed_hint
                 )
                 for action in attempt_survivors:
                     pool.setdefault(_action_key(action), action)

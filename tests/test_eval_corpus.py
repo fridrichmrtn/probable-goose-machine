@@ -86,13 +86,17 @@ def test_summarize_growth_ok_degraded_failed() -> None:
     assert ok.status == "ok"
     assert ok.drops_by_reason == {}
     assert ok.retries == 0
+    assert ok.attempt_errors == {}
+    assert ok.failure_reason is None
     assert eval_corpus._format_growth_drops(ok) == "-"
 
     degraded = eval_corpus._summarize_growth(SimpleNamespace(growth=["a"]), growth_events)
     assert degraded.status == "degraded"
     assert degraded.drops_by_reason == {"unverified_anchor": 2, "ban_phrase": 1}
     assert degraded.retries == 1
-    assert eval_corpus._format_growth_drops(degraded) == "ban_phrase:1, unverified_anchor:2"
+    assert (
+        eval_corpus._format_growth_drops(degraded) == "ban_phrase:1, unverified_anchor:2, retries:1"
+    )
 
     failure = StageFailure(stage="growth", user_message="Could not generate this section reliably")
     failed = eval_corpus._summarize_growth(SimpleNamespace(growth=failure), growth_events)
@@ -102,6 +106,55 @@ def test_summarize_growth_ok_degraded_failed() -> None:
     assert missing.status == "failed"
 
 
+def test_summarize_growth_marks_upstream_cascade_as_skipped() -> None:
+    from types import SimpleNamespace
+
+    from gander.errors import StageFailure
+
+    cascade = StageFailure(
+        stage="growth",
+        user_message="Cannot generate growth plan without scoring or salary baseline.",
+    )
+    stats = eval_corpus._summarize_growth(SimpleNamespace(growth=cascade), [])
+    assert stats.status == "skipped"
+
+
+def test_summarize_growth_captures_attempt_errors_and_failure_reason() -> None:
+    from types import SimpleNamespace
+
+    from gander.errors import StageFailure
+
+    growth_events: list[dict[str, object]] = [
+        {"stage": "growth", "event": "growth_attempt_error", "reason": "llm_error"},
+        {"stage": "growth", "event": "growth_attempt_error", "reason": "llm_error"},
+        {
+            "stage": "growth",
+            "event": "stage_failure",
+            "reason": "insufficient_verified_actions",
+        },
+    ]
+    failure = StageFailure(stage="growth", user_message="Could not generate this section reliably")
+    stats = eval_corpus._summarize_growth(SimpleNamespace(growth=failure), growth_events)
+
+    assert stats.status == "failed"
+    assert stats.attempt_errors == {"llm_error": 2}
+    assert stats.failure_reason == "insufficient_verified_actions"
+    assert (
+        eval_corpus._format_growth_drops(stats)
+        == "attempt_error[llm_error]:2, failure:insufficient_verified_actions"
+    )
+
+
+def test_format_growth_drops_includes_retries() -> None:
+    stats = eval_corpus.GrowthStats(
+        status="degraded",
+        drops_by_reason={"unverified_anchor": 1},
+        retries=1,
+        attempt_errors={},
+    )
+    assert eval_corpus._format_growth_drops(stats) == "unverified_anchor:1, retries:1"
+
+
 def test_growth_failure_exit_threshold() -> None:
     # Exactly at the 25% threshold is acceptable; only strictly above fails.
     assert eval_corpus._growth_failure_rate_exceeded(["ok", "ok", "ok", "failed"]) is False
@@ -109,3 +162,11 @@ def test_growth_failure_exit_threshold() -> None:
     # Degraded partial lists are not failures (PRD §4.5).
     assert eval_corpus._growth_failure_rate_exceeded(["degraded"] * 4) is False
     assert eval_corpus._growth_failure_rate_exceeded([]) is False
+
+
+def test_growth_failure_exit_threshold_excludes_skipped() -> None:
+    # Upstream cascade skips leave both numerator and denominator: a corpus
+    # where salary failed upstream must not fail CI blaming growth.
+    assert eval_corpus._growth_failure_rate_exceeded(["ok", "skipped", "skipped"]) is False
+    assert eval_corpus._growth_failure_rate_exceeded(["failed", "skipped", "skipped", "ok"]) is True
+    assert eval_corpus._growth_failure_rate_exceeded(["skipped"] * 3) is False

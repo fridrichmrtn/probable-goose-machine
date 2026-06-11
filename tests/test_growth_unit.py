@@ -578,7 +578,8 @@ async def test_plan_growth_retries_when_too_few_actions_verify(
     # and asks only for the shortfall.
     assert "Lead the on-prem to cloud migration of the recommendation pipeline" in seen_users[1]
     assert "this quote does not appear anywhere inside the source cv text body" in seen_users[1]
-    assert "exactly 2 NEW action" in seen_users[1]
+    # Headroom: needed (3 - 1 kept) up to max_new (5 - 1 kept), not "exactly 2".
+    assert "2 to 4 NEW action" in seen_users[1]
 
     retry_evt = next(e for e in events if e["event"] == "growth_retry")
     assert retry_evt["reason"] == "insufficient_verified_actions"
@@ -619,7 +620,7 @@ async def test_plan_growth_pools_survivors_across_attempts(
 
 
 @pytest.mark.fast
-async def test_plan_growth_dedups_pooled_survivors_on_what_and_quote(
+async def test_plan_growth_dedups_pooled_survivors_on_normalized_what(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
@@ -659,6 +660,47 @@ async def test_plan_growth_dedups_pooled_survivors_on_what_and_quote(
     assert result[1].what == fresh.what
     degraded_evt = next(e for e in events if e["event"] == "growth_degraded")
     assert degraded_evt["count"] == 2
+
+
+@pytest.mark.fast
+async def test_plan_growth_dedups_reanchored_duplicate_across_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    same_what = "Lead the on-prem to cloud migration of the recommendation pipeline"
+    first = _action(
+        what=same_what,
+        mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+        quote=_QUOTE_MIGRATION,
+    )
+    # Retry returns the same action re-anchored on a different verified quote.
+    # Keying the pool on normalized `what` alone must collapse the pair.
+    reanchored = _action(
+        what=same_what,
+        mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+        quote=_QUOTE_ONCALL,
+    )
+    fresh = _action(
+        what="Own the principal engineer on-call rotation across both production squads",
+        mechanism="on-call ownership lifts base by ~15% plus uplift in CZ market",
+        quote=_QUOTE_ONCALL,
+    )
+    responses = iter([_GrowthList(actions=[first]), _GrowthList(actions=[reanchored, fresh])])
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return next(responses)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    result = await plan_growth(
+        _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+    )
+
+    assert isinstance(result, list)
+    assert [a.what for a in result] == [same_what, fresh.what]
+    # Attempt 1's anchor wins; the re-anchored duplicate does not ship twice.
+    assert result[0].anchor.quote == _QUOTE_MIGRATION
 
 
 @pytest.mark.fast
@@ -1491,39 +1533,99 @@ def _setting_action(
 @pytest.mark.fast
 def test_setting_check_passes_matching_current_target() -> None:
     action = _setting_action("current_employer", "Stealth Mode Startup")
-    assert _setting_violation(action, ["Member of Staff — Stealth Mode Startup"]) is None
+    assert _setting_violation(action, ["Member of Staff — Stealth Mode Startup"], []) is None
 
 
 @pytest.mark.fast
 def test_setting_check_normalizes_accents() -> None:
     # NFKD accent-strip in _normalize_for_match: "Skoda" must match "Škoda".
     action = _setting_action("current_employer", "Skoda Auto")
-    assert _setting_violation(action, ["Lead Data Scientist — Škoda Auto a.s."]) is None
+    assert _setting_violation(action, ["Lead Data Scientist — Škoda Auto a.s."], []) is None
 
 
 @pytest.mark.fast
 def test_setting_check_drops_non_current_target() -> None:
-    action = _setting_action("current_employer", "TD SYNNEX")
-    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"])
-    assert result == "TD SYNNEX"
+    action = _setting_action("current_employer", "Fabricated Co")
+    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"], [])
+    assert result == ("unverified_target_employer", "Fabricated Co")
 
 
 @pytest.mark.fast
 def test_setting_check_drops_missing_target() -> None:
     action = _setting_action("current_employer", None)
-    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"])
-    assert result == "missing_target"
+    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"], [])
+    assert result == ("unverified_target_employer", "missing_target")
 
 
 @pytest.mark.fast
-@pytest.mark.parametrize("degenerate", [" ", "—", ".", "a", "of", "s"])
+@pytest.mark.parametrize("degenerate", [" ", "—", ".", "a", "s"])
 def test_setting_check_drops_degenerate_target(degenerate: str) -> None:
-    # Whitespace, punctuation, or stop-fragment targets normalize into strings
-    # that substring-match almost any hint; the <3-alphanumeric gate must send
+    # Whitespace, punctuation, or single-char targets normalize into strings
+    # that could match almost anything; the <2-alphanumeric gate must send
     # them down the violation path instead of rubber-stamping the action.
     action = _setting_action("current_employer", degenerate)
-    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"])
-    assert result == degenerate
+    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"], [])
+    assert result == ("unverified_target_employer", degenerate)
+
+
+@pytest.mark.fast
+def test_setting_check_passes_short_employer_copied_from_hint() -> None:
+    # 2-char employers ("O2", "EY") copied verbatim from the hint must pass:
+    # token-sequence matching plus the >=2-alphanumeric gate replaces the old
+    # >=3 gate that contradicted the retry message's own instruction.
+    action = _setting_action("current_employer", "O2")
+    assert _setting_violation(action, ["Data Analyst — O2 Czech Republic"], []) is None
+
+
+@pytest.mark.fast
+def test_setting_check_drops_partial_word_fragment() -> None:
+    # Substring matching used to pass "ING" inside "Consulting"; token-level
+    # containment must drop it.
+    action = _setting_action("current_employer", "ING")
+    result = _setting_violation(action, ["Senior Consultant — Consulting s.r.o."], [])
+    assert result == ("unverified_target_employer", "ING")
+
+
+@pytest.mark.fast
+def test_setting_check_empty_header_hint_does_not_pass_any_target() -> None:
+    # An empty timeline header used to normalize to "" and substring-match
+    # ANY target. It must yield no match candidates instead.
+    action = _setting_action("current_employer", "Fabricated Co")
+    result = _setting_violation(action, ["", "Member of Staff — Stealth Mode Startup"], [])
+    assert result == ("unverified_target_employer", "Fabricated Co")
+
+
+@pytest.mark.fast
+def test_setting_check_drops_closed_employer_target() -> None:
+    # A target matching only a closed-employer hint gets the distinct
+    # closed_employer_target reason — restores closed-employer observability.
+    action = _setting_action("current_employer", "TD SYNNEX")
+    result = _setting_violation(
+        action,
+        ["Member of Staff — Stealth Mode Startup"],
+        ["Senior Manager — TD SYNNEX"],
+    )
+    assert result == ("closed_employer_target", "TD SYNNEX")
+
+
+@pytest.mark.fast
+def test_setting_check_drops_closed_employer_when_all_entries_closed() -> None:
+    # All timeline entries closed → current hints empty. The closed check
+    # still applies: a provably closed employer can never host an action.
+    action = _setting_action("current_employer", "TD SYNNEX")
+    result = _setting_violation(action, [], ["Senior Manager — TD SYNNEX"])
+    assert result == ("closed_employer_target", "TD SYNNEX")
+
+
+@pytest.mark.fast
+def test_setting_check_current_match_wins_over_closed_match() -> None:
+    # Promoted in place: the same company in both hint lists. A current match
+    # satisfies the declared setting even if a closed header also matches.
+    action = _setting_action("current_employer", "Alza.cz")
+    result = _setting_violation(
+        action, ["Senior Data Scientist — Alza.cz"], ["Data Scientist — Alza.cz"]
+    )
+    assert result is None
 
 
 @pytest.mark.fast
@@ -1531,17 +1633,17 @@ def test_setting_check_matches_across_punctuation_variants() -> None:
     # Punctuation-to-space normalization: spaced vs dotted legal suffixes and
     # hyphen vs em-dash company joins must not false-drop.
     spaced_suffix = _setting_action("current_employer", "Acme Retail s. r. o.")
-    assert _setting_violation(spaced_suffix, ["Data Engineer — Acme Retail s.r.o."]) is None
+    assert _setting_violation(spaced_suffix, ["Data Engineer — Acme Retail s.r.o."], []) is None
     hyphenated = _setting_action("current_employer", "Acme-Retail Group")
-    assert _setting_violation(hyphenated, ["Data Engineer — Acme—Retail Group"]) is None
+    assert _setting_violation(hyphenated, ["Data Engineer — Acme—Retail Group"], []) is None
 
 
 @pytest.mark.fast
-def test_setting_check_skipped_when_no_current_hints() -> None:
+def test_setting_check_skipped_when_no_hints_at_all() -> None:
     # Mirrors the old gate's fallback: no hints, no employer check. The
     # growth_employer_hints event keeps this state observable.
-    assert _setting_violation(_setting_action("current_employer", "TD SYNNEX"), []) is None
-    assert _setting_violation(_setting_action("current_employer", None), []) is None
+    assert _setting_violation(_setting_action("current_employer", "TD SYNNEX"), [], []) is None
+    assert _setting_violation(_setting_action("current_employer", None), [], []) is None
 
 
 @pytest.mark.fast
@@ -1549,6 +1651,7 @@ def test_setting_check_ignores_future_role_and_capability() -> None:
     # The declaration IS the rescue: a closed employer named in `what` as
     # past evidence is fine when the action targets a future move or artefact.
     hints = ["Member of Staff — Stealth Mode Startup"]
+    closed = ["Senior Manager — TD SYNNEX"]
     future = _setting_action(
         "future_role", None, what="Rebuild the churn model you owned at O2 for the next role"
     )
@@ -1557,12 +1660,26 @@ def test_setting_check_ignores_future_role_and_capability() -> None:
         None,
         what="Publish the TD SYNNEX pricing case study as an open-source notebook",
     )
-    assert _setting_violation(future, hints) is None
-    assert _setting_violation(artefact, hints) is None
+    assert _setting_violation(future, hints, closed) is None
+    assert _setting_violation(artefact, hints, closed) is None
 
 
 @pytest.mark.fast
-async def test_plan_growth_drops_unverified_target_employer(
+def test_filter_sanitizes_target_employer_on_non_current_setting() -> None:
+    # Prompt rule 7: target_employer must be null for future_role /
+    # capability_artifact. The filter normalizes silently — no drop, no emit.
+    action = _setting_action("future_role", "Fabricated Co")
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        survivors, drops, _ = growth_mod._filter_actions([action], _CV_TEXT, [], [])
+    assert len(survivors) == 1
+    assert survivors[0].target_employer is None
+    assert drops == []
+    assert not any(e["event"] == "growth_action_dropped" for e in events)
+
+
+@pytest.mark.fast
+async def test_plan_growth_drops_closed_employer_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
@@ -1618,7 +1735,7 @@ async def test_plan_growth_drops_unverified_target_employer(
     drop_evts = [
         e
         for e in events
-        if e["event"] == "growth_action_dropped" and e["reason"] == "unverified_target_employer"
+        if e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_target"
     ]
     assert len(drop_evts) == 1
     evt = drop_evts[0]
@@ -1867,13 +1984,20 @@ def test_retry_message_renders_target_employer_and_matched_drops() -> None:
         ),
         _Drop(
             1,
-            "Rebuild the churn model at TD SYNNEX",
+            "Rebuild the churn model at Fabricated Co",
             "unverified_target_employer",
-            "TD SYNNEX",
+            "Fabricated Co",
             None,
         ),
         _Drop(2, "Complete a PhD program at a top-tier institution", "ban_phrase", "phd", None),
         _Drop(3, "Consider a managed Kubernetes migration", "softener_phrase", "consider", None),
+        _Drop(
+            4,
+            "Rebuild the pricing engine you owned at TD SYNNEX",
+            "closed_employer_target",
+            "TD SYNNEX",
+            None,
+        ),
     ]
     msg = _build_retry_user_message(
         "BASE",
@@ -1885,10 +2009,41 @@ def test_retry_message_renders_target_employer_and_matched_drops() -> None:
 
     # missing_target renders as "null" so the model sees its omitted field.
     assert 'Declared target_employer "null" does not match' in msg
-    assert 'Declared target_employer "TD SYNNEX" does not match' in msg
+    assert 'Declared target_employer "Fabricated Co" does not match' in msg
     assert "current-employer hint(s): Member of Staff — Stealth Mode Startup" in msg
     assert "Copy the employer verbatim from the hint" in msg
     assert 'use setting "future_role" or "capability_artifact"' in msg
+    # Closed-employer drops get their own instruction naming the cause.
+    assert 'Declared target_employer "TD SYNNEX" is a past employer' in msg
+    assert "closed_employer_hint" in msg
     # Ban/softener drops name the matched phrase.
     assert "Matched: phd" in msg
     assert "Matched: consider" in msg
+    # Headroom: ask for the shortfall up to the 5-action prompt ceiling.
+    assert "2 to 4 NEW action(s)" in msg
+    assert "exactly" not in msg
+
+
+@pytest.mark.fast
+def test_unverified_anchor_drop_caps_stored_quote() -> None:
+    long_quote = ("fabricated words that the verifier will never find " * 5).strip()
+    assert len(long_quote) > 120
+    action = _action(
+        what="Drive the Snowflake adoption rollout for the analytics platform",
+        mechanism="owning the warehouse migration lifts you into the staff-data band",
+        quote=long_quote,
+        section=None,
+    )
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        _, drops, _ = growth_mod._filter_actions([action], _CV_TEXT, [], [])
+
+    assert drops[0].reason == "unverified_anchor"
+    assert drops[0].quote == long_quote[:120]
+    evt = next(e for e in events if e["event"] == "growth_action_dropped")
+    assert evt["quote"] == long_quote[:120]
+
+    msg = _build_retry_user_message("BASE", kept=[], drops=drops, needed=3, current_employers=[])
+    assert long_quote[:120] in msg
+    assert long_quote not in msg
