@@ -9,8 +9,10 @@ import gander.growth as growth_mod
 from gander.errors import StageFailure
 from gander.growth import (
     _SOFTENER_RE,
+    _build_retry_user_message,
     _build_user_message,
     _check_ban_phrase,
+    _Drop,
     _GrowthList,
     _jaccard_4gram,
     _setting_violation,
@@ -1514,6 +1516,27 @@ def test_setting_check_drops_missing_target() -> None:
 
 
 @pytest.mark.fast
+@pytest.mark.parametrize("degenerate", [" ", "—", ".", "a", "of", "s"])
+def test_setting_check_drops_degenerate_target(degenerate: str) -> None:
+    # Whitespace, punctuation, or stop-fragment targets normalize into strings
+    # that substring-match almost any hint; the <3-alphanumeric gate must send
+    # them down the violation path instead of rubber-stamping the action.
+    action = _setting_action("current_employer", degenerate)
+    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"])
+    assert result == degenerate
+
+
+@pytest.mark.fast
+def test_setting_check_matches_across_punctuation_variants() -> None:
+    # Punctuation-to-space normalization: spaced vs dotted legal suffixes and
+    # hyphen vs em-dash company joins must not false-drop.
+    spaced_suffix = _setting_action("current_employer", "Acme Retail s. r. o.")
+    assert _setting_violation(spaced_suffix, ["Data Engineer — Acme Retail s.r.o."]) is None
+    hyphenated = _setting_action("current_employer", "Acme-Retail Group")
+    assert _setting_violation(hyphenated, ["Data Engineer — Acme—Retail Group"]) is None
+
+
+@pytest.mark.fast
 def test_setting_check_skipped_when_no_current_hints() -> None:
     # Mirrors the old gate's fallback: no hints, no employer check. The
     # growth_employer_hints event keeps this state observable.
@@ -1790,3 +1813,82 @@ async def test_plan_growth_degrades_when_second_attempt_raises(
     degraded_evt = next(e for e in events if e["event"] == "growth_degraded")
     assert degraded_evt["count"] == 1
     assert not any(e["event"] == "stage_failure" for e in events)
+
+
+@pytest.mark.fast
+async def test_plan_growth_degrades_when_second_attempt_returns_invalid_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    first = _GrowthList(actions=_five_verified_actions()[:2])
+    calls = 0
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return first
+        return {"actions": []}  # plain dict, not a _GrowthList
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    # An invalid top-up response must not discard the verified survivors from
+    # attempt one: degrade to the pooled partial list instead of failing.
+    assert isinstance(result, list)
+    assert [a.what for a in result] == [a.what for a in first.actions]
+    assert calls == 2
+
+    error_evt = next(e for e in events if e["event"] == "growth_attempt_error")
+    assert error_evt["reason"] == "invalid_llm_output"
+    assert error_evt["got_type"] == "dict"
+    assert error_evt["attempt"] == 1
+
+    degraded_evt = next(e for e in events if e["event"] == "growth_degraded")
+    assert degraded_evt["count"] == 2
+    assert not any(e["event"] == "stage_failure" for e in events)
+
+
+@pytest.mark.fast
+def test_retry_message_renders_target_employer_and_matched_drops() -> None:
+    drops = [
+        _Drop(
+            0,
+            "Lead the pricing platform rollout",
+            "unverified_target_employer",
+            "missing_target",
+            None,
+        ),
+        _Drop(
+            1,
+            "Rebuild the churn model at TD SYNNEX",
+            "unverified_target_employer",
+            "TD SYNNEX",
+            None,
+        ),
+        _Drop(2, "Complete a PhD program at a top-tier institution", "ban_phrase", "phd", None),
+        _Drop(3, "Consider a managed Kubernetes migration", "softener_phrase", "consider", None),
+    ]
+    msg = _build_retry_user_message(
+        "BASE",
+        kept=_five_verified_actions()[:1],
+        drops=drops,
+        needed=2,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+    )
+
+    # missing_target renders as "null" so the model sees its omitted field.
+    assert 'Declared target_employer "null" does not match' in msg
+    assert 'Declared target_employer "TD SYNNEX" does not match' in msg
+    assert "current-employer hint(s): Member of Staff — Stealth Mode Startup" in msg
+    assert "Copy the employer verbatim from the hint" in msg
+    assert 'use setting "future_role" or "capability_artifact"' in msg
+    # Ban/softener drops name the matched phrase.
+    assert "Matched: phd" in msg
+    assert "Matched: consider" in msg

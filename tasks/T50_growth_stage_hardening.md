@@ -1,6 +1,6 @@
 # T50 — Growth-stage hardening (review-finding train)
 
-Status: done
+Status: implemented — live verification pending (Gemini setting/target_employer emission + eval_corpus rerun)
 Owner: software-engineer
 Depends on: T49 review run (33 confirmed findings F0–F32)
 Unblocks: next live eval run with growth telemetry
@@ -98,9 +98,11 @@ failures from unresolved Git LFS fixture pointers (git-lfs not installed in
 this environment) — failure set must not grow.
 
 Commit 1 targeted: `uv run pytest -q tests/test_timeline.py
-tests/test_growth_unit.py` — 5 new timeline tests, 4 ban-phrase tests
-(2 test functions), 7 validator-repro tests green; all pre-existing
-validator/ban pins green unchanged.
+tests/test_growth_unit.py` — 4 new timeline tests, 4 ban-phrase cases
+(2 test functions) green; all pre-existing validator/ban pins green
+unchanged. Commit 1's validator-repro tests were deleted in commit 5 along
+with the keyword machinery; their behaviors are re-pinned by the
+declared-setting `_setting_violation` tests in `tests/test_growth_unit.py`.
 
 Live acceptance + `scripts/eval_corpus.py` run deferred to the orchestrator's
 live verification pass (requires `OPENROUTER_API_KEY`).

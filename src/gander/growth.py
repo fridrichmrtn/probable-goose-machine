@@ -1,8 +1,11 @@
 """L5 growth-plan generator.
 
-Generates 3-5 CV-specific salary-growth actions, each verifiable against the
+Generates CV-specific salary-growth actions, each verifiable against the
 source CV via ``verify_quote``, with a hard anti-slop ban list as the central
-discriminator (PRD §4.4).
+discriminator (PRD §4.4). The 3-5 action count is the prompt/internal
+contract — PRD §4.4 itself asks only for "a concrete set of actions" — and a
+run with just 1-2 verified survivors ships them as a degraded partial list
+(PRD §4.5) instead of failing.
 
 Signature widened from the T13_growth.md contract to take ``RedactedCV`` (needed
 to call ``verify_quote`` on each action's anchor) and return
@@ -202,10 +205,14 @@ def _extract_current_employer_hint(redacted: RedactedCV, profile: Profile) -> li
 
 
 def _normalize_for_match(text: str) -> str:
+    # Punctuation becomes a space so legal-suffix and dash variants compare
+    # equal ("s.r.o." vs "s. r. o.", "Acme—Retail" vs "Acme-Retail") and a
+    # lone "—" can never substring-match the "Title — Company" hint join.
     stripped = "".join(
         c for c in unicodedata.normalize("NFKD", text).lower() if not unicodedata.combining(c)
     )
-    return " ".join(stripped.split())
+    cleaned = "".join(c if c.isalnum() else " " for c in stripped)
+    return " ".join(cleaned.split())
 
 
 def _setting_violation(action: GrowthAction, current_employers: list[str]) -> str | None:
@@ -213,19 +220,23 @@ def _setting_violation(action: GrowthAction, current_employers: list[str]) -> st
 
     Only `current_employer` declarations are checkable: the target must
     fuzzy-match a current-employer hint (normalized substring, either
-    direction). `future_role` / `capability_artifact` have no employer to
-    verify. With no hints the check is skipped — same as the old gate, and
-    the `growth_employer_hints` event keeps that state observable.
+    direction). A target whose normalized form has fewer than 3 alphanumeric
+    characters (" ", "—", "a", "of") would substring-match almost any hint,
+    so it skips the match and drops as unverified. `future_role` /
+    `capability_artifact` have no employer to verify. With no hints the check
+    is skipped — same as the old gate, and the `growth_employer_hints` event
+    keeps that state observable.
     """
     if action.setting != "current_employer" or not current_employers:
         return None
     if not action.target_employer:
         return "missing_target"
     target = _normalize_for_match(action.target_employer)
-    for header in current_employers:
-        hint = _normalize_for_match(header)
-        if target in hint or hint in target:
-            return None
+    if sum(c.isalnum() for c in target) >= 3:
+        for header in current_employers:
+            hint = _normalize_for_match(header)
+            if target in hint or hint in target:
+                return None
     return action.target_employer[:40]
 
 
@@ -550,7 +561,7 @@ async def plan_growth(
                 return StageFailure(
                     stage="growth",
                     user_message=_FAILURE_MSG,
-                    debug_detail="only 0 verified actions, PRD §4.4 requires 3-5",
+                    debug_detail="only 0 verified actions; prompt contract asks for 3-5",
                 )
             if len(survivors) < 3:
                 # PRD §4.5: a shorter list, not a placeholder.
