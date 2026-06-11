@@ -86,10 +86,16 @@ def _is_current_range(right_of_dash: str) -> bool:
     # year-shaped token; with no such dash, the whole RHS is the endpoint.
     # A year-preceded dash whose suffix has no year-shaped token is a
     # trailing modifier separator ("2024 - 2026 - Remote"), not the range
-    # dash — unless the suffix is empty (open-ended "2022 -").
+    # dash — unless the suffix is empty (open-ended "2022 -"). A prefix
+    # holding two or more year tokens means the endpoint already passed and
+    # the dash sits inside annotation text ("2018 - 2026 (parental leave
+    # 2020 - 2021)") — never re-anchor into it.
     endpoint = right_of_dash
     for dash in _DASH_RE.finditer(right_of_dash):
-        if not _ENDS_WITH_YEAR_SHAPED_RE.search(right_of_dash[: dash.start()]):
+        prefix = right_of_dash[: dash.start()]
+        if not _ENDS_WITH_YEAR_SHAPED_RE.search(prefix):
+            continue
+        if len(_YEAR_SHAPED_RE.findall(prefix)) != 1:
             continue
         suffix = right_of_dash[dash.end() :]
         if not suffix.strip() or _YEAR_SHAPED_RE.search(suffix):

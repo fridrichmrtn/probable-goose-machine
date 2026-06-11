@@ -81,6 +81,11 @@ def test_scan_marks_current_when_end_year_in_future() -> None:
         # range dash — the year before it stays the endpoint.
         (f"2024 - {date.today().year} - Remote", True),
         ("2014 - 2016 - Remote", False),
+        # An annotation holding an inner dash-joined range must not steal
+        # the endpoint — the prefix already carries two year tokens.
+        (f"2018 - {date.today().year} (parental leave 2020 - 2021)", True),
+        (f"2019 — {date.today().year}, sabbatical 2021 - 2022", True),
+        ("2012 - 2015 (parental leave 2013 - 2014)", False),
     ],
 )
 def test_scan_compound_header_range_lines(date_line: str, expected_current: bool) -> None:

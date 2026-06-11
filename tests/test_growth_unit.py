@@ -1623,6 +1623,30 @@ def test_setting_check_drops_verbatim_closed_header_despite_title_overlap() -> N
 
 
 @pytest.mark.fast
+def test_setting_check_rehire_header_in_both_lists_passes() -> None:
+    # Boomerang hire: the identical header sits in both hint lists. Token
+    # equality with a current segment exempts the verbatim-closed guard —
+    # the candidate provably works there now.
+    action = _setting_action("current_employer", "Senior Engineer — Acme Corp")
+    result = _setting_violation(
+        action,
+        ["Senior Engineer — Acme Corp"],
+        ["Senior Engineer — Acme Corp", "Analyst — OldCo"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_setting_check_company_only_closed_header_passes_for_current_company() -> None:
+    # A company-only closed header ("Alza.cz") token-equals the company
+    # segment of the current header — the target names the current employer,
+    # so the verbatim-closed guard must not fire.
+    action = _setting_action("current_employer", "Alza.cz")
+    result = _setting_violation(action, ["Senior Data Scientist — Alza.cz"], ["Alza.cz"])
+    assert result is None
+
+
+@pytest.mark.fast
 def test_setting_check_drops_closed_employer_when_all_entries_closed() -> None:
     # All timeline entries closed → current hints empty. The closed check
     # still applies: a provably closed employer can never host an action.

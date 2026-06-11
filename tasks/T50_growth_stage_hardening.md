@@ -213,3 +213,11 @@ shared-title rubber-stamp ("Senior Manager — TD SYNNEX" passing via a current
 `_summarize_growth` also classifies ingest/redact cascades as "skipped" when
 the profile is StageFailure-shaped too, so upstream parse failures no longer
 count against the growth gate.
+
+A second verification pass on the heal itself caught two regressions, both
+fixed: the endpoint re-anchor walked into annotation inner ranges
+("2018 - 2026 (parental leave 2020 - 2021)" read closed) — a dash now only
+re-anchors when its prefix holds exactly one year token; and the
+verbatim-closed-header guard dropped rehire and company-only-closed-header
+targets unrecoverably — token equality with a current segment now exempts
+the guard.
