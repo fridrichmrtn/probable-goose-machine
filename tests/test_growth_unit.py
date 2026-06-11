@@ -435,7 +435,7 @@ async def test_plan_growth_drops_unverified_anchor(
 
 
 @pytest.mark.fast
-async def test_plan_growth_returns_stage_failure_when_fewer_than_three_verified(
+async def test_plan_growth_degrades_to_partial_list_when_fewer_than_three_verified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
@@ -471,7 +471,11 @@ async def test_plan_growth_returns_stage_failure_when_fewer_than_three_verified(
         ]
     )
 
+    calls = 0
+
     async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
         return payload
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
@@ -482,16 +486,18 @@ async def test_plan_growth_returns_stage_failure_when_fewer_than_three_verified(
             _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
         )
 
-    assert isinstance(result, StageFailure)
-    assert result.stage == "growth"
-    assert result.user_message == "Could not generate this section reliably"
+    # PRD §4.5: a shorter list, not a placeholder — the lone verified action
+    # survives both attempts (deduped) and ships as a degraded partial result.
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0].what == "Lead the on-prem to cloud migration of the recommendation pipeline"
+    assert calls == 2
 
-    failure_evt = next(
-        e
-        for e in events
-        if e["event"] == "stage_failure" and e["reason"] == "insufficient_verified_actions"
-    )
-    assert failure_evt["survived"] == 1
+    assert len([e for e in events if e["event"] == "growth_retry"]) == 1
+    degraded_evt = next(e for e in events if e["event"] == "growth_degraded")
+    assert degraded_evt["count"] == 1
+    assert "drop_reasons" in degraded_evt
+    assert not any(e["event"] == "stage_failure" for e in events)
 
 
 @pytest.mark.fast
@@ -556,9 +562,14 @@ async def test_plan_growth_retries_when_too_few_actions_verify(
 
     assert isinstance(result, list)
     assert len(result) == 3
+    # The attempt-1 survivor is pooled, so it leads the final list.
+    assert result[0].what == "Lead the on-prem to cloud migration of the recommendation pipeline"
     assert len(seen_users) == 2
-    assert "previous growth-plan output failed downstream verification" in seen_users[1]
-    assert "drop_reasons" in seen_users[1]
+    # Top-up message names the kept action, quotes the rejected anchor verbatim,
+    # and asks only for the shortfall.
+    assert "Lead the on-prem to cloud migration of the recommendation pipeline" in seen_users[1]
+    assert "this quote does not appear anywhere inside the source cv text body" in seen_users[1]
+    assert "exactly 2 NEW action" in seen_users[1]
 
     retry_evt = next(e for e in events if e["event"] == "growth_retry")
     assert retry_evt["reason"] == "insufficient_verified_actions"
@@ -567,6 +578,78 @@ async def test_plan_growth_retries_when_too_few_actions_verify(
 
     anti_slop_events = [e for e in events if e["event"] == "growth_anti_slop_check"]
     assert [e["attempt"] for e in anti_slop_events] == [0, 1]
+    assert [e["pooled"] for e in anti_slop_events] == [1, 3]
+
+
+@pytest.mark.fast
+async def test_plan_growth_pools_survivors_across_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    verified = _five_verified_actions()
+    first = _GrowthList(actions=verified[:2])
+    second = _GrowthList(actions=verified[2:4])
+    responses = iter([first, second])
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return next(responses)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    assert [a.what for a in result] == [a.what for a in verified[:4]]
+    assert not any(e["event"] == "stage_failure" for e in events)
+    assert not any(e["event"] == "growth_degraded" for e in events)
+
+
+@pytest.mark.fast
+async def test_plan_growth_dedups_pooled_survivors_on_what_and_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    kept = _action(
+        what="Lead the on-prem to cloud migration of the recommendation pipeline",
+        mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+        quote=_QUOTE_MIGRATION,
+    )
+    # Same action re-sent with different casing and whitespace must not pool twice.
+    resent = _action(
+        what="  LEAD the on-prem to cloud   migration of the recommendation pipeline ",
+        mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
+        quote=_QUOTE_MIGRATION,
+    )
+    fresh = _action(
+        what="Own the principal engineer on-call rotation across both production squads",
+        mechanism="on-call ownership lifts base by ~15% plus uplift in CZ market",
+        quote=_QUOTE_ONCALL,
+    )
+    responses = iter([_GrowthList(actions=[kept]), _GrowthList(actions=[resent, fresh])])
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return next(responses)
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert result[0].what == kept.what
+    assert result[1].what == fresh.what
+    degraded_evt = next(e for e in events if e["event"] == "growth_degraded")
+    assert degraded_evt["count"] == 2
 
 
 @pytest.mark.fast

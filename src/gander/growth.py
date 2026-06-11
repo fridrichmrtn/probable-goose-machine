@@ -23,6 +23,7 @@ import string
 import time
 import unicodedata
 from pathlib import Path
+from typing import NamedTuple
 
 from pydantic import BaseModel
 
@@ -471,24 +472,102 @@ def _build_user_message(
     return json.dumps(payload, ensure_ascii=False)
 
 
+class _Drop(NamedTuple):
+    idx: int
+    what: str
+    reason: str  # "ban_phrase" | "unverified_anchor" | "closed_employer_setting"
+    detail: str | None  # matched phrase / employer token
+    quote: str | None  # rejected anchor quote, unverified_anchor only
+
+
+def _action_key(action: GrowthAction) -> str:
+    def norm(s: str) -> str:
+        return " ".join(s.casefold().split())
+
+    return norm(action.what) + "\x00" + norm(action.anchor.quote)
+
+
+def _filter_actions(
+    actions: list[GrowthAction],
+    redacted_text: str,
+    current_employers: list[str],
+    closed_employers: list[str],
+) -> tuple[list[GrowthAction], list[_Drop], dict[str, int]]:
+    survivors: list[GrowthAction] = []
+    drops: list[_Drop] = []
+    drop_reasons: dict[str, int] = {}
+
+    def _record(drop: _Drop) -> None:
+        drops.append(drop)
+        drop_reasons[drop.reason] = drop_reasons.get(drop.reason, 0) + 1
+
+    for index, action in enumerate(actions):
+        banned = _check_ban_phrase(action)
+        if banned is not None:
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason="ban_phrase",
+                phrase=banned,
+                what=action.what[:80],
+            )
+            _record(_Drop(index, action.what, "ban_phrase", banned, None))
+            continue
+        if not verify_quote(action.anchor.quote, redacted_text, section=action.anchor.section):
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason="unverified_anchor",
+                what=action.what[:80],
+            )
+            _record(_Drop(index, action.what, "unverified_anchor", None, action.anchor.quote))
+            continue
+        forward_violation = _violates_forward_setting(action, current_employers, closed_employers)
+        if forward_violation is not None:
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason="closed_employer_setting",
+                what=action.what[:80],
+                detail=forward_violation,
+            )
+            _record(_Drop(index, action.what, "closed_employer_setting", forward_violation, None))
+            continue
+        survivors.append(action)
+    return survivors, drops, drop_reasons
+
+
 def _build_retry_user_message(
-    user_message: str,
+    base_user_message: str,
     *,
-    returned: int,
-    survived: int,
-    drop_reasons: dict[str, int],
+    kept: list[GrowthAction],
+    drops: list[_Drop],
+    needed: int,
 ) -> str:
-    return (
-        user_message
-        + "\n\nYour previous growth-plan output failed downstream verification: "
-        + f"returned={returned} verified={survived} drop_reasons={drop_reasons}. "
-        + "Return corrected JSON only. Emit 3 to 5 actions that survive all checks: "
-        + "copy each anchor.quote as a literal 8+ word substring from redacted_cv; "
-        + "copy the visible CV section header without translating it, or set section "
-        + "to null if uncertain; make each action concrete and forward-looking; and "
-        + "do not make a closed employer from closed_employer_hint the setting of the "
-        + "action unless the action explicitly targets a next/future role."
+    lines = [base_user_message, ""]
+    if kept:
+        lines.append(
+            f"Of your previous actions, {len(kept)} passed verification and are KEPT — "
+            "do not repeat or rephrase them:"
+        )
+        lines.extend(f"- {action.what}" for action in kept)
+    if drops:
+        lines.append("These actions FAILED verification:")
+        for drop in drops:
+            lines.append(f'- action {drop.idx}: "{drop.what[:80]}" — {drop.reason}')
+            if drop.reason == "unverified_anchor" and drop.quote is not None:
+                lines.append(
+                    f'  The anchor quote "{drop.quote}" was not found verbatim in '
+                    "redacted_cv. Copy at least 8 consecutive words "
+                    "character-for-character from one CV section."
+                )
+            elif drop.detail:
+                lines.append(f"  Matched: {drop.detail}")
+    lines.append(
+        f"Return a JSON object with exactly {needed} NEW action(s) in the same schema. "
+        "Do not include the kept actions."
     )
+    return "\n".join(lines)
 
 
 async def plan_growth(
@@ -517,7 +596,12 @@ async def plan_growth(
                 closed_hint,
             )
 
-            survivors: list[GrowthAction] = []
+            base_user_message = user_message
+            # Survivors pool across attempts (keyed on normalized what+quote), so a
+            # verified action from attempt 1 is never discarded by a weaker attempt 2.
+            pool: dict[str, GrowthAction] = {}
+            last_returned = 0
+            last_drop_reasons: dict[str, int] = {}
             for attempt in range(_GROWTH_LOGICAL_MAX_RETRIES + 1):
                 try:
                     # temperature=0.0 for determinism — matches T10/T11/T12 stages.
@@ -530,6 +614,17 @@ async def plan_growth(
                         max_tokens=1536,
                     )
                 except Exception as exc:
+                    if pool:
+                        # A failed top-up call must not throw away already-verified
+                        # actions — degrade to the pooled partial list (PRD §4.5).
+                        emit(
+                            "growth",
+                            "growth_attempt_error",
+                            reason="llm_error",
+                            exc_type=type(exc).__name__,
+                            attempt=attempt,
+                        )
+                        break
                     emit(
                         "growth",
                         "stage_failure",
@@ -544,6 +639,15 @@ async def plan_growth(
                     )
 
                 if not isinstance(raw, _GrowthList):
+                    if pool:
+                        emit(
+                            "growth",
+                            "growth_attempt_error",
+                            reason="invalid_llm_output",
+                            got_type=type(raw).__name__,
+                            attempt=attempt,
+                        )
+                        break
                     emit(
                         "growth",
                         "stage_failure",
@@ -557,61 +661,25 @@ async def plan_growth(
                         debug_detail=f"complete_json returned {type(raw).__name__}",
                     )
 
-                survivors = []
-                dropped = 0
-                drop_reasons: dict[str, int] = {}
-                for action in raw.actions:
-                    banned = _check_ban_phrase(action)
-                    if banned is not None:
-                        reason = "ban_phrase"
-                        emit(
-                            "growth",
-                            "growth_action_dropped",
-                            reason=reason,
-                            phrase=banned,
-                            what=action.what[:80],
-                        )
-                        dropped += 1
-                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
-                        continue
-                    if not verify_quote(
-                        action.anchor.quote, redacted.text, section=action.anchor.section
-                    ):
-                        reason = "unverified_anchor"
-                        emit(
-                            "growth",
-                            "growth_action_dropped",
-                            reason=reason,
-                            what=action.what[:80],
-                        )
-                        dropped += 1
-                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
-                        continue
-                    forward_violation = _violates_forward_setting(action, current_hint, closed_hint)
-                    if forward_violation is not None:
-                        reason = "closed_employer_setting"
-                        emit(
-                            "growth",
-                            "growth_action_dropped",
-                            reason=reason,
-                            what=action.what[:80],
-                            detail=forward_violation,
-                        )
-                        dropped += 1
-                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
-                        continue
-                    survivors.append(action)
+                attempt_survivors, drops, drop_reasons = _filter_actions(
+                    raw.actions, redacted.text, current_hint, closed_hint
+                )
+                for action in attempt_survivors:
+                    pool.setdefault(_action_key(action), action)
+                last_returned = len(raw.actions)
+                last_drop_reasons = drop_reasons
 
                 emit(
                     "growth",
                     "growth_anti_slop_check",
                     returned=len(raw.actions),
-                    dropped=dropped,
-                    survived=len(survivors),
+                    dropped=len(drops),
+                    survived=len(attempt_survivors),
+                    pooled=len(pool),
                     attempt=attempt,
                 )
 
-                if len(survivors) >= 3:
+                if len(pool) >= 3:
                     break
                 if attempt < _GROWTH_LOGICAL_MAX_RETRIES:
                     emit(
@@ -619,28 +687,41 @@ async def plan_growth(
                         "growth_retry",
                         reason="insufficient_verified_actions",
                         returned=len(raw.actions),
-                        survived=len(survivors),
-                        dropped=dropped,
+                        survived=len(pool),
+                        dropped=len(drops),
                         drop_reasons=drop_reasons,
                     )
                     user_message = _build_retry_user_message(
-                        user_message,
-                        returned=len(raw.actions),
-                        survived=len(survivors),
-                        drop_reasons=drop_reasons,
+                        base_user_message,
+                        kept=list(pool.values()),
+                        drops=drops,
+                        needed=3 - len(pool),
                     )
-                    continue
+
+            survivors = list(pool.values())
+            if not survivors:
                 emit(
                     "growth",
                     "stage_failure",
                     reason="insufficient_verified_actions",
-                    survived=len(survivors),
+                    survived=0,
+                    returned=last_returned,
+                    drop_reasons=last_drop_reasons,
                     duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="growth",
                     user_message=_FAILURE_MSG,
-                    debug_detail=f"only {len(survivors)} verified actions, PRD §4.4 requires 3-5",
+                    debug_detail="only 0 verified actions, PRD §4.4 requires 3-5",
+                )
+            if len(survivors) < 3:
+                # PRD §4.5: a shorter list, not a placeholder.
+                emit(
+                    "growth",
+                    "growth_degraded",
+                    count=len(survivors),
+                    returned=last_returned,
+                    drop_reasons=last_drop_reasons,
                 )
 
             if len(survivors) > 5:
