@@ -358,3 +358,32 @@ Report: tasks/T47_dev-report.md (in dev/t47-current-employer-fix)
 - [hiring-manager] src/gander/timeline.py `_BULLET_GLYPHS` — includes `-`, `–`, `—` (also dash chars). One-line WHY comment would prevent a maintainer from "fixing" the apparent overlap.
 - [hiring-manager] src/gander/timeline.py header lookback `range(i - 1, max(-1, i - 4), -1)` — correct but obtuse. A `# at most 3 lines back, stop at top of slice` comment would do.
 - [hiring-manager] tests/test_growth_unit.py `test_validator_drop_emits_observability_event` — relies on `"synnex"` appearing in lowercased `detail`. A future refactor that title-cases detail will silently break the assertion without a clear failure message.
+
+## t50-growth-stage-hardening — 2026-06-11T11:33Z
+Report: tasks/T50_dev-report.md (in dev/t50-growth-stage-hardening)
+
+### Should-fix
+- [ai-ml-engineer] src/gander/growth.py:403-406 vs prompts/growth.md — top-up retry asks for "exactly N NEW action(s)" while the system prompt hard-codes "3 to 5 entries total" twice; contradiction Gemini resolves unpredictably. Also request headroom (needed..5) instead of the bare minimum, and add a top-up acknowledgment line to the prompt output-format section.
+- [ai-ml-engineer] scripts/eval_corpus.py:226-231 — CI exit gate counts only status=="failed"; a regression dropping every fixture to a 1-action degraded plan exits 0. Bound the degraded rate at a separate, looser threshold.
+- [ai-ml-engineer + ux-engineer + product-owner] src/gander/report.py:419-436 + growth.py growth_degraded — a degraded 1-2-action plan renders identically to a full plan; three reviewers converged. Add one muted, honest line when len(growth) < 3 (e.g. "Only actions that passed source verification are shown."); requires the renderer to see the degraded state. Tooltip-only is insufficient (hover-only, invisible to keyboard/SR users).
+- [hiring-manager + product-owner] src/gander/growth.py / scripts/eval_corpus.py — commit 5 deleted the closed-employer signal along with the gate: a model mislabeling a backward-looking action as future_role passes with zero telemetry, and "monitored via live fixtures" has no signal to monitor. Add an observe-only event (closed-hint token in what of a non-current_employer action) plus declared-setting distribution counts in the emit and a SUMMARY column.
+- [hiring-manager] src/gander/growth.py:506-548 — zero-survivor stage_failure reports only the final attempt's returned/drop_reasons; if attempt 2 returns an empty list the event hides why attempt 1 dropped everything. Aggregate across attempts.
+- [heal trade-off] src/gander/growth.py _setting_violation — the >=3-alphanumeric gate on declared targets drops legitimate 2-char companies (O2); relies on the retry's future_role escape hatch. Consider an allowance for short all-caps/dotted tokens that appear verbatim in a hint.
+
+### Nits
+- [ai-ml-engineer] prompts/growth.md rule 4 claims >=8 words enforced by drop, but verify_quote still passes a unique 6-7-word quote; prompt overclaims in the safe direction.
+- [ai-ml-engineer] src/gander/growth.py:298-302 — _action_key includes anchor.quote, so the same what with a different quote survives dedup as a duplicate; keying on normalized what alone would be tighter.
+- [ai-ml-engineer] src/gander/timeline.py:87 — date.today().year makes is_current wall-clock-dependent; clock-injection seam if fixtures pin ranges near the current year.
+- [ai-ml-engineer] src/gander/growth.py:451 — max_tokens=1536 unchanged while per-action payload grew (two new fields, 8-word anchors); each truncation heal re-bills the CV-bearing prompt; ~2048 is cheap insurance.
+- [ux-engineer] PRD §4.8 — growth is now the likeliest longest-running pill (up to 2 LLM calls with longer retry prompts); a sub-status ("verifying actions, attempt 2") would be cheap insurance.
+- [hiring-manager] src/gander/growth.py:387-392 — _Drop.quote flows uncapped into the retry message while the emit caps at 120 chars; unmotivated asymmetry.
+- [hiring-manager] src/gander/timeline.py:84-87 — the year>=today signal flips any sub-80-char closed range whose RHS mentions a future year ("2018 - 2021 (extension option 2026)") to current; task doc understates the class.
+- [hiring-manager] scripts/eval_corpus.py:53 — _GROWTH_EVENT_NAMES omits growth_attempt_error, so SUMMARY cannot distinguish drop-caused degrades from provider-outage degrades.
+- [hiring-manager] src/gander/growth.py:222-229 — "missing_target" sentinel and arbitrary employer-prefix data share one return channel; a model literally emitting "missing_target" confuses the retry copy.
+- [hiring-manager] src/gander/growth.py:125-130 — phd special case inline in the loop; phrase->matcher table if the contractual list ever grows.
+- [hiring-manager] a future_role action with non-null target_employer passes silently, contradicting prompt rule 7; normalize-to-None hygiene.
+- [hiring-manager] tests/test_schemas.py — no test pins that omitting setting raises ValidationError, the trigger for the complete_json self-heal path the design leans on.
+- [qa-engineer] scripts/eval_corpus.py:404-412 — _growth_failure_rate_exceeded tested incl. boundary, but no test proves _run_corpus returns 1 when it trips (consistent with file convention).
+- [qa-engineer] GrowthStats.retries computed and asserted but never surfaced — no SUMMARY column or aggregate; render it or delete it.
+- [qa-engineer] softener scope (what-only; mechanism exempt) is a locked decision with no pinning test; widening to mechanism would be a false-drop regression with green CI.
+- [qa-engineer] tests/test_timeline.py:69 — open-ended parametrize covers "2022 -", "2022 –", "ledna 2022 -" but not the no-space em-dash "2022—" variant the dev-plan names.
