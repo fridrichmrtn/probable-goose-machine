@@ -60,6 +60,10 @@ _BAN_PHRASES: tuple[str, ...] = (
 # post-strip form of "Ph.D." still match.
 _PHD_RE = re.compile(r"(?<!\w)phd")
 
+# Prompt rule 6 softeners, enforced on `what` only — "explore" in a mechanism
+# sentence is commentary, but a softened imperative is slop (PRD §4.4).
+_SOFTENER_RE = re.compile(r"\b(?:consider|explore|look into)\b", re.IGNORECASE)
+
 _FORWARD_MARKERS: tuple[str, ...] = (
     "next role",
     "next employer",
@@ -512,6 +516,17 @@ def _filter_actions(
                 what=action.what[:80],
             )
             _record(_Drop(index, action.what, "ban_phrase", banned, None))
+            continue
+        softener = _SOFTENER_RE.search(action.what)
+        if softener is not None:
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason="softener_phrase",
+                phrase=softener.group(0).lower(),
+                what=action.what[:80],
+            )
+            _record(_Drop(index, action.what, "softener_phrase", softener.group(0).lower(), None))
             continue
         if not verify_quote(action.anchor.quote, redacted_text, section=action.anchor.section):
             emit(

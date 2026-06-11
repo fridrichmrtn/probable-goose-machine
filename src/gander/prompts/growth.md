@@ -20,7 +20,7 @@ Return JSON only, exactly matching this schema:
       "time_horizon_months": <integer 1..24>,
       "mechanism": "<how this action moves the salary needle in CZ-market terms — name the band shift, market signal, or rate-delta concretely>",
       "anchor": {
-        "quote": "<verbatim substring of the CV, >=6 consecutive words, copied character-for-character>",
+        "quote": "<verbatim substring of the CV, >=8 consecutive words, copied character-for-character>",
         "section": "<CV section header the quote sits under, or null>"
       }
     },
@@ -33,7 +33,7 @@ HARD RULES — read carefully, violations cause the action to be dropped:
 1. Every `anchor` MUST reference a specific element from the candidate's CV — a named project, technology, role, employer, or a gap named explicitly in the `components[*].justification`. The anchor proves capability; the `what` must be a forward-looking deliverable, not a request to repeat old work. Generic phrasing that could apply to any CV is non-conformant.
 2. Every `mechanism` MUST explain how the action moves salary in CZ-market terms — name the band shift, market signal, or rate-delta concretely (e.g. "moves you from IC to tech-lead band, which in CZ market adds 30-50k CZK/mo", or "unlocks the senior-platform rate of ~+25% over current midpoint").
 3. `time_horizon_months` MUST be an integer in [1, 24]. Out-of-range values are rejected.
-4. `anchor.quote` MUST be a verbatim substring of `redacted_cv`, at least 6 consecutive words, copied character-for-character. No paraphrasing, no ellipses, no edits.
+4. `anchor.quote` MUST be a verbatim substring of `redacted_cv`, at least 8 consecutive words, copied character-for-character. No paraphrasing, no ellipses, no edits. For `anchor.section`, copy the visible CV section header exactly as printed (do not translate it), or set `section` to null if uncertain.
 5. DO NOT propose any of these banned actions, in any phrasing: "complete a PhD", "found a startup", "improve communication", "learn more", "network more". These are generic non-conformant outputs per PRD §4.4.
 6. DO NOT use softener phrases: "consider", "explore", "look into". Actions must be concrete imperatives — "Lead X", "Ship Y", "Own the Z migration", "Take the on-call rotation for ...".
 7. Every action's `what` MUST point forward. The forward setting is one of: (a) an employer header from `current_employer_hint`, OR (b) a future-role marker phrase ("next role", "next employer", "new role", "future role", "interview", and similar capability-acquisition phrasing aimed at a future move), OR (c) a capability artefact with no employer attached — open-source contribution, certification, paper, side project. An employer name from `closed_employer_hint` MAY appear inside `what` ONLY as past-experience evidence motivating a forward action (e.g. "Use the TD SYNNEX experience to land a next role at a CZ-market data leader") — it MUST NOT be the setting of the action itself (no "Rebuild the X system you owned at TD SYNNEX"). Past-employer evidence is also welcome in `anchor.quote`. If BOTH `current_employer_hint` AND `closed_employer_hint` are empty, treat the top work-experience entry as current.

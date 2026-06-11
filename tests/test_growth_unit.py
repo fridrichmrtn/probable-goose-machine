@@ -8,6 +8,7 @@ import pytest
 import gander.growth as growth_mod
 from gander.errors import StageFailure
 from gander.growth import (
+    _SOFTENER_RE,
     _build_user_message,
     _check_ban_phrase,
     _GrowthList,
@@ -962,6 +963,68 @@ def test_ban_phrase_still_catches_phd_variants(what: str) -> None:
         quote=_QUOTE_FRAUD,
     )
     assert _check_ban_phrase(action) == "phd"
+
+
+@pytest.mark.fast
+def test_softener_regex_respects_word_boundaries() -> None:
+    assert _SOFTENER_RE.search("Deliver considerable cost savings on the pipeline") is None
+    assert _SOFTENER_RE.search("Considering the migration scope, ship phase one") is None
+    assert _SOFTENER_RE.search("Look into Kafka exactly-once semantics") is not None
+    assert _SOFTENER_RE.search("Explore the pricing API integration") is not None
+    assert _SOFTENER_RE.search("You should consider a platform move") is not None
+
+
+@pytest.mark.fast
+async def test_plan_growth_drops_softener_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what="Explore managed Kafka offerings for the stream-processing layer",
+                mechanism="platform modernization signals the senior-platform band in CZ",
+                quote=_QUOTE_FRAUD,
+            ),
+            *_five_verified_actions()[:3],
+        ]
+    )
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await plan_growth(
+            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
+        )
+
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert all("Explore" not in a.what for a in result)
+
+    drop_evt = next(
+        e
+        for e in events
+        if e["event"] == "growth_action_dropped" and e["reason"] == "softener_phrase"
+    )
+    assert drop_evt["stage"] == "growth"
+    assert drop_evt["phrase"] == "explore"
+    assert drop_evt["what"].startswith("Explore managed Kafka")
+
+
+@pytest.mark.fast
+def test_growth_prompt_states_eight_word_anchor_floor() -> None:
+    # The prompt must not promise a weaker floor than verify_quote enforces:
+    # quotes under 8 words hit the exactly-once (6-7) or auto-reject (<6) rules.
+    prompt = growth_mod._SYSTEM_PROMPT
+    assert ">=8 consecutive words" in prompt
+    assert "at least 8 consecutive words" in prompt
+    assert "6 consecutive words" not in prompt
+    assert "do not translate it" in prompt
 
 
 def _five_verified_actions() -> list[GrowthAction]:
