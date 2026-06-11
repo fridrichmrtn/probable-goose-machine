@@ -64,38 +64,6 @@ _PHD_RE = re.compile(r"(?<!\w)phd")
 # sentence is commentary, but a softened imperative is slop (PRD §4.4).
 _SOFTENER_RE = re.compile(r"\b(?:consider|explore|look into)\b", re.IGNORECASE)
 
-_FORWARD_MARKERS: tuple[str, ...] = (
-    "next role",
-    "next employer",
-    "next position",
-    "new role",
-    "new employer",
-    "new position",
-    "future role",
-    "interview",
-    "land a role",
-    "land a job",
-    "job hunt",
-    "open source",
-    "open-source",
-    "certification",
-    "certificate",
-    "certify",
-    "certified",
-    "paper",
-    "publish",
-    "publication",
-    "side project",
-    "side-project",
-)
-
-# Word-boundary match: "oss" must not match inside "across"/"loss",
-# "paper" must not match inside "whitepaper"/"newspaper".
-_FORWARD_MARKER_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(m) for m in _FORWARD_MARKERS) + r")\b",
-    flags=re.IGNORECASE,
-)
-
 _BOILERPLATE_JACCARD_THRESHOLD = 0.6
 # Baseline lives inside the package so a wheel install keeps the smoke check wired.
 # T17 owns the contents (writes the file after acceptance tests run); the runtime
@@ -240,198 +208,25 @@ def _normalize_for_match(text: str) -> str:
     return " ".join(stripped.split())
 
 
-_COMPANY_STOPWORDS: frozenset[str] = frozenset(
-    {
-        "manager",
-        "senior",
-        "junior",
-        "lead",
-        "principal",
-        "staff",
-        "engineer",
-        "scientist",
-        "analyst",
-        "director",
-        "data",
-        "ai",
-        "science",
-        "research",
-        "platform",
-        "software",
-        "head",
-        "of",
-        "and",
-        "the",
-        "member",
-        # Employer-descriptor / contract-shape words that aren't a company
-        # name. Without these, "Research Engineer — Independent" emits the
-        # candidate "independent", and an action mentioning "independent
-        # contractor" would falsely satisfy the current-employer bypass.
-        "independent",
-        "freelance",
-        "freelancer",
-        "contract",
-        "contractor",
-        "consultant",
-        "consulting",
-        "remote",
-        "onsite",
-        "hybrid",
-        "self",
-        "employed",
-        "current",
-        "present",
-        # Common legal/entity suffixes that survive normalization but don't
-        # discriminate (Alza.cz a.s., Acme Inc., Foo LLC, …).
-        "inc",
-        "llc",
-        "ltd",
-        "corp",
-        "gmbh",
-        "spol",
-        "sro",
-        "kft",
-        # Location tokens common in CZ employer headers ("O2 Czech Republic",
-        # "Prague, Czech Republic"). A location is never the company-name
-        # evidence an action should be matched on.
-        "czech",
-        "republic",
-        "prague",
-        "praha",
-        "brno",
-        "ostrava",
-    }
-)
+def _setting_violation(action: GrowthAction, current_employers: list[str]) -> str | None:
+    """Validate the model's declared setting instead of keyword-guessing.
 
-# Legal-entity suffixes qualify a header part as company-shaped but are NEVER
-# emitted as match candidates — "a.s." hitting another company's suffix is a
-# real false-positive vector. Compared against normalized, edge-stripped tokens.
-_LEGAL_SUFFIXES: frozenset[str] = frozenset(
-    {
-        "a.s",
-        "s.r.o",
-        "sro",
-        "spol",
-        "k.s",
-        "v.o.s",
-        "b.v",
-        "n.v",
-        "inc",
-        "llc",
-        "ltd",
-        "corp",
-        "corporation",
-        "gmbh",
-        "plc",
-        "kft",
-    }
-)
-
-
-def _token_in(needle: str, haystack: str) -> bool:
-    """Word-boundary match for single-token candidates, substring for phrases.
-
-    Bare substring (`needle in haystack`) lets short tokens like "inc" match
-    inside "increase" and "oss" match inside "across". Multi-word candidates
-    (after `_normalize_for_match` collapses whitespace, the candidate retains
-    spaces only when it was a multi-word header part) keep substring
-    semantics — false-positive risk is low and word boundaries get muddled
-    by internal punctuation like "alza.cz a.s.".
+    Only `current_employer` declarations are checkable: the target must
+    fuzzy-match a current-employer hint (normalized substring, either
+    direction). `future_role` / `capability_artifact` have no employer to
+    verify. With no hints the check is skipped — same as the old gate, and
+    the `growth_employer_hints` event keeps that state observable.
     """
-    if not needle:
-        return False
-    if " " in needle:
-        return needle in haystack
-    pattern = re.compile(rf"(?<!\w){re.escape(needle)}(?!\w)")
-    return bool(pattern.search(haystack))
-
-
-def _employer_match_candidates(header: str) -> list[str]:
-    # An EmployerEntry.header is "Title — Company"; an action's `what` rarely
-    # quotes the full header. Only company-shaped parts may emit candidates:
-    # title parts ("Lead Data Scientist") and location parts ("Prague, Czech
-    # Republic") used to leak tokens that false-matched ordinary action text.
-    # Shape evidence is inspected on the ORIGINAL case — all-caps detection is
-    # impossible after `_normalize_for_match` lowercases.
-    candidates: list[str] = []
-    seen: set[str] = set()
-
-    def _add(candidate: str) -> None:
-        if candidate and candidate not in seen:
-            seen.add(candidate)
-            candidates.append(candidate)
-
-    for part in re.split(r"\s+[-–—]\s+", header):
-        tokens = [t for t in (tok.strip(".,;:") for tok in part.split()) if t]
-        if not tokens:
-            continue
-        normalized_tokens = [_normalize_for_match(t) for t in tokens]
-        has_shape_evidence = False
-        has_stopword = False
-        for original, norm in zip(tokens, normalized_tokens, strict=True):
-            if norm in _COMPANY_STOPWORDS:
-                has_stopword = True
-            if (
-                norm in _LEGAL_SUFFIXES
-                or "." in norm
-                or any(ch.isdigit() for ch in norm)
-                or (
-                    len(original) >= 2
-                    and original.isalpha()
-                    and original.isupper()
-                    and norm not in _COMPANY_STOPWORDS
-                )
-            ):
-                has_shape_evidence = True
-        # Qualify on shape evidence (legal suffix, digit/dot token, all-caps
-        # token) or on the zero-stopword catch-all that keeps plain-name
-        # companies ("Stealth Mode Startup", bare "Alza") while excluding
-        # all-stopword title and location parts.
-        if not has_shape_evidence and has_stopword:
-            continue
-        normalized_part = _normalize_for_match(part)
-        if " " in normalized_part and len(normalized_part) >= 4:
-            _add(normalized_part)
-        for original, norm in zip(tokens, normalized_tokens, strict=True):
-            if norm in _COMPANY_STOPWORDS or norm in _LEGAL_SUFFIXES:
-                continue
-            dotted_or_digit = "." in norm or any(ch.isdigit() for ch in norm)
-            all_caps = len(original) >= 2 and original.isalpha() and original.isupper()
-            if (len(norm) >= 2 and (dotted_or_digit or all_caps)) or len(norm) >= 3:
-                _add(norm)
-            if "." in norm:
-                for sub in norm.split("."):
-                    if len(sub) >= 3 and sub not in _COMPANY_STOPWORDS:
-                        _add(sub)
-    return candidates
-
-
-def _violates_forward_setting(
-    action: GrowthAction,
-    current_employers: list[str],
-    closed_employers: list[str],
-) -> str | None:
-    what = _normalize_for_match(action.what)
-    # A token appearing in any CURRENT entry can never count as a closed hit:
-    # same-company promotions ("Data Scientist — CSOB" → "Senior Data
-    # Scientist — CSOB") share every company token, and the old direction of
-    # this exclusion made the current-employer rescue unreachable for them.
-    current_candidates = {c for h in current_employers for c in _employer_match_candidates(h)}
-    closed_candidates = [
-        c
-        for h in closed_employers
-        for c in _employer_match_candidates(h)
-        if c not in current_candidates
-    ]
-    closed_hits = [c for c in closed_candidates if _token_in(c, what)]
-    if not closed_hits:
+    if action.setting != "current_employer" or not current_employers:
         return None
-    if _FORWARD_MARKER_RE.search(what):
-        return None
-    current_hits = [c for c in current_candidates if _token_in(c, what)]
-    if current_hits:
-        return None
-    return "forward_setting_targets_closed_employer:" + closed_hits[0][:40]
+    if not action.target_employer:
+        return "missing_target"
+    target = _normalize_for_match(action.target_employer)
+    for header in current_employers:
+        hint = _normalize_for_match(header)
+        if target in hint or hint in target:
+            return None
+    return action.target_employer[:40]
 
 
 def _compute_employer_hints(redacted: RedactedCV, profile: Profile) -> tuple[list[str], list[str]]:
@@ -494,7 +289,8 @@ def _build_user_message(
 class _Drop(NamedTuple):
     idx: int
     what: str
-    reason: str  # "ban_phrase" | "unverified_anchor" | "closed_employer_setting"
+    # "ban_phrase" | "softener_phrase" | "unverified_anchor" | "unverified_target_employer"
+    reason: str
     detail: str | None  # matched phrase / employer token
     quote: str | None  # rejected anchor quote, unverified_anchor only
 
@@ -510,7 +306,6 @@ def _filter_actions(
     actions: list[GrowthAction],
     redacted_text: str,
     current_employers: list[str],
-    closed_employers: list[str],
 ) -> tuple[list[GrowthAction], list[_Drop], dict[str, int]]:
     survivors: list[GrowthAction] = []
     drops: list[_Drop] = []
@@ -553,16 +348,18 @@ def _filter_actions(
             )
             _record(_Drop(index, action.what, "unverified_anchor", None, action.anchor.quote))
             continue
-        forward_violation = _violates_forward_setting(action, current_employers, closed_employers)
-        if forward_violation is not None:
+        setting_violation = _setting_violation(action, current_employers)
+        if setting_violation is not None:
             emit(
                 "growth",
                 "growth_action_dropped",
-                reason="closed_employer_setting",
+                reason="unverified_target_employer",
                 what=action.what[:80],
-                detail=forward_violation,
+                detail=setting_violation,
             )
-            _record(_Drop(index, action.what, "closed_employer_setting", forward_violation, None))
+            _record(
+                _Drop(index, action.what, "unverified_target_employer", setting_violation, None)
+            )
             continue
         survivors.append(action)
     return survivors, drops, drop_reasons
@@ -574,6 +371,7 @@ def _build_retry_user_message(
     kept: list[GrowthAction],
     drops: list[_Drop],
     needed: int,
+    current_employers: list[str],
 ) -> str:
     lines = [base_user_message, ""]
     if kept:
@@ -591,6 +389,14 @@ def _build_retry_user_message(
                     f'  The anchor quote "{drop.quote}" was not found verbatim in '
                     "redacted_cv. Copy at least 8 consecutive words "
                     "character-for-character from one CV section."
+                )
+            elif drop.reason == "unverified_target_employer":
+                declared = "null" if drop.detail == "missing_target" else drop.detail
+                hints = ", ".join(current_employers) if current_employers else "none"
+                lines.append(
+                    f'  Declared target_employer "{declared}" does not match the '
+                    f"current-employer hint(s): {hints}. Copy the employer verbatim from "
+                    'the hint, or use setting "future_role" or "capability_artifact".'
                 )
             elif drop.detail:
                 lines.append(f"  Matched: {drop.detail}")
@@ -693,7 +499,7 @@ async def plan_growth(
                     )
 
                 attempt_survivors, drops, drop_reasons = _filter_actions(
-                    raw.actions, redacted.text, current_hint, closed_hint
+                    raw.actions, redacted.text, current_hint
                 )
                 for action in attempt_survivors:
                     pool.setdefault(_action_key(action), action)
@@ -727,6 +533,7 @@ async def plan_growth(
                         kept=list(pool.values()),
                         drops=drops,
                         needed=3 - len(pool),
+                        current_employers=current_hint,
                     )
 
             survivors = list(pool.values())

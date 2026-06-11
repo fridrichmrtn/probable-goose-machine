@@ -73,6 +73,7 @@ def _growth() -> list[GrowthAction]:
             what="learn rust",
             time_horizon_months=6,
             mechanism="ship a small CLI",
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         )
     ]
@@ -158,6 +159,7 @@ def test_growth_action_rejects_out_of_range_months() -> None:
         what="x",
         time_horizon_months=12,
         mechanism="y",
+        setting="capability_artifact",
         anchor=Anchor(quote="z"),
     )
     with pytest.raises(ValidationError):
@@ -165,6 +167,7 @@ def test_growth_action_rejects_out_of_range_months() -> None:
             what="x",
             time_horizon_months=0,
             mechanism="y",
+            setting="capability_artifact",
             anchor=Anchor(quote="z"),
         )
     with pytest.raises(ValidationError):
@@ -172,6 +175,7 @@ def test_growth_action_rejects_out_of_range_months() -> None:
             what="x",
             time_horizon_months=25,
             mechanism="y",
+            setting="capability_artifact",
             anchor=Anchor(quote="z"),
         )
 

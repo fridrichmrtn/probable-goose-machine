@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -13,7 +13,7 @@ from gander.growth import (
     _check_ban_phrase,
     _GrowthList,
     _jaccard_4gram,
-    _violates_forward_setting,
+    _setting_violation,
     plan_growth,
 )
 from gander.llm import LLMClient
@@ -123,11 +123,17 @@ def _action(
     quote: str,
     section: str | None = "Work Experience",
     months: int = 9,
+    setting: Literal["current_employer", "future_role", "capability_artifact"] = (
+        "capability_artifact"
+    ),
+    target_employer: str | None = None,
 ) -> GrowthAction:
     return GrowthAction(
         what=what,
         time_horizon_months=months,
         mechanism=mechanism,
+        setting=setting,
+        target_employer=target_employer,
         anchor=Anchor(quote=quote, section=section),
     )
 
@@ -1025,6 +1031,12 @@ def test_growth_prompt_states_eight_word_anchor_floor() -> None:
     assert "at least 8 consecutive words" in prompt
     assert "6 consecutive words" not in prompt
     assert "do not translate it" in prompt
+    # Drift pin between the GrowthAction schema and the prompt: all three
+    # `setting` literals must be spelled out for the model.
+    assert "current_employer" in prompt
+    assert "future_role" in prompt
+    assert "capability_artifact" in prompt
+    assert "target_employer" in prompt
 
 
 def _five_verified_actions() -> list[GrowthAction]:
@@ -1457,345 +1469,77 @@ async def test_unverified_anchor_drop_event_includes_quote(
     assert drop_evt["quote"] == fabricated
 
 
-# --- Workstream C: forward-setting validator ---
+# --- Workstream C: declared-setting validation ---
 
 
-def _make_action(what: str, quote: str = _QUOTE_FRAUD) -> GrowthAction:
+def _setting_action(
+    setting: Literal["current_employer", "future_role", "capability_artifact"],
+    target_employer: str | None,
+    what: str = "Lead the LLM evaluation harness rollout over two quarters",
+) -> GrowthAction:
     return _action(
         what=what,
         mechanism="moves you into the senior-IC band, +20% in CZ market",
-        quote=quote,
+        quote=_QUOTE_FRAUD,
+        setting=setting,
+        target_employer=target_employer,
     )
 
 
 @pytest.mark.fast
-def test_validator_passes_action_targeting_current_employer() -> None:
-    action = _make_action(
-        "Lead the LLM evaluation harness rollout at Stealth Mode Startup over two quarters",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Member of Staff — Stealth Mode Startup"],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is None
+def test_setting_check_passes_matching_current_target() -> None:
+    action = _setting_action("current_employer", "Stealth Mode Startup")
+    assert _setting_violation(action, ["Member of Staff — Stealth Mode Startup"]) is None
 
 
 @pytest.mark.fast
-def test_validator_passes_current_employer_override() -> None:
-    # F25: a closed employer named as evidence is fine when the action's
-    # setting is the current employer — the current-hit override wins.
-    action = _make_action(
-        "Bring the TD SYNNEX pricing playbook to Stealth Mode Startup as a "
-        "quarterly cost-model deliverable",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Member of Staff — Stealth Mode Startup"],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is None
+def test_setting_check_normalizes_accents() -> None:
+    # NFKD accent-strip in _normalize_for_match: "Skoda" must match "Škoda".
+    action = _setting_action("current_employer", "Skoda Auto")
+    assert _setting_violation(action, ["Lead Data Scientist — Škoda Auto a.s."]) is None
 
 
 @pytest.mark.fast
-def test_validator_passes_capability_mode_action_with_no_employer_named() -> None:
-    action = _make_action(
-        "Ship a public benchmark for distributed inference frameworks within six months",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Member of Staff — Stealth Mode Startup"],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is None
+def test_setting_check_drops_non_current_target() -> None:
+    action = _setting_action("current_employer", "TD SYNNEX")
+    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"])
+    assert result == "TD SYNNEX"
 
 
 @pytest.mark.fast
-def test_validator_drops_action_targeting_closed_employer() -> None:
-    action = _make_action("Rebuild the pricing engine you owned at TD SYNNEX")
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Member of Staff — Stealth Mode Startup"],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is not None
-    assert result.startswith("forward_setting_targets_closed_employer")
+def test_setting_check_drops_missing_target() -> None:
+    action = _setting_action("current_employer", None)
+    result = _setting_violation(action, ["Member of Staff — Stealth Mode Startup"])
+    assert result == "missing_target"
 
 
 @pytest.mark.fast
-def test_validator_allows_closed_employer_when_forward_marker_present() -> None:
-    action = _make_action(
-        "Use the TD SYNNEX experience to land a next role at a CZ-market data leader",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Member of Staff — Stealth Mode Startup"],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is None
+def test_setting_check_skipped_when_no_current_hints() -> None:
+    # Mirrors the old gate's fallback: no hints, no employer check. The
+    # growth_employer_hints event keeps this state observable.
+    assert _setting_violation(_setting_action("current_employer", "TD SYNNEX"), []) is None
+    assert _setting_violation(_setting_action("current_employer", None), []) is None
 
 
 @pytest.mark.fast
-def test_validator_does_not_match_oss_inside_loss_or_across() -> None:
-    # Pre-fix the bare substring "oss" sneaked inside "across"/"loss" and
-    # falsely rescued an action targeting a closed employer. "oss" is no
-    # longer a marker, and with word-boundary matching neither "across" nor
-    # "loss" surface any other forward marker either — so this drops.
-    action = _make_action(
-        "Recover the lost contributions from across the TD SYNNEX codebase",
+def test_setting_check_ignores_future_role_and_capability() -> None:
+    # The declaration IS the rescue: a closed employer named in `what` as
+    # past evidence is fine when the action targets a future move or artefact.
+    hints = ["Member of Staff — Stealth Mode Startup"]
+    future = _setting_action(
+        "future_role", None, what="Rebuild the churn model you owned at O2 for the next role"
     )
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Senior Manager — TD SYNNEX"],
+    artefact = _setting_action(
+        "capability_artifact",
+        None,
+        what="Publish the TD SYNNEX pricing case study as an open-source notebook",
     )
-    assert result is not None
-    assert result.startswith("forward_setting_targets_closed_employer")
+    assert _setting_violation(future, hints) is None
+    assert _setting_violation(artefact, hints) is None
 
 
 @pytest.mark.fast
-def test_validator_does_not_match_paper_inside_newspaper() -> None:
-    # "whitepaper" must not light up the "paper" forward marker — the
-    # action still targets closed TD SYNNEX and must drop.
-    action = _make_action(
-        "Document the TD SYNNEX rebuild in a whitepaper for the platform team",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is not None
-    assert result.startswith("forward_setting_targets_closed_employer")
-
-
-@pytest.mark.fast
-def test_validator_matches_certify_verb_form() -> None:
-    action = _make_action(
-        "Certify the migration approach you used at TD SYNNEX before pitching it to the next role",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is None
-
-
-@pytest.mark.fast
-def test_validator_normalizes_accents_for_match() -> None:
-    # Real accent example: the closed header carries "Škoda" but the action
-    # spells the company without the diacritic. NFKD-strip in
-    # `_normalize_for_match` is what makes this match.
-    action = _make_action("Rebuild the procurement pipeline at skoda over the next two quarters")
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Lead Data Scientist — Škoda Auto a.s."],
-    )
-    assert result is not None
-    assert result.startswith("forward_setting_targets_closed_employer")
-
-
-@pytest.mark.fast
-def test_validator_does_not_bypass_via_generic_current_token() -> None:
-    # "Research Engineer — Independent" used to emit the candidate
-    # "independent"; an action that explicitly targets a closed employer
-    # while merely *mentioning* independent work would then slip through.
-    # Generic descriptors are now stopwords, so the closed hit lands.
-    action = _make_action(
-        "Use independent contractor work to rebuild the TD SYNNEX pricing engine",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Research Engineer — Independent"],
-        closed_employers=["Senior Manager — TD SYNNEX"],
-    )
-    assert result is not None
-    assert result.startswith("forward_setting_targets_closed_employer")
-
-
-@pytest.mark.fast
-def test_validator_does_not_match_inc_inside_increase() -> None:
-    # Word-boundary matching means "inc" (a legal suffix that's also a
-    # stopword now) and short tokens generally can't false-match inside
-    # unrelated words. Even without the stopword filter, the word-boundary
-    # guard is what keeps "inc" out of "increase".
-    action = _make_action(
-        "Increase incident response coverage across the platform team next quarter",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Director — Acme Inc"],
-    )
-    # No closed-token boundary hit, so this is not a violation.
-    assert result is None
-
-
-@pytest.mark.fast
-def test_validator_ignores_title_phrase_from_closed_header() -> None:
-    # F1 repro a: "Lead Data Scientist" is a title part, not a company —
-    # it must not emit candidates that hit ordinary action text.
-    action = _make_action(
-        "Step into the lead data scientist track and own the ML platform roadmap",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Member of Staff — Stealth Mode Startup"],
-        closed_employers=["Lead Data Scientist — Alza.cz a.s."],
-    )
-    assert result is None
-
-
-@pytest.mark.fast
-def test_validator_ignores_title_tokens_from_closed_header() -> None:
-    # F1 repro b: "machine"/"learning" tokens from a title part leaked.
-    action = _make_action(
-        "Own the machine learning roadmap for the analytics platform",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Machine Learning Engineer — CSOB"],
-    )
-    assert result is None
-
-
-@pytest.mark.fast
-def test_validator_ignores_location_tokens_from_closed_header() -> None:
-    # F1 repro c: "Czech"/"Republic" location tokens leaked as candidates.
-    action = _make_action(
-        "Mentor two MSc graduates through a Czech university mentoring scheme",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Data Analyst — O2 Czech Republic"],
-    )
-    assert result is None
-
-
-@pytest.mark.fast
-def test_validator_matches_bare_company_subtoken() -> None:
-    # F3 repro a: "at Alza" must hit the dot-split subtoken of "Alza.cz".
-    action = _make_action(
-        "Own and scale the recommendation engine stack you prototyped at Alza",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Member of Staff — Stealth Mode Startup"],
-        closed_employers=["Lead Data Scientist — Alza.cz a.s."],
-    )
-    assert result is not None
-    assert "alza" in result
-
-
-@pytest.mark.fast
-def test_validator_matches_two_char_digit_company() -> None:
-    # F3 repro b: digit-bearing 2-char companies ("O2") must be candidates.
-    action = _make_action(
-        "Rebuild the churn model you owned at O2 with the latest stack",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=[],
-        closed_employers=["Data Analyst — O2"],
-    )
-    assert result is not None
-    assert "o2" in result
-
-
-@pytest.mark.fast
-def test_validator_allows_same_company_promotion() -> None:
-    # F2/F16 repro: a same-company promotion shares every company token
-    # between current and closed entries; the shared token must count as
-    # current, never as closed.
-    action = _make_action(
-        "Lead the fraud platform rollout at CSOB and take the tech-lead slot",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Senior Data Scientist — CSOB"],
-        closed_employers=["Data Scientist — CSOB"],
-    )
-    assert result is None
-
-
-@pytest.mark.fast
-def test_validator_allows_same_company_promotion_dotted() -> None:
-    # F26 verbatim repro: dotted company name shared across both entries.
-    action = _make_action(
-        "Ship the realtime pricing model at Alza.cz within two quarters",
-    )
-    result = _violates_forward_setting(
-        action,
-        current_employers=["Data Lead — Alza.cz"],
-        closed_employers=["Junior Analyst — Alza.cz"],
-    )
-    assert result is None
-
-
-@pytest.mark.fast
-async def test_validator_drop_emits_observability_event(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
-
-    closed_what = "Rebuild the pricing engine you owned at TD SYNNEX over the next year"
-    payload = _GrowthList(
-        actions=[
-            _action(
-                what=closed_what,
-                mechanism="repeating prior work proves capability in CZ tech-lead band",
-                quote=_QUOTE_FRAUD,
-            ),
-            _action(
-                what="Lead the on-prem to cloud migration of the recommendation pipeline you own",
-                mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
-                quote=_QUOTE_MIGRATION,
-            ),
-            _action(
-                what="Own the principal engineer on-call rotation across both production squads",
-                mechanism="on-call ownership lifts base by ~15% plus uplift in CZ market",
-                quote=_QUOTE_ONCALL,
-            ),
-            _action(
-                what="Publish a Kafka stream-processing case study from the European retail team",
-                mechanism="external visibility shifts you into the staff-IC band, +25% in CZ",
-                quote=_QUOTE_FRAUD,
-            ),
-        ]
-    )
-
-    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
-        return payload
-
-    def fake_hints(_redacted: RedactedCV, _profile: Profile) -> tuple[list[str], list[str]]:
-        return [], ["TD SYNNEX"]
-
-    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
-    monkeypatch.setattr(growth_mod, "_compute_employer_hints", fake_hints)
-
-    events: list[dict[str, Any]] = []
-    with subscribe(events.append):
-        result = await plan_growth(
-            _redacted(), _profile(), _score(), salary_midpoint=110000, currency="CZK"
-        )
-
-    assert isinstance(result, list)
-    drop_evt = next(
-        e
-        for e in events
-        if e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
-    )
-    assert drop_evt["stage"] == "growth"
-    assert "synnex" in drop_evt["detail"]
-    assert drop_evt["what"].startswith("Rebuild the pricing engine")
-
-
-@pytest.mark.fast
-async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remaining(
+async def test_plan_growth_drops_unverified_target_employer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
@@ -1806,11 +1550,15 @@ async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remai
                 what="Rebuild the pricing engine you owned at TD SYNNEX over the next year",
                 mechanism="repeating prior work proves capability in CZ tech-lead band",
                 quote=_QUOTE_FRAUD,
+                setting="current_employer",
+                target_employer="TD SYNNEX",
             ),
             _action(
                 what="Lead the on-prem to cloud migration of the recommendation pipeline you own",
                 mechanism="production migration ownership unlocks +20% in CZ tech-lead band",
                 quote=_QUOTE_MIGRATION,
+                setting="current_employer",
+                target_employer="Stealth Mode Startup",
             ),
             _action(
                 what="Own the principal engineer on-call rotation across both production squads",
@@ -1822,12 +1570,6 @@ async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remai
                 mechanism="external visibility shifts you into the staff-IC band, +25% in CZ",
                 quote=_QUOTE_FRAUD,
             ),
-            _action(
-                what="Mentor two graduates through the Czech MSc programme you completed",
-                mechanism="formal mentorship is the tech-lead promotion signal, +30k CZK/mo",
-                quote=_QUOTE_EDUCATION,
-                section="Education",
-            ),
         ]
     )
 
@@ -1835,7 +1577,7 @@ async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remai
         return payload
 
     def fake_hints(_redacted: RedactedCV, _profile: Profile) -> tuple[list[str], list[str]]:
-        return [], ["TD SYNNEX"]
+        return ["Member of Staff — Stealth Mode Startup"], ["Senior Manager — TD SYNNEX"]
 
     monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
     monkeypatch.setattr(growth_mod, "_compute_employer_hints", fake_hints)
@@ -1847,15 +1589,19 @@ async def test_plan_growth_drops_closed_targeted_action_then_succeeds_with_remai
         )
 
     assert isinstance(result, list)
-    assert len(result) == 4
-    assert all("TD SYNNEX" not in a.what for a in result)
+    assert len(result) == 3
+    assert all(a.target_employer != "TD SYNNEX" for a in result)
 
     drop_evts = [
         e
         for e in events
-        if e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
+        if e["event"] == "growth_action_dropped" and e["reason"] == "unverified_target_employer"
     ]
     assert len(drop_evts) == 1
+    evt = drop_evts[0]
+    assert evt["stage"] == "growth"
+    assert evt["detail"] == "TD SYNNEX"
+    assert evt["what"].startswith("Rebuild the pricing engine")
 
 
 @pytest.mark.fast
@@ -1874,6 +1620,8 @@ async def test_plan_growth_keeps_current_employer_override_action(
                 what=override_what,
                 mechanism="cross-employer playbook transfer signals the senior-manager band",
                 quote=_QUOTE_FRAUD,
+                setting="current_employer",
+                target_employer="Stealth Mode Startup",
             ),
             *_five_verified_actions()[:2],
         ]
@@ -1898,7 +1646,7 @@ async def test_plan_growth_keeps_current_employer_override_action(
     assert len(result) == 3
     assert result[0].what == override_what
     assert not any(
-        e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
+        e["event"] == "growth_action_dropped" and e["reason"] == "unverified_target_employer"
         for e in events
     )
 
@@ -1918,6 +1666,8 @@ async def test_plan_growth_keeps_same_company_promotion(
                 what=promotion_what,
                 mechanism="platform ownership at the same employer is the promotion signal",
                 quote=_QUOTE_FRAUD,
+                setting="current_employer",
+                target_employer="Alza.cz",
             ),
             *_five_verified_actions()[:2],
         ]
@@ -1943,7 +1693,7 @@ async def test_plan_growth_keeps_same_company_promotion(
     assert len(result) == 3
     assert result[0].what == promotion_what
     assert not any(
-        e["event"] == "growth_action_dropped" and e["reason"] == "closed_employer_setting"
+        e["event"] == "growth_action_dropped" and e["reason"] == "unverified_target_employer"
         for e in events
     )
 

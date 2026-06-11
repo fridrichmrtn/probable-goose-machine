@@ -87,6 +87,7 @@ def _growth() -> list[GrowthAction]:
             what="learn rust",
             time_horizon_months=6,
             mechanism="ship a CLI",
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         )
     ]

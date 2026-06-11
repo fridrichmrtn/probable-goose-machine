@@ -1,6 +1,6 @@
 # T50 — Growth-stage hardening (review-finding train)
 
-Status: in progress
+Status: done
 Owner: software-engineer
 Depends on: T49 review run (33 confirmed findings F0–F32)
 Unblocks: next live eval run with growth telemetry
@@ -87,8 +87,8 @@ Fixes that are DELETED by commit 5: `_employer_match_candidates` shape rule,
 
 ### Commits 2–5
 
-See `tasks/T50_dev-plan.md` for the full per-commit specification; each
-commit updates this file's Outcome section is filled in at commit 5.
+See `tasks/T50_dev-plan.md` for the full per-commit specification; the
+Outcome section below is filled in at commit 5.
 
 ## Verification
 
@@ -126,4 +126,33 @@ live verification pass (requires `OPENROUTER_API_KEY`).
 
 ## Outcome
 
-(filled in at commit 5)
+Five-commit train landed on `dev/t50-growth-stage-hardening`; each commit left
+pre-commit, mypy strict, and the non-live suite green (modulo the 32-failure
+LFS-pointer environmental baseline, which never grew).
+
+1. Surgical heuristic fixes — timeline `is_current` (present token, open-ended
+   range, end-year ≥ current year), `"phd"` word boundary, company-shaped
+   candidate rule, shared-token inversion (F0, F1, F2, F3, F16, F17, F26).
+2. Retry redesign — cross-attempt survivor pooling keyed on normalized
+   what+quote; degraded 1–2-action partial result with `growth_degraded`
+   instead of StageFailure; `growth_attempt_error` keeps a failed top-up call
+   from discarding pooled survivors (F6, F8, F18, F29). Deviation from the
+   plan, by orchestrator decision: an attempt-2 LLM error with a non-empty
+   pool degrades instead of failing; StageFailure is reserved for attempt-1
+   errors and a zero pool.
+3. Prompt alignment (8-word anchor floor, verbatim section-header guidance) +
+   `_SOFTENER_RE` enforcement with `softener_phrase` drops (F7, F11, F13, F32).
+4. Measurement — `growth_employer_hints` event, drop-event quote payloads,
+   eval growth telemetry (GrowthStats, SUMMARY columns, 25% failure-rate exit
+   gate), e2e pins for override/promotion keeps (F14, F20, F24, F25, F27, F29).
+5. Plan B — `GrowthAction.setting` (required literal) + `target_employer`;
+   `_setting_violation` validates the model's declaration
+   (`unverified_target_employer` drops); the keyword machinery
+   (`_FORWARD_MARKERS`, `_COMPANY_STOPWORDS`, `_employer_match_candidates`,
+   `_violates_forward_setting`, …) deleted; prompt schema/rule-7/examples
+   rewritten with all three settings; validator tests re-expressed as
+   declared-setting tests (F19, T39's deferred design).
+
+Not verified here: live acceptance and `scripts/eval_corpus.py` against real
+model output (needs `OPENROUTER_API_KEY`) — Gemini actually emitting
+`setting`/`target_employer` is gated on that run.

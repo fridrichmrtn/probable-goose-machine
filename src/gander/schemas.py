@@ -169,6 +169,13 @@ class GrowthAction(BaseModel):
     what: str
     time_horizon_months: int = Field(ge=1, le=24)
     mechanism: str
+    # The model declares where the action happens; the growth stage validates
+    # the declaration instead of keyword-guessing employers out of `what`.
+    # Required on purpose — complete_json's validation retry self-heals a model
+    # that omits it. `target_employer` is checked against the current-employer
+    # hints only when setting is "current_employer".
+    setting: Literal["current_employer", "future_role", "capability_artifact"]
+    target_employer: str | None = None
     anchor: Anchor
 
 

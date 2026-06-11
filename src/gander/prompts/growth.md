@@ -19,6 +19,8 @@ Return JSON only, exactly matching this schema:
       "what": "<imperative sentence — what the candidate will do, anchored to a specific CV element>",
       "time_horizon_months": <integer 1..24>,
       "mechanism": "<how this action moves the salary needle in CZ-market terms — name the band shift, market signal, or rate-delta concretely>",
+      "setting": "<one of: current_employer | future_role | capability_artifact — where the action happens>",
+      "target_employer": "<copy the employer verbatim from current_employer_hint when setting is current_employer; otherwise null>",
       "anchor": {
         "quote": "<verbatim substring of the CV, >=8 consecutive words, copied character-for-character>",
         "section": "<CV section header the quote sits under, or null>"
@@ -36,12 +38,16 @@ HARD RULES — read carefully, violations cause the action to be dropped:
 4. `anchor.quote` MUST be a verbatim substring of `redacted_cv`, at least 8 consecutive words, copied character-for-character. No paraphrasing, no ellipses, no edits. For `anchor.section`, copy the visible CV section header exactly as printed (do not translate it), or set `section` to null if uncertain.
 5. DO NOT propose any of these banned actions, in any phrasing: "complete a PhD", "found a startup", "improve communication", "learn more", "network more". These are generic non-conformant outputs per PRD §4.4.
 6. DO NOT use softener phrases: "consider", "explore", "look into". Actions must be concrete imperatives — "Lead X", "Ship Y", "Own the Z migration", "Take the on-call rotation for ...".
-7. Every action's `what` MUST point forward. The forward setting is one of: (a) an employer header from `current_employer_hint`, OR (b) a future-role marker phrase ("next role", "next employer", "new role", "future role", "interview", and similar capability-acquisition phrasing aimed at a future move), OR (c) a capability artefact with no employer attached — open-source contribution, certification, paper, side project. An employer name from `closed_employer_hint` MAY appear inside `what` ONLY as past-experience evidence motivating a forward action (e.g. "Use the TD SYNNEX experience to land a next role at a CZ-market data leader") — it MUST NOT be the setting of the action itself (no "Rebuild the X system you owned at TD SYNNEX"). Past-employer evidence is also welcome in `anchor.quote`. If BOTH `current_employer_hint` AND `closed_employer_hint` are empty, treat the top work-experience entry as current.
+7. Every action MUST declare where it happens via `setting`:
+   - `"current_employer"` — the action happens at the candidate's current job. `target_employer` MUST be copied verbatim from an entry in `current_employer_hint`; a `target_employer` that does not match the hint causes the action to be dropped.
+   - `"future_role"` — the action targets a next role, next employer, interview, or future move. Set `target_employer` to null.
+   - `"capability_artifact"` — a capability artefact with no employer attached: open-source contribution, certification, paper, side project. Set `target_employer` to null.
+   An employer from `closed_employer_hint` MAY appear inside `what` ONLY as past-experience evidence motivating a forward action (e.g. "Use the TD SYNNEX experience to land a next role at a CZ-market data leader"), with `setting` `"future_role"` or `"capability_artifact"` — a closed employer is never where the action happens (no "Rebuild the X system you owned at TD SYNNEX"). Past-employer evidence is also welcome in `anchor.quote`. If `current_employer_hint` is empty, prefer `"future_role"` or `"capability_artifact"`.
 8. If `dropped_components` is non-empty or any component has `score_0_100 < 60`, at least one action MUST address that dropped/weak area. Its anchor may show adjacent capability, but the `what` must name the new capability, platform move, or evidence gap to close. If there are no dropped or weak components, skip this requirement.
 
 One-shot example (anchored to a fabricated mini-CV snippet so no real candidate content leaks):
 
-Suppose `redacted_cv` contains the line:
+Suppose `current_employer_hint` is ["Senior ML Engineer — Acme Retail s.r.o."] and `redacted_cv` contains the line:
 "## Work Experience
 Built a fraud-detection service using PyTorch and Kafka stream processing for the European retail team."
 
@@ -50,33 +56,51 @@ Bad action (banned, generic):
   "what": "learn more about cloud platforms",
   "time_horizon_months": 12,
   "mechanism": "improves your profile",
+  "setting": "capability_artifact",
+  "target_employer": null,
   "anchor": {"quote": "Built a fraud-detection service", "section": "Work Experience"}
 }
 
-Good action (CV-specific, concrete mechanism, verifiable anchor):
+Good action (CV-specific, concrete mechanism, verifiable anchor, employer copied from the hint):
 {
   "what": "Lead the on-prem-to-AWS migration of the fraud-detection service you currently own — drive the rollout plan, run the SRE post-mortem, and document the cost model.",
   "time_horizon_months": 9,
   "mechanism": "Owning a production migration of a revenue-critical service is the canonical promotion signal in the CZ market; it moves an IC into the tech-lead band and unlocks roughly a +20% step on base, plus on-call uplift.",
+  "setting": "current_employer",
+  "target_employer": "Acme Retail s.r.o.",
   "anchor": {
     "quote": "Built a fraud-detection service using PyTorch and Kafka stream processing for the European retail team",
     "section": "Work Experience"
   }
 }
 
-Bad action (targets a stale past-employer system):
+Bad action (declares current_employer but names an employer not in the hint):
 {
-  "what": "Rebuild and scale the recommender you shipped for a prior retail employer.",
+  "what": "Rebuild and scale the recommender you shipped at Beta Commerce a.s.",
   "time_horizon_months": 9,
   "mechanism": "repeating a past project proves impact",
+  "setting": "current_employer",
+  "target_employer": "Beta Commerce a.s.",
   "anchor": {"quote": "Built a fraud-detection service using PyTorch and Kafka stream processing for the European retail team", "section": "Work Experience"}
 }
 
-Good action (uses past evidence, aims at current/future work):
+Good action (uses past evidence, aims at a future move):
 {
-  "what": "Stand up an LLM evaluation harness at the current role, using the same production-ownership discipline you showed on the fraud-detection service.",
+  "what": "Use the production fraud-detection ownership as the headline case study to land a senior-platform role at a CZ-market data leader — prepare the system-design narrative and interview portfolio around it.",
   "time_horizon_months": 6,
-  "mechanism": "owning model-evaluation infrastructure is a senior-platform signal in the CZ market and supports a move into the lead/staff compensation band.",
+  "mechanism": "switching employers at the senior-platform band is the fastest CZ-market salary step, typically +25-35% over current midpoint.",
+  "setting": "future_role",
+  "target_employer": null,
+  "anchor": {"quote": "Built a fraud-detection service using PyTorch and Kafka stream processing for the European retail team", "section": "Work Experience"}
+}
+
+Good action (capability artefact, no employer attached):
+{
+  "what": "Publish an open-source Kafka-to-feature-store streaming template extracted from the fraud-detection work, with benchmarks and a write-up.",
+  "time_horizon_months": 4,
+  "mechanism": "a public production-grade artefact is a verifiable seniority signal in CZ-market hiring and supports negotiating at the upper bound of the senior band.",
+  "setting": "capability_artifact",
+  "target_employer": null,
   "anchor": {"quote": "Built a fraud-detection service using PyTorch and Kafka stream processing for the European retail team", "section": "Work Experience"}
 }
 
