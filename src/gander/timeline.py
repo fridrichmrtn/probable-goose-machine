@@ -77,6 +77,20 @@ def _clean_header_line(line: str) -> str:
     return s.strip()
 
 
+_LONE_YEAR_SEGMENT_RE: Final = re.compile(r"^\s*(?:\[YEAR\]|(?:19|20)\d{2})\s*$")
+
+
+def _starts_new_stint(prefix: str) -> bool:
+    """A dash after ", 2019" opens a second stint on a rehire line
+    ("2014 - 2016, 2019 - 2026"): the text after the last list separator is
+    a lone year token. Parenthesised commas stay annotations ("(maternity
+    leave, 2021 - 2022)") — an open paren in the prefix disqualifies."""
+    if prefix.count("(") != prefix.count(")"):
+        return False
+    segment = re.split(r"[,;]", prefix)[-1]
+    return bool(_LONE_YEAR_SEGMENT_RE.match(segment))
+
+
 def _is_current_range(right_of_dash: str) -> bool:
     if _PRESENT_TOKEN_RE.search(_normalize(right_of_dash)):
         return True
@@ -89,13 +103,14 @@ def _is_current_range(right_of_dash: str) -> bool:
     # dash — unless the suffix is empty (open-ended "2022 -"). A prefix
     # holding two or more year tokens means the endpoint already passed and
     # the dash sits inside annotation text ("2018 - 2026 (parental leave
-    # 2020 - 2021)") — never re-anchor into it.
+    # 2020 - 2021)") — never re-anchor into it, except when the dash opens
+    # a new stint on a rehire line ("2014 - 2016, 2019 - 2026").
     endpoint = right_of_dash
     for dash in _DASH_RE.finditer(right_of_dash):
         prefix = right_of_dash[: dash.start()]
         if not _ENDS_WITH_YEAR_SHAPED_RE.search(prefix):
             continue
-        if len(_YEAR_SHAPED_RE.findall(prefix)) != 1:
+        if len(_YEAR_SHAPED_RE.findall(prefix)) != 1 and not _starts_new_stint(prefix):
             continue
         suffix = right_of_dash[dash.end() :]
         if not suffix.strip() or _YEAR_SHAPED_RE.search(suffix):

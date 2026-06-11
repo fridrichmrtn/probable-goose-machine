@@ -278,15 +278,16 @@ def _setting_violation(
     normalized = _normalize_for_match(action.target_employer)
     if sum(c.isalnum() for c in normalized) >= 2:
         target_tokens = normalized.split()
+        current_segments = _hint_segments(current_employers)
         # Token equality with a current segment exempts the verbatim guard:
         # rehires carry the same header in both lists, and a company-only
         # closed header ("Alza.cz") equals the company segment of the current
         # one — both name a place the candidate provably works now.
-        if not any(target_tokens == seg for seg in _hint_segments(current_employers)) and any(
+        if not any(target_tokens == seg for seg in current_segments) and any(
             target_tokens == _normalize_for_match(header).split() for header in closed_employers
         ):
             return ("closed_employer_target", detail)
-        if any(_tokens_match(target_tokens, seg) for seg in _hint_segments(current_employers)):
+        if any(_tokens_match(target_tokens, seg) for seg in current_segments):
             return None
         if any(_tokens_match(target_tokens, seg) for seg in _hint_segments(closed_employers)):
             return ("closed_employer_target", detail)

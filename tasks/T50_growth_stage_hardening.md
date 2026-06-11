@@ -221,3 +221,13 @@ re-anchors when its prefix holds exactly one year token; and the
 verbatim-closed-header guard dropped rehire and company-only-closed-header
 targets unrecoverably — token equality with a current segment now exempts
 the guard.
+
+A third (final) verification pass caught one more endpoint regression:
+multi-stint rehire lines ("2014 - 2016, 2019 - 2026") read closed because
+the second stint's dash was treated as annotation. A dash now also
+re-anchors when the text after the last list separator is a lone year token
+with balanced parens in the prefix — parenthesised commas
+("(maternity leave, 2021 - 2022)") stay annotations. Self-heal budget
+(three iterations) is now exhausted; the residual accepted ambiguity is the
+dash-joined annotation pathology ("2018 - 2021 - extension 2026" reads
+current), pinned nowhere and listed in the backlog.

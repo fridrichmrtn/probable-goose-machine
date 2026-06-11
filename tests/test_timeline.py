@@ -86,6 +86,14 @@ def test_scan_marks_current_when_end_year_in_future() -> None:
         (f"2018 - {date.today().year} (parental leave 2020 - 2021)", True),
         (f"2019 — {date.today().year}, sabbatical 2021 - 2022", True),
         ("2012 - 2015 (parental leave 2013 - 2014)", False),
+        # A lone year after a comma opens a second stint on a rehire line —
+        # the dash after it is a range dash, not annotation text.
+        (f"2014 - 2016, 2019 - {date.today().year}", True),
+        (f"Acme — 2014 — 2016, 2019 — {date.today().year}", True),
+        ("Acme — 2014 — 2016, 2019 —", True),
+        ("2010 - 2012, 2014 - 2016", False),
+        # ...but a parenthesised comma stays an annotation.
+        (f"2019 — {date.today().year} (maternity leave, 2021 - 2022)", True),
     ],
 )
 def test_scan_compound_header_range_lines(date_line: str, expected_current: bool) -> None:

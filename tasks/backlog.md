@@ -406,3 +406,8 @@ Deferred from the PR #39 review-fix round:
 - src/gander/growth.py — degraded and stage_failure emits still report only
   the last attempt's `returned`/`drop_reasons`; attempt-1 drop history is
   invisible when attempt 2 returns an empty list. Aggregate across attempts.
+- src/gander/timeline.py — accepted endpoint pathologies: dash-joined
+  annotations ("2018 - 2021 - extension 2026") and unparenthesised
+  comma-year annotations ("2019 - 2026, maternity leave, 2021 - 2022")
+  are string-indistinguishable from multi-dash ranges / rehire stints and
+  resolve in the range's favor. Revisit only if live fixtures surface them.
