@@ -106,17 +106,56 @@ def test_summarize_growth_ok_degraded_failed() -> None:
     assert missing.status == "failed"
 
 
-def test_summarize_growth_marks_upstream_cascade_as_skipped() -> None:
+def _pipeline_growth_cascade_messages() -> list[str]:
+    from gander import pipeline
+
+    return [
+        pipeline._CASCADE_PROFILE_FAILED["growth"],
+        pipeline._GROWTH_NO_BASELINE,
+        pipeline._GROWTH_NEEDS_SCORE,
+        pipeline._GROWTH_NEEDS_SALARY,
+    ]
+
+
+@pytest.mark.parametrize("message", _pipeline_growth_cascade_messages())
+def test_summarize_growth_marks_upstream_cascade_as_skipped(message: str) -> None:
     from types import SimpleNamespace
 
     from gander.errors import StageFailure
 
-    cascade = StageFailure(
-        stage="growth",
-        user_message="Cannot generate growth plan without scoring or salary baseline.",
-    )
+    cascade = StageFailure(stage="growth", user_message=message)
     stats = eval_corpus._summarize_growth(SimpleNamespace(growth=cascade), [])
     assert stats.status == "skipped"
+
+
+def test_summarize_growth_marks_ingest_cascade_as_skipped() -> None:
+    # Ingest/redact cascades carry no growth-cascade prefix, but profile also
+    # failed — growth provably never ran, so the row must not blame growth.
+    from types import SimpleNamespace
+
+    from gander.errors import StageFailure
+
+    report = SimpleNamespace(
+        growth=StageFailure(stage="growth", user_message="Cannot run without successful ingest."),
+        profile=StageFailure(stage="extract", user_message="Could not parse this CV"),
+    )
+    stats = eval_corpus._summarize_growth(report, [])
+    assert stats.status == "skipped"
+
+
+def test_summarize_growth_genuine_failure_with_profile_ok_stays_failed() -> None:
+    from types import SimpleNamespace
+
+    from gander.errors import StageFailure
+
+    report = SimpleNamespace(
+        growth=StageFailure(
+            stage="growth", user_message="Could not generate this section reliably"
+        ),
+        profile=SimpleNamespace(experience=[]),
+    )
+    stats = eval_corpus._summarize_growth(report, [])
+    assert stats.status == "failed"
 
 
 def test_summarize_growth_captures_attempt_errors_and_failure_reason() -> None:

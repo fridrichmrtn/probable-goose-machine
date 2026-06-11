@@ -27,7 +27,9 @@ from gander.tenure import (
 _YEAR_MARKER_RE: Final = re.compile(r"\[YEAR\]")
 _BARE_YEAR_RE: Final = re.compile(r"\b(?:19|20)\d{2}\b")
 _YEAR_SHAPED_RE: Final = re.compile(r"\[YEAR\]|\b(?:19|20)\d{2}\b")
+_ENDS_WITH_YEAR_SHAPED_RE: Final = re.compile(r"(?:\[YEAR\]|\b(?:19|20)\d{2})\s*$")
 _DASH_CHARS: Final = ("—", "–", "-")
+_DASH_RE: Final = re.compile("|".join(re.escape(d) for d in _DASH_CHARS))
 _BULLET_GLYPHS: Final = ("-", "*", "•", "–", "—")
 
 _PRESENT_ALT: Final = "|".join(
@@ -78,16 +80,30 @@ def _clean_header_line(line: str) -> str:
 def _is_current_range(right_of_dash: str) -> bool:
     if _PRESENT_TOKEN_RE.search(_normalize(right_of_dash)):
         return True
-    # Open-ended range ("2022 -", "[YEAR] -"): nothing after the dash means
-    # the role has no recorded end.
-    if not right_of_dash.strip():
+    # The RHS comes from _split_on_first_dash, so compound one-line entries
+    # ("Berry s.r.o. — 2022 — 2026") leave the range START inside it. The
+    # endpoint region is the text after the LAST dash preceded by a
+    # year-shaped token; with no such dash, the whole RHS is the endpoint.
+    # A year-preceded dash whose suffix has no year-shaped token is a
+    # trailing modifier separator ("2024 - 2026 - Remote"), not the range
+    # dash — unless the suffix is empty (open-ended "2022 -").
+    endpoint = right_of_dash
+    for dash in _DASH_RE.finditer(right_of_dash):
+        if not _ENDS_WITH_YEAR_SHAPED_RE.search(right_of_dash[: dash.start()]):
+            continue
+        suffix = right_of_dash[dash.end() :]
+        if not suffix.strip() or _YEAR_SHAPED_RE.search(suffix):
+            endpoint = suffix
+    # Open-ended range ("2022 -", "Company — [YEAR] -"): nothing after the
+    # closing dash means the role has no recorded end.
+    if not endpoint.strip():
         return True
-    # Only the FIRST year-shaped token is the range endpoint. Later bare years
-    # are annotations ("2018 - 2021 (extension option 2026)" — annotation
-    # years survive redaction because redact.py masks years only in
-    # range-shaped contexts) and must not flip a closed entry to current.
-    # A redacted endpoint ("[YEAR]") is unknown → treat as closed.
-    first = _YEAR_SHAPED_RE.search(right_of_dash)
+    # Only the FIRST year-shaped token in the endpoint region is the range
+    # end. Later bare years are annotations ("2018 - 2021 (extension option
+    # 2026)" — annotation years survive redaction because redact.py masks
+    # years only in range-shaped contexts) and must not flip a closed entry
+    # to current. A redacted endpoint ("[YEAR]") is unknown → treat as closed.
+    first = _YEAR_SHAPED_RE.search(endpoint)
     if first is None or first.group() == "[YEAR]":
         return False
     # An end year at or beyond the current year is still running ("2022 — 2026"

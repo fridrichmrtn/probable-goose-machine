@@ -1609,6 +1609,20 @@ def test_setting_check_drops_closed_employer_target() -> None:
 
 
 @pytest.mark.fast
+def test_setting_check_drops_verbatim_closed_header_despite_title_overlap() -> None:
+    # A target copied token-for-token from a CLOSED full header must drop even
+    # when its title segment ("Senior Manager") also matches a current header —
+    # same-title-different-company is the common CV pattern the gate exists for.
+    action = _setting_action("current_employer", "Senior Manager — TD SYNNEX")
+    result = _setting_violation(
+        action,
+        ["Senior Manager — Acme Corp"],
+        ["Senior Manager — TD SYNNEX"],
+    )
+    assert result == ("closed_employer_target", "Senior Manager — TD SYNNEX")
+
+
+@pytest.mark.fast
 def test_setting_check_drops_closed_employer_when_all_entries_closed() -> None:
     # All timeline entries closed → current hints empty. The closed check
     # still applies: a provably closed employer can never host an action.

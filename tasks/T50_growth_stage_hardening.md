@@ -200,3 +200,16 @@ What changed:
 Verification: pre-commit, mypy strict on `src/`, and `pytest -m "not live"`
 against the 32-failure LFS baseline (environmental, unchanged). `verify.py`,
 `_BAN_PHRASES`, and the §4.6 failure string untouched.
+
+Heal round (same day, adversarial verification of the review fixes): the
+endpoint rule now anchors on the LAST dash preceded by a year-shaped token, so
+compound one-line entries ("Berry s.r.o. — 2022 — 2026") read the end year
+instead of the start year; `_setting_violation` rejects a target token-equal
+to a closed FULL header before current-segment matching, closing the
+shared-title rubber-stamp ("Senior Manager — TD SYNNEX" passing via a current
+"Senior Manager — ..." title); the growth cascade prefix is now the public
+`pipeline.GROWTH_CASCADE_PREFIX` with the cascade messages built from it
+(rendered text byte-identical) and eval_corpus importing it; and
+`_summarize_growth` also classifies ingest/redact cascades as "skipped" when
+the profile is StageFailure-shaped too, so upstream parse failures no longer
+count against the growth gate.

@@ -43,6 +43,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from gander.pipeline import GROWTH_CASCADE_PREFIX
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "cvs"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "reports"
@@ -208,19 +210,24 @@ async def _run_one(file_bytes: bytes, filename: str) -> tuple[object, list[dict[
     return final, growth_events
 
 
-# Prefix shared by pipeline._CASCADE_PROFILE_FAILED["growth"] and the
-# _GROWTH_NO_BASELINE/_GROWTH_NEEDS_* constants — a StageFailure carrying it
-# means growth never ran, vs. the §4.6 copy a genuine growth failure carries.
-_GROWTH_CASCADE_PREFIX = "Cannot generate growth plan without"
-
-
 def _summarize_growth(report: object, growth_events: list[dict[str, object]]) -> GrowthStats:
     growth = getattr(report, "growth", None)
+    # StageFailure-shaped (duck-typed on user_message). A growth failure
+    # carrying the cascade prefix never ran; neither did one whose profile
+    # ALSO failed (ingest/redact cascades say "Cannot run without successful
+    # ingest." — no growth prefix, but growth provably never started).
+    is_failure = getattr(growth, "user_message", None) is not None
+    profile_also_failed = (
+        getattr(getattr(report, "profile", None), "user_message", None) is not None
+    )
     if isinstance(growth, list) and len(growth) >= 3:
         status = "ok"
     elif isinstance(growth, list) and growth:
         status = "degraded"
-    elif str(getattr(growth, "user_message", "")).startswith(_GROWTH_CASCADE_PREFIX):
+    elif is_failure and (
+        str(getattr(growth, "user_message", "")).startswith(GROWTH_CASCADE_PREFIX)
+        or profile_also_failed
+    ):
         status = "skipped"
     else:
         status = "failed"

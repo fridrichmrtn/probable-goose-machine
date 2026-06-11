@@ -69,6 +69,33 @@ def test_scan_marks_current_when_end_year_in_future() -> None:
 
 
 @pytest.mark.fast
+@pytest.mark.parametrize(
+    ("date_line", "expected_current"),
+    [
+        (f"Berry s.r.o. — 2022 — {date.today().year}", True),
+        (f"Senior Consultant — Deloitte — 2024 — {date.today().year}", True),
+        ("Berry s.r.o. — 2014 — 2016", False),
+        ("Company — [YEAR] -", True),
+        ("Company — [YEAR] - [YEAR]", False),
+        # A trailing modifier after the end year is a separator, not the
+        # range dash — the year before it stays the endpoint.
+        (f"2024 - {date.today().year} - Remote", True),
+        ("2014 - 2016 - Remote", False),
+    ],
+)
+def test_scan_compound_header_range_lines(date_line: str, expected_current: bool) -> None:
+    # One-line entries dash-join the header to the range, so the RHS of the
+    # first dash still contains the range START. The endpoint is the text
+    # after the last dash preceded by a year-shaped token — the start year
+    # must never be read as the end year.
+    text = f"## Work Experience\nPlatform Lead\n{date_line}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].header == "Platform Lead"
+    assert entries[0].is_current is expected_current
+
+
+@pytest.mark.fast
 def test_scan_em_dash_closed_range_stays_closed() -> None:
     text = "## Work Experience\nPlatform Lead — Berry s.r.o.\n2014 — 2016\n"
     entries = scan_employer_timeline(text)

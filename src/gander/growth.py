@@ -252,9 +252,13 @@ def _setting_violation(
 ) -> tuple[str, str] | None:
     """Validate the model's declared setting instead of keyword-guessing.
 
-    Only `current_employer` declarations are checkable. The target must
-    token-match a current-employer hint segment (contiguous token subsequence,
-    either direction). A target matching only a closed-employer hint is a
+    Only `current_employer` declarations are checkable. A target that is
+    token-for-token equal to a full closed-employer header was copied verbatim
+    from a CLOSED entry and drops as `closed_employer_target` before any
+    current-hint matching — shared title segments ("Senior Manager — ...")
+    must not rubber-stamp it. Otherwise the target must token-match a
+    current-employer hint segment (contiguous token subsequence, either
+    direction). A target matching only a closed-employer hint is also a
     `closed_employer_target` violation — actions never happen at a past
     employer. A target matching neither, or whose normalized form has fewer
     than 2 alphanumeric characters, drops as `unverified_target_employer`.
@@ -272,6 +276,10 @@ def _setting_violation(
     normalized = _normalize_for_match(action.target_employer)
     if sum(c.isalnum() for c in normalized) >= 2:
         target_tokens = normalized.split()
+        if any(
+            target_tokens == _normalize_for_match(header).split() for header in closed_employers
+        ):
+            return ("closed_employer_target", detail)
         if any(_tokens_match(target_tokens, seg) for seg in _hint_segments(current_employers)):
             return None
         if any(_tokens_match(target_tokens, seg) for seg in _hint_segments(closed_employers)):
