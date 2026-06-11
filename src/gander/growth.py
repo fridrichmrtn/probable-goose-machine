@@ -53,6 +53,12 @@ _BAN_PHRASES: tuple[str, ...] = (
     "network more",
 )
 
+# "phd" needs a leading word boundary: punctuation-stripping turns "GraphDB"
+# into "graphdb" and "graph-database" into "graphdatabase", both of which
+# contain the bare substring. Trailing boundary stays open so "phds" and the
+# post-strip form of "Ph.D." still match.
+_PHD_RE = re.compile(r"(?<!\w)phd")
+
 _FORWARD_MARKERS: tuple[str, ...] = (
     "next role",
     "next employer",
@@ -144,7 +150,10 @@ def _check_ban_phrase(action: GrowthAction) -> str | None:
     translator = str.maketrans("", "", string.punctuation)
     haystack = " ".join(raw.translate(translator).split())
     for phrase in _BAN_PHRASES:
-        if phrase in haystack:
+        if phrase == "phd":
+            if _PHD_RE.search(haystack):
+                return phrase
+        elif phrase in haystack:
             return phrase
     return None
 
@@ -277,6 +286,39 @@ _COMPANY_STOPWORDS: frozenset[str] = frozenset(
         "spol",
         "sro",
         "kft",
+        # Location tokens common in CZ employer headers ("O2 Czech Republic",
+        # "Prague, Czech Republic"). A location is never the company-name
+        # evidence an action should be matched on.
+        "czech",
+        "republic",
+        "prague",
+        "praha",
+        "brno",
+        "ostrava",
+    }
+)
+
+# Legal-entity suffixes qualify a header part as company-shaped but are NEVER
+# emitted as match candidates — "a.s." hitting another company's suffix is a
+# real false-positive vector. Compared against normalized, edge-stripped tokens.
+_LEGAL_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "a.s",
+        "s.r.o",
+        "sro",
+        "spol",
+        "k.s",
+        "v.o.s",
+        "b.v",
+        "n.v",
+        "inc",
+        "llc",
+        "ltd",
+        "corp",
+        "corporation",
+        "gmbh",
+        "plc",
+        "kft",
     }
 )
 
@@ -301,26 +343,62 @@ def _token_in(needle: str, haystack: str) -> bool:
 
 def _employer_match_candidates(header: str) -> list[str]:
     # An EmployerEntry.header is "Title — Company"; an action's `what` rarely
-    # quotes the full header. Match the whole header, each dash-split part
-    # (>=4 chars), or any non-stopword token (>=3 chars) within those parts —
-    # the latter catches "alza.cz" inside "alza.cz a.s.".
-    normalized = _normalize_for_match(header)
-    if not normalized:
-        return []
-    candidates: set[str] = {normalized}
-    for part in re.split(r"\s+[-–—]\s+", normalized):
-        part = part.strip()
-        # Only add multi-token parts as phrase candidates. A single-token
-        # part like "independent" must clear the stopword filter via the
-        # per-token path below; otherwise an employer header that ends in
-        # a generic descriptor pollutes the candidate set.
-        if " " in part and len(part) >= 4:
-            candidates.add(part)
-        for token in part.split():
-            stripped = token.strip(".,;:")
-            if len(stripped) >= 3 and stripped not in _COMPANY_STOPWORDS:
-                candidates.add(stripped)
-    return [c for c in candidates if c]
+    # quotes the full header. Only company-shaped parts may emit candidates:
+    # title parts ("Lead Data Scientist") and location parts ("Prague, Czech
+    # Republic") used to leak tokens that false-matched ordinary action text.
+    # Shape evidence is inspected on the ORIGINAL case — all-caps detection is
+    # impossible after `_normalize_for_match` lowercases.
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(candidate: str) -> None:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    for part in re.split(r"\s+[-–—]\s+", header):
+        tokens = [t for t in (tok.strip(".,;:") for tok in part.split()) if t]
+        if not tokens:
+            continue
+        normalized_tokens = [_normalize_for_match(t) for t in tokens]
+        has_shape_evidence = False
+        has_stopword = False
+        for original, norm in zip(tokens, normalized_tokens, strict=True):
+            if norm in _COMPANY_STOPWORDS:
+                has_stopword = True
+            if (
+                norm in _LEGAL_SUFFIXES
+                or "." in norm
+                or any(ch.isdigit() for ch in norm)
+                or (
+                    len(original) >= 2
+                    and original.isalpha()
+                    and original.isupper()
+                    and norm not in _COMPANY_STOPWORDS
+                )
+            ):
+                has_shape_evidence = True
+        # Qualify on shape evidence (legal suffix, digit/dot token, all-caps
+        # token) or on the zero-stopword catch-all that keeps plain-name
+        # companies ("Stealth Mode Startup", bare "Alza") while excluding
+        # all-stopword title and location parts.
+        if not has_shape_evidence and has_stopword:
+            continue
+        normalized_part = _normalize_for_match(part)
+        if " " in normalized_part and len(normalized_part) >= 4:
+            _add(normalized_part)
+        for original, norm in zip(tokens, normalized_tokens, strict=True):
+            if norm in _COMPANY_STOPWORDS or norm in _LEGAL_SUFFIXES:
+                continue
+            dotted_or_digit = "." in norm or any(ch.isdigit() for ch in norm)
+            all_caps = len(original) >= 2 and original.isalpha() and original.isupper()
+            if (len(norm) >= 2 and (dotted_or_digit or all_caps)) or len(norm) >= 3:
+                _add(norm)
+            if "." in norm:
+                for sub in norm.split("."):
+                    if len(sub) >= 3 and sub not in _COMPANY_STOPWORDS:
+                        _add(sub)
+    return candidates
 
 
 def _violates_forward_setting(
@@ -329,21 +407,23 @@ def _violates_forward_setting(
     closed_employers: list[str],
 ) -> str | None:
     what = _normalize_for_match(action.what)
-    closed_candidates = [c for h in closed_employers for c in _employer_match_candidates(h)]
+    # A token appearing in any CURRENT entry can never count as a closed hit:
+    # same-company promotions ("Data Scientist — CSOB" → "Senior Data
+    # Scientist — CSOB") share every company token, and the old direction of
+    # this exclusion made the current-employer rescue unreachable for them.
+    current_candidates = {c for h in current_employers for c in _employer_match_candidates(h)}
+    closed_candidates = [
+        c
+        for h in closed_employers
+        for c in _employer_match_candidates(h)
+        if c not in current_candidates
+    ]
     closed_hits = [c for c in closed_candidates if _token_in(c, what)]
-    # Resolve the closed-employer signal first so a generic current-employer
-    # token can't short-circuit before we've seen the closed evidence.
     if not closed_hits:
         return None
     if _FORWARD_MARKER_RE.search(what):
         return None
-    current_candidates = [c for h in current_employers for c in _employer_match_candidates(h)]
-    closed_set = set(closed_candidates)
-    # Only a current-employer candidate that is *not* also a closed candidate
-    # can override a closed hit. With the expanded stopword filter the
-    # remaining tokens are real company names, so a hit here is a genuine
-    # current-employer reference rather than a generic title token.
-    current_hits = [c for c in current_candidates if c not in closed_set and _token_in(c, what)]
+    current_hits = [c for c in current_candidates if _token_in(c, what)]
     if current_hits:
         return None
     return "forward_setting_targets_closed_employer:" + closed_hits[0][:40]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from datetime import date
 
 import pytest
 
@@ -46,6 +47,40 @@ def test_scan_classifies_closed_when_only_years() -> None:
     entries = scan_employer_timeline(text)
     assert len(entries) == 1
     assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+def test_scan_marks_current_when_end_year_reaches_current_year() -> None:
+    # Year built dynamically so the test does not rot when the year changes.
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 - {date.today().year}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
+
+
+@pytest.mark.fast
+def test_scan_marks_current_when_end_year_in_future() -> None:
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 - {date.today().year + 1}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("date_line", ["2022 -", "2022 –", "ledna 2022 -"])
+def test_scan_marks_current_for_open_ended_range(date_line: str) -> None:
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n{date_line}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
+
+
+@pytest.mark.fast
+def test_scan_marks_current_for_open_ended_year_marker() -> None:
+    text = "## Work Experience\nPlatform Lead — Berry s.r.o.\n[YEAR] -\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
 
 
 @pytest.mark.fast

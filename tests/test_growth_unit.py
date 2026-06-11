@@ -9,6 +9,7 @@ import gander.growth as growth_mod
 from gander.errors import StageFailure
 from gander.growth import (
     _build_user_message,
+    _check_ban_phrase,
     _GrowthList,
     _jaccard_4gram,
     _violates_forward_setting,
@@ -843,6 +844,43 @@ async def test_plan_growth_drops_each_ban_phrase(
     assert drop_evt["phrase"] == expected_phrase
 
 
+@pytest.mark.fast
+def test_ban_phrase_ignores_phd_inside_graphdb() -> None:
+    # F0 verbatim repros: punctuation-stripping turns "GraphDB" → "graphdb"
+    # and "graph-database" → "graphdatabase"; bare substring matched "phd".
+    action = _action(
+        what="Migrate the on-prem GraphDB knowledge graph to a managed service",
+        mechanism="platform migration ownership signals the senior-platform band",
+        quote=_QUOTE_MIGRATION,
+    )
+    assert _check_ban_phrase(action) is None
+
+    action = _action(
+        what="Consolidate the graph-database layer behind one API",
+        mechanism="platform consolidation is a tech-lead band signal in CZ",
+        quote=_QUOTE_MIGRATION,
+    )
+    assert _check_ban_phrase(action) is None
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "what",
+    [
+        "Start a PhD program",
+        "Pursue a Ph.D. in ML",
+        "Apply to PhDs abroad",
+    ],
+)
+def test_ban_phrase_still_catches_phd_variants(what: str) -> None:
+    action = _action(
+        what=what,
+        mechanism="moves you into the research-band salary range",
+        quote=_QUOTE_FRAUD,
+    )
+    assert _check_ban_phrase(action) == "phd"
+
+
 def _five_verified_actions() -> list[GrowthAction]:
     return [
         _action(
@@ -1344,6 +1382,109 @@ def test_validator_does_not_match_inc_inside_increase() -> None:
         closed_employers=["Director — Acme Inc"],
     )
     # No closed-token boundary hit, so this is not a violation.
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_ignores_title_phrase_from_closed_header() -> None:
+    # F1 repro a: "Lead Data Scientist" is a title part, not a company —
+    # it must not emit candidates that hit ordinary action text.
+    action = _make_action(
+        "Step into the lead data scientist track and own the ML platform roadmap",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+        closed_employers=["Lead Data Scientist — Alza.cz a.s."],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_ignores_title_tokens_from_closed_header() -> None:
+    # F1 repro b: "machine"/"learning" tokens from a title part leaked.
+    action = _make_action(
+        "Own the machine learning roadmap for the analytics platform",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Machine Learning Engineer — CSOB"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_ignores_location_tokens_from_closed_header() -> None:
+    # F1 repro c: "Czech"/"Republic" location tokens leaked as candidates.
+    action = _make_action(
+        "Mentor two MSc graduates through a Czech university mentoring scheme",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Data Analyst — O2 Czech Republic"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_matches_bare_company_subtoken() -> None:
+    # F3 repro a: "at Alza" must hit the dot-split subtoken of "Alza.cz".
+    action = _make_action(
+        "Own and scale the recommendation engine stack you prototyped at Alza",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Member of Staff — Stealth Mode Startup"],
+        closed_employers=["Lead Data Scientist — Alza.cz a.s."],
+    )
+    assert result is not None
+    assert "alza" in result
+
+
+@pytest.mark.fast
+def test_validator_matches_two_char_digit_company() -> None:
+    # F3 repro b: digit-bearing 2-char companies ("O2") must be candidates.
+    action = _make_action(
+        "Rebuild the churn model you owned at O2 with the latest stack",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=[],
+        closed_employers=["Data Analyst — O2"],
+    )
+    assert result is not None
+    assert "o2" in result
+
+
+@pytest.mark.fast
+def test_validator_allows_same_company_promotion() -> None:
+    # F2/F16 repro: a same-company promotion shares every company token
+    # between current and closed entries; the shared token must count as
+    # current, never as closed.
+    action = _make_action(
+        "Lead the fraud platform rollout at CSOB and take the tech-lead slot",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Senior Data Scientist — CSOB"],
+        closed_employers=["Data Scientist — CSOB"],
+    )
+    assert result is None
+
+
+@pytest.mark.fast
+def test_validator_allows_same_company_promotion_dotted() -> None:
+    # F26 verbatim repro: dotted company name shared across both entries.
+    action = _make_action(
+        "Ship the realtime pricing model at Alza.cz within two quarters",
+    )
+    result = _violates_forward_setting(
+        action,
+        current_employers=["Data Lead — Alza.cz"],
+        closed_employers=["Junior Analyst — Alza.cz"],
+    )
     assert result is None
 
 

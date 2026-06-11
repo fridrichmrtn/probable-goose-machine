@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Final
 
 from gander.tenure import (
@@ -73,6 +74,19 @@ def _clean_header_line(line: str) -> str:
     return s.strip()
 
 
+def _is_current_range(right_of_dash: str) -> bool:
+    if _PRESENT_TOKEN_RE.search(_normalize(right_of_dash)):
+        return True
+    # Open-ended range ("2022 -", "[YEAR] -"): nothing after the dash means
+    # the role has no recorded end.
+    if not right_of_dash.strip():
+        return True
+    # An end year at or beyond the current year is still running ("2022 - 2026"
+    # written mid-2026). Closed by construction once the year passes.
+    years = [int(m) for m in _BARE_YEAR_RE.findall(right_of_dash)]
+    return bool(years) and max(years) >= date.today().year
+
+
 def _is_section_heading(line: str) -> bool:
     norm = _normalize(line).strip()
     if not norm:
@@ -107,6 +121,6 @@ def scan_employer_timeline(redacted_text: str) -> list[EmployerEntry]:
         header_parts.reverse()
         header = " — ".join(header_parts)
         right_of_dash = _split_on_first_dash(line)[1]
-        is_current = bool(_PRESENT_TOKEN_RE.search(_normalize(right_of_dash)))
+        is_current = _is_current_range(right_of_dash)
         out.append(EmployerEntry(header=header, dates_raw=line.strip(), is_current=is_current))
     return out
