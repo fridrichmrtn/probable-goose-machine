@@ -328,12 +328,14 @@ def _build_user_message(
     currency: str,
     current_hint: list[str] | None = None,
     closed_hint: list[str] | None = None,
+    market_name: str | None = None,
 ) -> str:
     if current_hint is None or closed_hint is None:
         current_hint, closed_hint = _compute_employer_hints(redacted, profile)
     payload = {
         "salary_midpoint": salary_midpoint,
         "currency": currency,
+        "market_name": market_name or "the candidate's market",
         "detected_role": profile.detected_role,
         "detected_location": profile.detected_location,
         "detected_years_experience": profile.detected_years_experience,
@@ -506,6 +508,7 @@ async def plan_growth(
     score: Score,
     salary_midpoint: int,
     currency: str,
+    market_name: str | None = None,
 ) -> list[GrowthAction] | StageFailure:
     async with stage_boundary("growth"):
         t0 = time.perf_counter()
@@ -524,6 +527,7 @@ async def plan_growth(
                 currency,
                 current_hint,
                 closed_hint,
+                market_name=market_name,
             )
 
             base_user_message = user_message

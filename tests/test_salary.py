@@ -14,15 +14,14 @@ import pytest
 import gander.salary as salary_mod
 from gander.errors import StageFailure
 from gander.llm import LLMClient
-from gander.obs import subscribe
-from gander.salary import (
+from gander.market import (
     _is_cz_location,
     _resolve_country,
-    build_queries,
     country_to_currency,
     currency_to_period,
-    estimate_salary,
 )
+from gander.obs import subscribe
+from gander.salary import build_queries, estimate_salary
 from gander.schemas import Anchor, Profile, ProfileItem, SalaryEstimate, Source
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -121,7 +120,7 @@ def test_build_queries_unknown_geography_uses_broad_usd_not_cz() -> None:
     queries = build_queries(profile, today=date(2026, 5, 25))
     joined = " || ".join(queries)
 
-    assert _resolve_country(profile) == "XX"
+    assert _resolve_country(profile) == ("XX", "default")
     assert "USD 2026" in joined
     assert "Praha" not in joined
     assert "CZK" not in joined
@@ -987,7 +986,7 @@ def test_detected_country_normalizes_case_and_whitespace() -> None:
 @pytest.mark.fast
 def test_resolve_country_aliases_uk_to_gb() -> None:
     profile = _cz_profile(location="London").model_copy(update={"detected_country": "UK"})
-    assert _resolve_country(profile) == "GB"
+    assert _resolve_country(profile) == ("GB", "cv_explicit")
 
 
 @pytest.mark.fast
@@ -996,10 +995,10 @@ def test_resolve_country_falls_back_when_unsupported() -> None:
     # bias the salary stage into a USD default — fall back to location-based
     # resolution so CZ-leaning candidates still go to CZ.
     profile = _cz_profile(location="Prague").model_copy(update={"detected_country": "AQ"})
-    assert _resolve_country(profile) == "CZ"
+    assert _resolve_country(profile) == ("CZ", "inferred")
     # Non-CZ location with unsupported country -> XX (downstream USD default).
     profile = _cz_profile(location="Berlin").model_copy(update={"detected_country": "AQ"})
-    assert _resolve_country(profile) == "XX"
+    assert _resolve_country(profile) == ("XX", "default")
 
 
 @pytest.mark.fast

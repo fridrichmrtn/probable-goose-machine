@@ -37,6 +37,7 @@ from gander.errors import StageFailure
 from gander.extract import extract_profile
 from gander.growth import plan_growth
 from gander.ingest import extract_text
+from gander.market import resolve_market
 from gander.redact import redact
 from gander.salary import estimate_salary
 from gander.schemas import (
@@ -287,6 +288,9 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
                     and state.profile.role_normalization_source != "unrecognized",
                     location_detected=isinstance(state.profile, Profile)
                     and state.profile.detected_location is not None,
+                    market_provenance=resolve_market(state.profile).provenance
+                    if isinstance(state.profile, Profile)
+                    else "default",
                 )
                 return (
                     "confidence",
@@ -317,7 +321,10 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
             if isinstance(score_block, Score) and isinstance(salary_block, SalaryEstimate):
                 mid = (salary_block.low + salary_block.high) // 2
                 ccy = salary_block.currency
-                return "growth", await plan_growth(redacted, profile, score_block, mid, ccy)
+                market_name = resolve_market(profile).country_name
+                return "growth", await plan_growth(
+                    redacted, profile, score_block, mid, ccy, market_name=market_name
+                )
             if not isinstance(score_block, Score) and not isinstance(salary_block, SalaryEstimate):
                 return "growth", _cascade_failure("growth", _GROWTH_NO_BASELINE)
             if not isinstance(score_block, Score):

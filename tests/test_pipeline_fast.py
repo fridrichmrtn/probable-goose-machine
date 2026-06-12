@@ -135,6 +135,7 @@ def _patch_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         score: Score,
         salary_midpoint: int,
         currency: str,
+        market_name: str | None = None,
     ) -> list[GrowthAction]:
         return _growth()
 
@@ -582,6 +583,7 @@ async def test_confidence_and_growth_run_concurrently(
         score: Score,
         salary_midpoint: int,
         currency: str,
+        market_name: str | None = None,
     ) -> list[GrowthAction]:
         nonlocal growth_done_at
         await asyncio.sleep(0.001)
