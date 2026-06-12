@@ -92,7 +92,6 @@ For each path:
 | `src/jobfit/verify.py` | `verify_quote(quote, source, *, section=None) -> bool`; the rule (≥6 words AND positionally unique OR ≥8 words; section-locality where applicable) appears in module docstring or comment. | PRD §4.5 hardening. |
 | `src/jobfit/llm.py` | `base_url="https://api.minimaxi.chat/v1"`; reads `JOBFIT_MODEL_PROFILE` env. | PLAN tech-stack table + CI config. |
 | `src/jobfit/confidence.py` | `judge` signature is exactly `(sources, low, high, currency, period) -> Confidence` — five params, no others. | PLAN L4c structural isolation. |
-| `scripts/spike_minimax.py` | argparse/click flags match PLAN L0.5 / T05 description. | PLAN L0.5 gate script. |
 | `scripts/eval_corpus.py` | Iterates `tests/fixtures/cvs/*.{pdf,docx}`; writes `eval_outputs/SUMMARY.md` with the columns PLAN specifies. | PLAN "Eval corpus runner". |
 | `tests/fixtures/cvs/SOURCES.md` | Lists all 10 fixtures; format split is 5 PDF + 5 DOCX; each entry has synthesis prompt + anchors + format-stress note. | PLAN "CV Corpus" table. |
 | `tests/test_acceptance.py` | Function names: `test_score_spread_at_least_30`, `test_salary_ranges_dont_overlap`, `test_no_growth_plan_verbatim_repeats`, `test_no_growth_plan_near_duplicates`, `test_growth_plan_anchors_distinct`, `test_score_calibration`, `test_all_claims_substring_verified`, `test_per_run_cost_budget`. | PLAN L8. |
