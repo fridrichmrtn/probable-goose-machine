@@ -74,3 +74,14 @@ Project-level work tracker. Each item is a separate task file in this folder. Ti
 ## Provider plumbing
 - [x] **T41** — Wire OpenRouter; drop direct Anthropic provider (`tasks/T41_openrouter_provider.md`) — *PR #25, required `openrouter-live` CI pass*
 - [x] **T45** — Gemini extraction routing + prompt stability (`tasks/T45_gemini_extract_stabilization.md`) — *LLM-first extraction-only provider routing plus prompt stability fixes; private PDF rerun pending explicit approval*
+
+## Prod readiness & refactor (roadmap: `tasks/prod_readiness_plan.md`, reevaluated 2026-06-12)
+- [x] **P0.1** — MarketSpec: growth/market coherence (absorbs salary.py refactor) — *T51, commit 70f13b7; review-healed in ac4e43e*
+- [x] **P0.2** — Adversarial-input bundle (prompt guards, injection test, magic bytes, length cap) — *T51, commit c7d63a0*
+- [x] **P0.3** — Event-loop & concurrency hygiene (to_thread parsing, shared LLMClient, queue limits) — *T51, commit 7679023*
+- [x] **P0.4** — Salary search cache + rate-limit messaging (free-tier only) — *T51, commit b9065ab; typed rate-limit + obs reason in ac4e43e*
+- [x] **P0.5** — PII posture remainder (PII-in-logs test, drop raw_cv_text from Report, redaction gaps) — *T51, commit 855e7d4*
+- [x] **R1** — MiniMax spike cleanup (delete `scripts/spike_minimax.py` + `scripts/spikes/`, drop ruff exclude) — *T51, commit 4b46f38*
+- [ ] P1/P2 items tracked in the plan file (UI framing, operability, eval breadth, verify gap, a11y); review-burst leftovers in `tasks/backlog.md` (`prod-readiness-p0` block)
+
+*T51 run report: `tasks/T51_dev-report.md`. Fast suite 626 → 652; live suite not run from the worktree.*
