@@ -19,7 +19,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout (full history + LFS)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # HF rejects shallow pushes as non-fast-forward; we need the full graph.
           fetch-depth: 0
