@@ -138,7 +138,6 @@ def _make_report(
         confidence=confidence if confidence is not None else _confidence(),
         growth=growth if growth is not None else _growth(),
         statuses=statuses if statuses is not None else _statuses(),
-        raw_cv_text="raw cv text",
     )
 
 
@@ -167,7 +166,6 @@ def test_render_tracker_running_first_pill_shows_ingest_before_text() -> None:
             confidence="pending",
             growth="pending",
         ),
-        raw_cv_text="",
         redacted_cv_text="",
     )
 
@@ -192,7 +190,6 @@ def test_render_tracker_running_first_pill_shows_profile_after_text() -> None:
             confidence="pending",
             growth="pending",
         ),
-        raw_cv_text="raw cv text",
         redacted_cv_text="redacted cv text",
     )
 
@@ -554,7 +551,6 @@ def test_render_body_footer_interpolates_cost_and_latency_totals() -> None:
         confidence=_confidence(),
         growth=_growth(),
         statuses=_statuses(),
-        raw_cv_text="x",
         total_cost_usd=0.0234,
         total_latency_ms=12_345,
         wall_clock_ms=6_789,
@@ -579,7 +575,6 @@ def test_render_body_footer_surfaces_notices() -> None:
         confidence=_confidence(),
         growth=_growth(),
         statuses=_statuses(),
-        raw_cv_text="x",
         notices=["Vision skipped: PDF over budget; used text extraction."],
     )
 
@@ -603,7 +598,6 @@ def test_render_body_profile_none_returns_empty_string() -> None:
             "confidence": "pending",
             "growth": "pending",
         },
-        raw_cv_text="",
     )
     assert render_body(report) == ""
 
@@ -624,7 +618,6 @@ def test_render_body_skips_none_blocks_but_renders_completed_ones() -> None:
             "confidence": "pending",
             "growth": "pending",
         },
-        raw_cv_text="x",
     )
     out = render_body(report)
     # Score section rendered.

@@ -292,6 +292,73 @@ def test_build_user_message_includes_dropped_components() -> None:
 
 
 @pytest.mark.fast
+def test_build_user_message_defaults_market_name_when_unresolved() -> None:
+    payload = json.loads(
+        _build_user_message(
+            _redacted(), _profile(), _score(), salary_midpoint=120000, currency="CZK"
+        )
+    )
+
+    assert payload["market_name"] == "the candidate's market"
+
+
+@pytest.mark.fast
+async def test_growth_prompt_market_name_in_user_message_for_non_cz_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+    profile = _profile().model_copy(
+        update={"detected_country": "DE", "detected_location": "Berlin"}
+    )
+    payload = _GrowthList(
+        actions=[
+            _action(
+                what="Publish an open-source Kafka-to-feature-store streaming template "
+                "with benchmarks and a write-up.",
+                mechanism="a public production-grade artefact is a verifiable seniority "
+                "signal and supports negotiating at the upper bound of the senior band.",
+                quote=_QUOTE_FRAUD,
+            ),
+            _action(
+                what="Lead the production on-call guild and ship the runbook overhaul.",
+                mechanism="moves an IC into the tech-lead band, roughly +20% on base.",
+                quote=_QUOTE_ONCALL,
+            ),
+            _action(
+                what="Own the next cloud cost-optimization rollout end to end.",
+                mechanism="platform ownership unlocks the senior-platform rate of ~+25% "
+                "over current midpoint.",
+                quote=_QUOTE_MIGRATION,
+            ),
+        ]
+    )
+    captured: list[str] = []
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        captured.append(kwargs["user"])
+        return payload
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+
+    result = await plan_growth(
+        _redacted(),
+        profile,
+        _score(),
+        salary_midpoint=80000,
+        currency="EUR",
+        market_name="Germany",
+    )
+
+    assert not isinstance(result, StageFailure)
+    user_payload = json.loads(captured[0])
+    assert user_payload["market_name"] == "Germany"
+    # The system prompt must no longer hardcode the Czech market; market
+    # specificity now arrives via the user payload.
+    assert "Czech-market" not in growth_mod._SYSTEM_PROMPT
+    assert "CZ-market" not in growth_mod._SYSTEM_PROMPT
+
+
+@pytest.mark.fast
 async def test_plan_growth_returns_stage_failure_when_complete_json_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

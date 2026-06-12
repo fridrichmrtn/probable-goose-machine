@@ -5,7 +5,8 @@ before downstream stages see it (PRD §4.7). Regex-only by design; the LLM pass
 is intentionally deferred (PLAN.md cuts).
 
 Limitations (known and accepted for v1):
-  * Phone formats like `(420) 777 123 456` or `+1.555.123.4567` do not match.
+  * Phone formats like `(420) 777 123 456` (paren + CZ grouping) do not match;
+    US paren `(555) 123-4567` and dot `555.123.4567` shapes do.
   * Bare phone numbers are caught only in CZ shape (9 digits, first digit
     non-zero). Other-country bare runs without separators are missed.
   * The 9-10 digit local-separator branch can collide with non-phone digit
@@ -13,8 +14,9 @@ Limitations (known and accepted for v1):
     prevent overlap with adjacent digits but not with adjacent dashes from
     date ranges.
   * Postcode detection requires nearby "comma + city-like word" context; bare
-    `110 00` strings are left alone. Street addresses without a postcode
-    (PRD §4.7 names "address" as PII) are not covered — backlogged.
+    `110 00` strings are left alone. Street addresses are covered only as
+    number-first lines in the header zone (first 20 lines); body addresses
+    and street-first formats (CZ "Hlavní 12") are not.
   * Year tokens are masked only when in date context (month name or range).
   * The audit-log `span` is recorded against the OUTPUT text (post-substitution),
     not the input — downstream consumers treat it as informational.
@@ -49,6 +51,8 @@ _PHONE: Final = re.compile(
         \+420[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{3}                  # CZ explicit
       | \+\d{1,3}[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{3,4}            # generic international
       | \d{3}[\s-]\d{3}[\s-]\d{3,4}                             # 9-10 digit local with separators
+      | \(\d{3}\)[\s-]?\d{3}[\s-]?\d{4}                         # US paren: (555) 123-4567
+      | \d{3}\.\d{3}\.\d{4}                                     # US dot: 555.123.4567
       | [1-9]\d{8}                                              # CZ bare 9-digit
     )
     (?!\d)
@@ -298,6 +302,45 @@ def _name_residue_from_mixed_line(stripped: str) -> str | None:
 
 _HEADER_SCAN_LIMIT: Final = 10
 
+# Street addresses live in CV headers; scanning the whole document would
+# false-positive on experience lines that happen to start with a number.
+_ADDRESS_SCAN_LINES: Final = 20
+# Number-first shape: building number + capitalized street name, optional
+# comma-separated locality parts. Whole-line match only.
+_STREET_ADDR_LINE: Final = re.compile(
+    r"\d{1,5} +[A-ZÀ-Ž][a-zA-ZÀ-ž .]{3,40}(?:, *[\wÀ-ž][\wÀ-ž .-]*)*"
+)
+# Year-first header lines ("2024 Data Science Bootcamp") share the number-first
+# shape but are CV evidence, not addresses — masking them destroys anchor text
+# (PRD §4.5). Skip any line whose stripped form opens with a 19xx/20xx token.
+_YEAR_FIRST_LINE: Final = re.compile(r"(?:19|20)\d{2}\b")
+
+
+def _redact_header_address(text: str, audit: list[Redaction]) -> str:
+    """Mask whole lines shaped like street addresses in the header zone."""
+    lines = text.split("\n")
+    offset = 0
+    for i, line in enumerate(lines[:_ADDRESS_SCAN_LINES]):
+        stripped = line.strip()
+        if (
+            stripped
+            and not _YEAR_FIRST_LINE.match(stripped)
+            and _STREET_ADDR_LINE.fullmatch(stripped)
+        ):
+            leading_ws = len(line) - len(line.lstrip())
+            lines[i] = line[:leading_ws] + "[ADDRESS]" + line[leading_ws + len(stripped) :]
+            span_start = offset + leading_ws
+            audit.append(
+                Redaction(
+                    kind="address",
+                    original=stripped,
+                    replacement="[ADDRESS]",
+                    span=(span_start, span_start + len("[ADDRESS]")),
+                )
+            )
+        offset += len(lines[i]) + 1
+    return "\n".join(lines)
+
 
 def _redact_header_name(text: str, audit: list[Redaction]) -> str:
     """Mask the first non-blank line that looks like a name.
@@ -461,6 +504,7 @@ def redact(text: str) -> RedactedCV | StageFailure:
         out = _replace_with_audit(out, _URL, "url", "[URL]", audit)
         out = _replace_with_audit(out, _EMAIL, "email", "[EMAIL]", audit)
         out = _replace_with_audit(out, _PHONE, "phone", "[PHONE]", audit)
+        out = _redact_header_address(out, audit)
         out = _replace_postcode(out, audit)
         out = _replace_year(out, audit)
         out = _redact_header_name(out, audit)

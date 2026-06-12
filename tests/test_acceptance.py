@@ -258,7 +258,7 @@ def _iter_anchored(
 def test_all_claims_substring_verified(triplet: _TripletRun) -> None:
     """Every anchor quote on every report must survive `verify_quote` against the
     *redacted* CV text — the same source the pipeline's extract/score/growth stages
-    pre-verified against. Verifying against `raw_cv_text` instead would spuriously
+    pre-verified against. Verifying against the raw CV text instead would spuriously
     fail quotes that legitimately contain redaction markers like `[YEAR]`, `[NAME]`,
     or `[URL]`.
     """

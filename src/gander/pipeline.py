@@ -29,6 +29,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 
 from gander import obs
@@ -37,6 +38,7 @@ from gander.errors import StageFailure
 from gander.extract import extract_profile
 from gander.growth import plan_growth
 from gander.ingest import extract_text
+from gander.market import resolve_market
 from gander.redact import redact
 from gander.salary import estimate_salary
 from gander.schemas import (
@@ -84,7 +86,6 @@ class _Run:
     across iterations without being affected by subsequent mutation.
     """
 
-    raw_cv_text: str = ""
     redacted_cv_text: str = ""
     profile: Profile | StageFailure | None = None
     score: Score | StageFailure | None = None
@@ -107,7 +108,6 @@ class _Run:
             confidence=self.confidence,
             growth=self.growth,
             statuses=dict(self.statuses),
-            raw_cv_text=self.raw_cv_text,
             redacted_cv_text=self.redacted_cv_text,
             total_cost_usd=self.total_cost_usd,
             total_latency_ms=self.total_latency_ms,
@@ -178,7 +178,14 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
     accumulator to this run only.
     """
     state = _Run()
-    obs.emit(None, "pipeline_start", filename=filename, bytes=len(file_bytes))
+    # Emit only the suffix, never the raw filename: CV filenames embed candidate
+    # names ("Jane Smith CV.pdf"), which would defeat the no-PII-in-obs posture.
+    obs.emit(
+        None,
+        "pipeline_start",
+        filename_suffix=Path(filename).suffix.lower(),
+        bytes=len(file_bytes),
+    )
 
     with obs.subscribe(_make_accumulator(state)):
         # Initial yield: tracker says pending, body is empty (renderer
@@ -200,7 +207,6 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
             obs.emit(None, "pipeline_done", outcome="ingest_failed")
             yield state.snapshot()
             return
-        state.raw_cv_text = text_result
 
         # === L2 redact (sync) ===
         redacted_result = redact(text_result)
@@ -287,6 +293,9 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
                     and state.profile.role_normalization_source != "unrecognized",
                     location_detected=isinstance(state.profile, Profile)
                     and state.profile.detected_location is not None,
+                    market_provenance=resolve_market(state.profile).provenance
+                    if isinstance(state.profile, Profile)
+                    else "default",
                 )
                 return (
                     "confidence",
@@ -317,7 +326,10 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
             if isinstance(score_block, Score) and isinstance(salary_block, SalaryEstimate):
                 mid = (salary_block.low + salary_block.high) // 2
                 ccy = salary_block.currency
-                return "growth", await plan_growth(redacted, profile, score_block, mid, ccy)
+                market_name = resolve_market(profile).country_name
+                return "growth", await plan_growth(
+                    redacted, profile, score_block, mid, ccy, market_name=market_name
+                )
             if not isinstance(score_block, Score) and not isinstance(salary_block, SalaryEstimate):
                 return "growth", _cascade_failure("growth", _GROWTH_NO_BASELINE)
             if not isinstance(score_block, Score):

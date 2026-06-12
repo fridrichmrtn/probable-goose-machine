@@ -624,6 +624,46 @@ async def test_cv_floor_caps_high_to_medium_when_location_missing(
 
 
 @pytest.mark.fast
+async def test_cv_floor_caps_high_to_medium_when_market_provenance_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+
+    async def fake_complete_json(self: LLMClient, **kwargs: Any) -> Any:
+        return _TierOnly(tier="High", rationale_short="three domains agree")
+
+    async def fake_complete_text(self: LLMClient, **kwargs: Any) -> str:
+        return "Confidence in this estimate is Medium because the market is unresolved."
+
+    monkeypatch.setattr(LLMClient, "complete_json", fake_complete_json)
+    monkeypatch.setattr(LLMClient, "complete_text", fake_complete_text)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await judge(
+            sources=_sources(),
+            low=100000,
+            high=200000,
+            currency="USD",
+            period="year",
+            cv_quality=CVQualitySignals(
+                dropped_score_components=0,
+                canonical_role_resolved=True,
+                location_detected=True,
+                market_provenance="default",
+            ),
+        )
+
+    assert isinstance(result, Confidence)
+    assert result.tier == "Medium"
+    floor_evt = next(e for e in events if e["event"] == "confidence_cv_floor_applied")
+    assert floor_evt["salary_tier"] == "High"
+    assert floor_evt["cv_floor"] == "Medium"
+    assert floor_evt["final_tier"] == "Medium"
+    assert floor_evt["market_provenance"] == "default"
+
+
+@pytest.mark.fast
 async def test_cv_floor_does_not_upgrade_low_to_medium(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

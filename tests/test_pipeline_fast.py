@@ -11,9 +11,11 @@ import asyncio
 from typing import Any
 
 import pytest
+from ddgs.exceptions import RatelimitException
 
-from gander import obs, pipeline
+from gander import obs, pipeline, salary
 from gander.errors import StageFailure
+from gander.report import render_body
 from gander.schemas import (
     Anchor,
     Component,
@@ -135,6 +137,7 @@ def _patch_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         score: Score,
         salary_midpoint: int,
         currency: str,
+        market_name: str | None = None,
     ) -> list[GrowthAction]:
         return _growth()
 
@@ -176,7 +179,7 @@ async def test_initial_yield_is_all_pending(monkeypatch: pytest.MonkeyPatch) -> 
     assert initial.salary is None
     assert initial.confidence is None
     assert initial.growth is None
-    assert initial.raw_cv_text == ""
+    assert initial.redacted_cv_text == ""
     assert all(v == "pending" for v in initial.statuses.values())
     assert initial.total_cost_usd == 0.0
     assert initial.total_latency_ms == 0
@@ -195,8 +198,8 @@ async def test_happy_path_final_report_fully_populated(
     assert isinstance(final.confidence, Confidence)
     assert isinstance(final.growth, list)
     assert all(v == "done" for v in final.statuses.values())
-    # Raw text propagated through L1.
-    assert final.raw_cv_text == "raw text"
+    # Redacted text propagated through L2 (mock redact is identity).
+    assert final.redacted_cv_text == "raw text"
 
 
 @pytest.mark.fast
@@ -257,7 +260,6 @@ async def test_happy_path_yields_after_redaction_before_profile_extract(
         r
         for r in reports
         if r.statuses["profile"] == "running"
-        and r.raw_cv_text == "raw text"
         and r.redacted_cv_text == "raw text"
         and r.profile is None
     ]
@@ -359,6 +361,40 @@ async def test_salary_failure_short_circuits_confidence_without_llm(
     # Score still ran (parallel with salary), so growth can use it… but Decision
     # A in the T15 plan requires BOTH score AND salary. Growth cascades.
     assert isinstance(final.growth, StageFailure)
+
+
+@pytest.mark.fast
+async def test_salary_ratelimit_degrades_only_salary_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PRD §4.6: a rate-limited salary search degrades only the salary block.
+
+    Runs the REAL estimate_salary against a DDG stub that always rate-limits;
+    every other stage stays canned-success. The rendered body must carry the
+    rate-limit copy in the salary block while score renders real content and
+    growth degrades with its cascade copy instead of crashing the report.
+    """
+    _patch_happy_path(monkeypatch)
+    monkeypatch.setattr(pipeline, "estimate_salary", salary.estimate_salary)
+
+    def _ratelimited_ddg(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        raise RatelimitException("202 rate limit")
+
+    monkeypatch.setattr(salary, "_ddg_text", _ratelimited_ddg)
+
+    reports = await _collect(pipeline.run(b"x", "cv.pdf"))
+    final = reports[-1]
+
+    assert isinstance(final.salary, StageFailure)
+    assert final.statuses["salary"] == "failed"
+    assert final.statuses["score"] == "done"
+
+    body = render_body(final)
+    assert "temporarily rate-limited" in body
+    assert "## Score: " in body
+    assert "## Confidence" in body
+    assert "## Plan" in body
+    assert "Cannot generate growth plan without salary baseline" in body
 
 
 @pytest.mark.fast
@@ -582,6 +618,7 @@ async def test_confidence_and_growth_run_concurrently(
         score: Score,
         salary_midpoint: int,
         currency: str,
+        market_name: str | None = None,
     ) -> list[GrowthAction]:
         nonlocal growth_done_at
         await asyncio.sleep(0.001)

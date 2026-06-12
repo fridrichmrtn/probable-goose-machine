@@ -23,7 +23,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.obs import emit
 from gander.schemas import Confidence, CVQualitySignals, Source
 from gander.source_rubric import SourceRubricResult, evaluate_source_rubric
@@ -72,6 +72,8 @@ def _cv_floor(cv_quality: CVQualitySignals) -> Literal["Low", "Medium", "High"]:
         return "Medium"
     if not cv_quality.location_detected:
         return "Medium"
+    if cv_quality.market_provenance == "default":
+        return "Medium"
     return "High"
 
 
@@ -104,6 +106,8 @@ def _cv_floor_reason(cv_quality: CVQualitySignals) -> str:
         return "the canonical market role could not be resolved confidently"
     if not cv_quality.location_detected:
         return "the candidate location was not detected"
+    if cv_quality.market_provenance == "default":
+        return "the candidate's labor market could not be resolved, so the estimate is market-blind"
     return "no CV-quality cap was applied"
 
 
@@ -160,7 +164,7 @@ async def judge(
         def _ms() -> int:
             return int((time.perf_counter() - t0) * 1000)
 
-        client = LLMClient()
+        client = get_client()
 
         step_a_user = json.dumps({"sources": [s.model_dump(mode="json") for s in sources]})
         try:
@@ -225,6 +229,7 @@ async def judge(
                 dropped_score_components=cv_quality.dropped_score_components,
                 canonical_role_resolved=cv_quality.canonical_role_resolved,
                 location_detected=cv_quality.location_detected,
+                market_provenance=cv_quality.market_provenance,
             )
 
         emit(

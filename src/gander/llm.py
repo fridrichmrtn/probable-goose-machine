@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import json
 import os
 import re
@@ -676,3 +677,9 @@ class LLMClient:
             finish_reason_o,
             _usage_cost_usd(usage_o),
         )
+
+
+@functools.lru_cache(maxsize=1)
+def get_client() -> LLMClient:
+    """Process-wide shared client; tests isolate via get_client.cache_clear()."""
+    return LLMClient()

@@ -41,7 +41,6 @@ def _initial_report() -> Report:
             "confidence": "pending",
             "growth": "pending",
         },
-        raw_cv_text="",
     )
 
 
@@ -65,7 +64,6 @@ def _read_error_report(user_message: str) -> Report:
             "confidence": "skipped",
             "growth": "skipped",
         },
-        raw_cv_text="",
     )
 
 
@@ -148,7 +146,8 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         gr.HTML(
             '<p class="gander-caption">PDF or DOCX, max 10 MB. PDFs are uploaded '
             "to OpenRouter/Gemini as page images for transcription; DOCX is read "
-            "locally. Uploads are not retained by Gander.</p>"
+            "locally. Salary data is fetched via DuckDuckGo search. "
+            "Uploads are not retained by Gander.</p>"
         )
         run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
@@ -201,7 +200,7 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             # StageFailure placeholder; hold neutral copy until profile is a real Profile.
             if isinstance(report.profile, Profile):
                 body = render_body(report)
-            elif report.statuses["profile"] == "running" and not report.raw_cv_text:
+            elif report.statuses["profile"] == "running" and not report.redacted_cv_text:
                 body = reading_copy
             elif report.statuses["profile"] == "running":
                 body = "*Extracting profile…*"
@@ -221,4 +220,6 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
 
 
 if __name__ == "__main__":
-    demo.queue().launch(max_file_size="10mb")
+    # Free HF Space: 2 concurrent pipeline runs, 4 queued — caps LLM-budget
+    # blast radius from simultaneous users rather than CPU.
+    demo.queue(max_size=4, default_concurrency_limit=2).launch(max_file_size="10mb")

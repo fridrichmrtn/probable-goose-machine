@@ -17,7 +17,7 @@ import pypdf
 from gander import obs
 from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.sections import NORMALIZED_SECTION_NAMES, SECTION_NAMES, normalize_section_name
 
 SCANNED_MSG = "This appears to be a scanned PDF. Text-based PDFs and DOCX are required."
@@ -58,6 +58,10 @@ _DEFAULT_VISION_MAX_TOTAL_IMAGE_BYTES = 48_000_000
 _DEFAULT_VISION_MAX_PDF_BYTES = 10_000_000
 _DEFAULT_VISION_CONCURRENCY = 4
 _MIN_DOCX_SOURCE_OVERLAP = 0.70
+_PDF_MAGIC = b"%PDF"
+# DOCX is a ZIP container; PK\x03\x04 is the ZIP local-file-header signature.
+_DOCX_MAGIC = b"PK\x03\x04"
+_DEFAULT_MAX_INPUT_CHARS = 50_000
 
 _SIDEBAR_TOKENS = (
     "kontakt",
@@ -100,6 +104,24 @@ class _RenderedPdf:
 
 def _load_prompt(name: str) -> str:
     return (Path(__file__).with_name("prompts") / name).read_text(encoding="utf-8")
+
+
+def _check_magic_bytes(file_bytes: bytes, suffix: str) -> bool:
+    """Return True when the file's leading bytes match its claimed suffix."""
+    if suffix == ".pdf":
+        # pypdf tolerates a leading UTF-8 BOM or whitespace before `%PDF`, so
+        # scan a bounded leading window instead of requiring offset 0. Genuine
+        # non-PDFs still fail because `%PDF` won't appear in the first 1 KiB.
+        head = file_bytes[:1024].lstrip(b"\xef\xbb\xbf").lstrip()
+        return _PDF_MAGIC in head
+    if suffix == ".docx":
+        # ZIP local-file-header signature must sit at offset 0 — no tolerated prefix.
+        return file_bytes[:4] == _DOCX_MAGIC
+    return True
+
+
+def _max_input_chars() -> int:
+    return env_int("GANDER_MAX_INPUT_CHARS", _DEFAULT_MAX_INPUT_CHARS, max_value=200_000)
 
 
 def _ingest_mode() -> str:
@@ -230,6 +252,21 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
             obs.emit("ingest", "rejected", reason="doc_legacy", duration_ms=_ms())
             return StageFailure(stage="ingest", user_message=DOC_MSG)
 
+        if not _check_magic_bytes(file_bytes, suffix):
+            obs.emit(
+                "ingest",
+                "rejected",
+                reason="wrong_magic_bytes",
+                suffix=suffix,
+                size_bytes=len(file_bytes),
+                duration_ms=_ms(),
+            )
+            return StageFailure(
+                stage="ingest",
+                user_message=CORRUPT_MSG,
+                debug_detail=f"magic-byte mismatch for {suffix}: {len(file_bytes)} bytes",
+            )
+
         mode: str
         if suffix == ".pdf":
             mode = _pdf_ingest_mode()
@@ -278,6 +315,15 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
 
         repaired = _repair_inline_section_breaks(text)
         annotated = _annotate_sections(repaired)
+        max_chars = _max_input_chars()
+        if len(annotated) > max_chars:
+            obs.emit(
+                "ingest",
+                "input_truncated",
+                original_chars=len(annotated),
+                max_chars=max_chars,
+            )
+            annotated = annotated[:max_chars]
         obs.emit(
             "ingest",
             "done",
@@ -295,13 +341,13 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
 async def _extract_pdf(file_bytes: bytes, *, mode: str | None = None) -> str:
     resolved_mode = _pdf_ingest_mode() if mode is None else mode
     if resolved_mode == "text":
-        return _extract_pdf_text(file_bytes)
+        return await asyncio.to_thread(_extract_pdf_text, file_bytes)
 
     try:
         return await _extract_pdf_vlm(file_bytes)
     except _VisionBudgetExceeded as exc:
         obs.emit("ingest", "ingest_llm_fallback", file_type="pdf", reason=exc.reason)
-        text = _extract_pdf_text(file_bytes)
+        text = await asyncio.to_thread(_extract_pdf_text, file_bytes)
         if len(text.strip()) >= MIN_TEXT_CHARS:
             obs.emit(
                 "ingest",
@@ -322,12 +368,12 @@ async def _extract_pdf(file_bytes: bytes, *, mode: str | None = None) -> str:
             reason="api_error",
             exc_type=type(exc).__name__,
         )
-    return _extract_pdf_text(file_bytes)
+    return await asyncio.to_thread(_extract_pdf_text, file_bytes)
 
 
 async def _extract_docx(file_bytes: bytes, *, mode: str | None = None) -> str:
     resolved_mode = _docx_ingest_mode() if mode is None else mode
-    deterministic = _extract_docx_text(file_bytes)
+    deterministic = await asyncio.to_thread(_extract_docx_text, file_bytes)
     if resolved_mode == "text":
         return deterministic
     if len(deterministic.strip()) < MIN_TEXT_CHARS:
@@ -493,13 +539,13 @@ def _render_pdf_pages_for_vision(file_bytes: bytes, dpi: int) -> _RenderedPdf:
 
 async def _extract_pdf_vlm(file_bytes: bytes) -> str:
     dpi = _vision_dpi()
-    rendered = _render_pdf_pages_for_vision(file_bytes, dpi=dpi)
+    rendered = await asyncio.to_thread(_render_pdf_pages_for_vision, file_bytes, dpi=dpi)
     pages = rendered.pages
     if not pages:
         raise _IngestLLMReject("page_render_failed")
 
     prompt = _load_prompt("ingest_vlm.md")
-    client = LLMClient()
+    client = get_client()
     obs.emit(
         "ingest",
         "ingest_vlm_start",
@@ -564,7 +610,9 @@ async def _normalize_docx_with_llm(source_text: str) -> str:
         f"{source_text}"
     )
     obs.emit("ingest", "docx_llm_start", source_chars=len(source_text))
-    text = await LLMClient().complete_text(system=system, user=user, model="cheap", temperature=0.0)
+    text = await get_client().complete_text(
+        system=system, user=user, model="cheap", temperature=0.0
+    )
     return _strip_transcript_fences(text)
 
 

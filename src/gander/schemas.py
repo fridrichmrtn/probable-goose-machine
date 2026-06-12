@@ -84,9 +84,9 @@ class Profile(BaseModel):
     soft_signals: list[ProfileItem]
     detected_role: str
     detected_location: str | None
-    # ISO-3166 alpha-2 (CZ, DE, JP, US, GB, …). When null, salary.py falls back
-    # to the `_is_cz_location` regex on `detected_location`; unknown geography
-    # resolves to the salary stage's broad USD/year search policy.
+    # ISO-3166 alpha-2 (CZ, DE, JP, US, GB, …). When null, gander.market falls
+    # back to the `_is_cz_location` regex on `detected_location`; unknown
+    # geography resolves to the salary stage's broad USD/year search policy.
     detected_country: str | None = None
     detected_years_experience: int = Field(ge=0, le=70)
 
@@ -163,6 +163,10 @@ class CVQualitySignals(BaseModel):
     dropped_score_components: int = Field(ge=0, le=3)
     canonical_role_resolved: bool
     location_detected: bool
+    # How gander.market resolved the candidate's labor market. "default" means
+    # geography was never detected — the salary estimate is market-blind, so
+    # the confidence floor caps at Medium. Defaulted for older constructors.
+    market_provenance: Literal["cv_explicit", "inferred", "default"] = "cv_explicit"
 
 
 class GrowthAction(BaseModel):
@@ -223,13 +227,13 @@ class Report(BaseModel):
     confidence: Confidence | StageFailure | None = None
     growth: list[GrowthAction] | StageFailure | None = None
     statuses: dict[StageName, StageStatus]
-    raw_cv_text: str
     # Post-redaction text — the source every stage's `verify_quote` ran against.
     # Anchor consumers (acceptance tests, debug tooling) must check quotes
-    # against this string, not `raw_cv_text`: a quote containing a redaction
-    # marker like `[YEAR]` or `[URL]` is valid against the redacted text but
-    # would spuriously fail against the raw text. Defaults to `""` so the L1
-    # ingest-failed snapshot (which never reaches `redact()`) still validates.
+    # against this string: a quote containing a redaction marker like `[YEAR]`
+    # or `[URL]` is valid against the redacted text but would spuriously fail
+    # against the raw text. Raw CV text is deliberately never stored on the
+    # report (PII posture). Defaults to `""` so the L1 ingest-failed snapshot
+    # (which never reaches `redact()`) still validates.
     redacted_cv_text: str = ""
     # Populated by the L6 pipeline subscriber on every yield; aggregates the
     # `usd_cost` and provider-call `duration_ms` fields emitted by gander.llm

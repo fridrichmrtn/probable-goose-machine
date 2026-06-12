@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -11,30 +12,38 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ddgs import DDGS
+from ddgs.exceptions import RatelimitException
 from pydantic import ValidationError
 
 from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
+from gander.market import country_to_currency, currency_to_period, resolve_market
 from gander.obs import emit
 from gander.schemas import Profile, SalaryEstimate, Source
 
+# country_to_currency was a public helper on this module before the P0.1 hoist to
+# gander.market; keep the import re-exported so callers importing it from
+# gander.salary don't break.
+__all__ = ["build_queries", "country_to_currency", "estimate_salary", "search"]
+
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "salary.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
-
-# Word-boundary token match — substring "cz" inside "Aczland" or "Czeladz" must
-# not flip CZ detection. Tokens are matched case-insensitively against any
-# letter-bounded run in the location string.
-_CZ_TOKEN_PATTERN = re.compile(
-    r"\b(?:czech|cz|praha|prague|brno|ostrava)\b",
-    re.IGNORECASE,
-)
 
 # PRD §4.6 canonical user-facing copy for any salary failure. Every escape
 # branch (search transport error, LLM transport error, parse failure, logical
 # failure) surfaces this string; differentiation lives in structured
 # `stage_failure.reason` events + `debug_detail`.
 _INSUFFICIENT_DATA_MSG = "Insufficient market data for this profile"
+# Distinct copy for the transient outcome: search transport refused us, the
+# market data itself is not missing. §4.6 covers the "no data" path above.
+_RATELIMIT_MSG = "Salary search is temporarily rate-limited — please try again in a moment"
+
+
+class _RateLimitError(RuntimeError):
+    """Every search query failed on DDG rate-limiting — transient, not missing data."""
+
+
 _DEFAULT_SALARY_SEARCH_BACKENDS = "brave,duckduckgo,yahoo,mojeek"
 _SALARY_SEARCH_MAX_RESULTS = 20
 _SALARY_LLM_SOURCE_LIMIT = 8
@@ -54,138 +63,27 @@ _SALARY_DOMAIN_PRIORITY: tuple[str, ...] = (
     "levels.fyi",
 )
 
-# Flat country -> ISO-4217 currency map. ~40 markets. Unknown / missing -> USD,
-# which is the live-search-friendliest default (most non-CZ snippet text the
-# DDG backends surface for English queries already quote USD). Adding a row is
-# a one-line PR. Local-payroll period (month vs. year) is a separate concern;
-# see `_currency_to_period`.
-_COUNTRY_CURRENCY: dict[str, str] = {
-    "CZ": "CZK",
-    "SK": "EUR",
-    "PL": "PLN",
-    "HU": "HUF",
-    "RO": "RON",
-    "BG": "BGN",
-    "DE": "EUR",
-    "AT": "EUR",
-    "FR": "EUR",
-    "BE": "EUR",
-    "NL": "EUR",
-    "LU": "EUR",
-    "ES": "EUR",
-    "PT": "EUR",
-    "IT": "EUR",
-    "IE": "EUR",
-    "FI": "EUR",
-    "EE": "EUR",
-    "LV": "EUR",
-    "LT": "EUR",
-    "GR": "EUR",
-    "MT": "EUR",
-    "CY": "EUR",
-    "SI": "EUR",
-    "HR": "EUR",
-    "CH": "CHF",
-    "GB": "GBP",
-    "DK": "DKK",
-    "NO": "NOK",
-    "SE": "SEK",
-    "IS": "ISK",
-    "US": "USD",
-    "CA": "CAD",
-    "MX": "MXN",
-    "BR": "BRL",
-    "AR": "ARS",
-    "AU": "AUD",
-    "NZ": "NZD",
-    "JP": "JPY",
-    "KR": "KRW",
-    "CN": "CNY",
-    "HK": "HKD",
-    "SG": "SGD",
-    "IN": "INR",
-    "ID": "IDR",
-    "MY": "MYR",
-    "PH": "PHP",
-    "TH": "THB",
-    "VN": "VND",
-    "TR": "TRY",
-    "IL": "ILS",
-    "AE": "AED",
-    "SA": "SAR",
-    "ZA": "ZAR",
-    "EG": "EGP",
-    "UA": "UAH",
-}
-
-# Markets where local employment ads quote monthly compensation. Everywhere
-# else defaults to annual. The salary prompt uses this only as a hint — the LLM
-# may override based on what the snippets actually say.
-_MONTHLY_CURRENCIES: frozenset[str] = frozenset({"CZK", "PLN", "HUF", "RON", "BGN"})
-
-# Country display names for query construction. Live search interprets natural
-# language better than ISO codes (`DE` matches Germany and a hundred other
-# things; "Germany" is unambiguous).
-_COUNTRY_NAMES: dict[str, str] = {
-    "CZ": "Czech Republic",
-    "SK": "Slovakia",
-    "PL": "Poland",
-    "HU": "Hungary",
-    "RO": "Romania",
-    "BG": "Bulgaria",
-    "DE": "Germany",
-    "AT": "Austria",
-    "FR": "France",
-    "BE": "Belgium",
-    "NL": "Netherlands",
-    "LU": "Luxembourg",
-    "ES": "Spain",
-    "PT": "Portugal",
-    "IT": "Italy",
-    "IE": "Ireland",
-    "FI": "Finland",
-    "EE": "Estonia",
-    "LV": "Latvia",
-    "LT": "Lithuania",
-    "GR": "Greece",
-    "MT": "Malta",
-    "CY": "Cyprus",
-    "SI": "Slovenia",
-    "HR": "Croatia",
-    "CH": "Switzerland",
-    "GB": "United Kingdom",
-    "DK": "Denmark",
-    "NO": "Norway",
-    "SE": "Sweden",
-    "IS": "Iceland",
-    "US": "United States",
-    "CA": "Canada",
-    "MX": "Mexico",
-    "BR": "Brazil",
-    "AR": "Argentina",
-    "AU": "Australia",
-    "NZ": "New Zealand",
-    "JP": "Japan",
-    "KR": "South Korea",
-    "CN": "China",
-    "HK": "Hong Kong",
-    "SG": "Singapore",
-    "IN": "India",
-    "ID": "Indonesia",
-    "MY": "Malaysia",
-    "PH": "Philippines",
-    "TH": "Thailand",
-    "VN": "Vietnam",
-    "TR": "Türkiye",
-    "IL": "Israel",
-    "AE": "United Arab Emirates",
-    "SA": "Saudi Arabia",
-    "ZA": "South Africa",
-    "EG": "Egypt",
-    "UA": "Ukraine",
-}
-
 _ISO_4217_SHAPE = re.compile(r"^[A-Z]{3}$")
+
+# Process-wide search cache: identical queries within the TTL reuse the prior
+# results instead of re-hitting DDG (rate-limit pressure on a shared Space IP).
+_DDG_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+# search() fans out via asyncio.to_thread, so cache reads/evictions/writes run on
+# worker threads concurrently. The lock keeps the dict ops atomic — without it,
+# FIFO eviction's `next(iter(...))` can race an insert ("dictionary changed size
+# during iteration"). Held only around dict ops, never across the DDG network call.
+_DDG_CACHE_LOCK = threading.Lock()
+_DDG_CACHE_MAX_ENTRIES = 512
+_DEFAULT_DDG_CACHE_TTL_S = 7 * 24 * 3600
+
+
+def _ddg_cache_ttl_s() -> int:
+    return env_int(
+        "GANDER_DDG_CACHE_TTL_S",
+        _DEFAULT_DDG_CACHE_TTL_S,
+        min_value=0,
+        max_value=30 * 24 * 3600,
+    )
 
 
 def _salary_search_backends() -> str:
@@ -219,56 +117,6 @@ def _remaining_search_timeout_s(deadline: float) -> float:
 
 def _salary_query_year(today: date | None = None) -> int:
     return (today or date.today()).year
-
-
-def _is_cz_location(location: str | None) -> bool:
-    if not location:
-        return False
-    return bool(_CZ_TOKEN_PATTERN.search(location))
-
-
-def country_to_currency(country: str | None) -> str:
-    """ISO-3166 alpha-2 -> ISO-4217 currency. Unknown / null -> USD."""
-    if not country:
-        return "USD"
-    return _COUNTRY_CURRENCY.get(country.upper(), "USD")
-
-
-def currency_to_period(currency: str) -> str:
-    """ISO-4217 currency -> default period hint ('month' or 'year')."""
-    return "month" if currency in _MONTHLY_CURRENCIES else "year"
-
-
-def _country_display_name(country: str | None) -> str | None:
-    if not country:
-        return None
-    return _COUNTRY_NAMES.get(country.upper())
-
-
-_COUNTRY_ALIASES: dict[str, str] = {
-    # Common but non-ISO codes the LLM may emit. Anything not aliased and not
-    # in `_COUNTRY_CURRENCY` falls back to the location-based path so we don't
-    # silently bias an unsupported country into a USD default.
-    "UK": "GB",
-}
-
-
-def _resolve_country(profile: Profile) -> str:
-    """Return ISO-3166 alpha-2 for the profile.
-
-    Prefers `detected_country` from extraction (with alias resolution and a
-    membership check against the supported currency table); falls back to the
-    legacy `_is_cz_location` regex on `detected_location` for backward
-    compatibility on CZ-leaning ambiguous CVs and older fixtures. Unknown ->
-    `'XX'` (which salary downstream treats as non-CZ, USD-defaulting).
-    """
-    explicit = (profile.detected_country or "").strip().upper()
-    explicit = _COUNTRY_ALIASES.get(explicit, explicit)
-    if explicit and explicit in _COUNTRY_CURRENCY:
-        return explicit
-    if _is_cz_location(profile.detected_location):
-        return "CZ"
-    return "XX"
 
 
 def _apply_sanity_caps(profile: Profile, estimate: SalaryEstimate) -> SalaryEstimate:
@@ -320,9 +168,10 @@ def build_queries(profile: Profile, *, today: date | None = None) -> list[str]:
     detected = profile.detected_role.strip()
     role = canonical or detected or "data scientist"
     location = profile.detected_location
-    country = _resolve_country(profile)
-    country_name = _country_display_name(country)
-    currency = country_to_currency(country)
+    spec = resolve_market(profile)
+    country = spec.country
+    country_name = spec.country_name
+    currency = spec.currency
     year = _salary_query_year(today)
 
     queries: list[str]
@@ -397,6 +246,27 @@ def _ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]
             )
 
 
+def _cached_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+    key = query.strip()
+    ttl = _ddg_cache_ttl_s()
+    with _DDG_CACHE_LOCK:
+        cached = _DDG_CACHE.get(key)
+        if cached is not None and time.monotonic() - cached[0] < ttl:
+            # Copies, so callers can't mutate rows served to later requests.
+            hit = [dict(row) for row in cached[1]]
+            emit("salary", "ddg_cache_hit", query_len=len(key))
+            return hit
+
+    # Network call runs outside the lock so concurrent misses don't serialize.
+    results = _ddg_text(query, timeout_s)
+    stored = [dict(row) for row in results]
+    with _DDG_CACHE_LOCK:
+        if len(_DDG_CACHE) >= _DDG_CACHE_MAX_ENTRIES and key not in _DDG_CACHE:
+            _DDG_CACHE.pop(next(iter(_DDG_CACHE)))
+        _DDG_CACHE[key] = (time.monotonic(), stored)
+    return results
+
+
 def _to_source(raw: dict[str, Any]) -> Source | None:
     url = raw.get("href") or raw.get("url")
     snippet = raw.get("body") or raw.get("snippet") or ""
@@ -453,8 +323,9 @@ async def search(
 ) -> list[Source]:
     """Run DDG queries off the event loop, dedupe by URL, return up to 8 sources.
 
-    Raises ``RuntimeError`` if fewer than 2 valid sources come back; the caller's
-    ``stage_boundary`` converts that into a ``StageFailure``.
+    Raises ``_RateLimitError`` when every query failure was rate-limiting, and
+    plain ``RuntimeError`` for any other <2-sources outcome; ``estimate_salary``
+    converts both into a ``StageFailure``.
     """
     search_backends = _salary_search_backends()
     raw_results: list[dict[str, Any]] = []
@@ -467,7 +338,7 @@ async def search(
             timeout_s = min(
                 float(_salary_search_timeout_s()), _remaining_search_timeout_s(deadline)
             )
-            return await asyncio.to_thread(_ddg_text, query, timeout_s), None
+            return await asyncio.to_thread(_cached_ddg_text, query, timeout_s), None
         except Exception as exc:
             # DDG occasionally rejects one query shape (e.g. site:a OR site:b)
             # while the others succeed. Treat single-query failures as expected
@@ -546,6 +417,10 @@ async def search(
     if len(sources) < 2:
         if failed_queries:
             types = sorted({fq["exc_type"] for fq in failed_queries})
+            # RatelimitException has no subclasses and ddgs raises it directly,
+            # so the recorded class name identifies it exactly.
+            if types == [RatelimitException.__name__]:
+                raise _RateLimitError(_RATELIMIT_MSG)
             raise RuntimeError(f"{_INSUFFICIENT_DATA_MSG} (query failures: {','.join(types)})")
         raise RuntimeError(_INSUFFICIENT_DATA_MSG)
 
@@ -560,10 +435,11 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             return int((time.perf_counter() - t0) * 1000)
 
         queries = build_queries(profile)
-        country = _resolve_country(profile)
-        country_name = _country_display_name(country)
-        currency_hint = country_to_currency(country)
-        period_hint = currency_to_period(currency_hint)
+        spec = resolve_market(profile)
+        country = spec.country
+        country_name = spec.country_name
+        currency_hint = spec.currency
+        period_hint = spec.period
 
         try:
             sources = await search(queries, country=country, currency_hint=currency_hint)
@@ -572,20 +448,21 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             # the deliberate `<2 sources` RuntimeError, anything else) so the
             # user-facing string never falls back to `stage_boundary`'s `str(exc)`
             # default, which would leak ddgs/tenacity internals.
+            ratelimited = isinstance(exc, _RateLimitError)
             emit(
                 "salary",
                 "stage_failure",
-                reason="search_error",
+                reason="ratelimited" if ratelimited else "search_error",
                 exc_type=type(exc).__name__,
                 duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
-                user_message=_INSUFFICIENT_DATA_MSG,
+                user_message=_RATELIMIT_MSG if ratelimited else _INSUFFICIENT_DATA_MSG,
                 debug_detail=f"{type(exc).__name__}: {exc}",
             )
 
-        client = LLMClient()
+        client = get_client()
         # Canonical fields feed the LLM the seniority signal it needs to anchor
         # correctly on management profiles even when the snippets are IC-only
         # (T27, R5). Fall back to the verbatim headline when normalization
@@ -601,6 +478,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                     "country_name": country_name,
                     "currency_hint": currency_hint,
                     "period_hint": period_hint,
+                    "market_provenance": spec.provenance,
                     "years": profile.detected_years_experience,
                     "geography_note": (
                         "geography unknown; broad USD/year search is a market-blind "

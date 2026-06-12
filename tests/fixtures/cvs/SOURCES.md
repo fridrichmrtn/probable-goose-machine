@@ -473,7 +473,8 @@ except the 09/09b pair (identical research-pay band by design):
 
 Two gates apply to the seniority spread:
 
-- **T05 capability-spike gate** (`scripts/spike_minimax.py`): `score_spread
+- **T05 capability-spike gate** (spike script removed in T51; see git
+  history): `score_spread
   ≥ 20` between the junior anchor (#1) and the senior anchor (#8) on the
   same scoring rubric — a coarse model-capability check, not the product
   bar.

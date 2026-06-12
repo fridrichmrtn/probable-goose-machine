@@ -14,15 +14,14 @@ import pytest
 import gander.salary as salary_mod
 from gander.errors import StageFailure
 from gander.llm import LLMClient
-from gander.obs import subscribe
-from gander.salary import (
+from gander.market import (
     _is_cz_location,
     _resolve_country,
-    build_queries,
     country_to_currency,
     currency_to_period,
-    estimate_salary,
 )
+from gander.obs import subscribe
+from gander.salary import build_queries, estimate_salary
 from gander.schemas import Anchor, Profile, ProfileItem, SalaryEstimate, Source
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -121,7 +120,7 @@ def test_build_queries_unknown_geography_uses_broad_usd_not_cz() -> None:
     queries = build_queries(profile, today=date(2026, 5, 25))
     joined = " || ".join(queries)
 
-    assert _resolve_country(profile) == "XX"
+    assert _resolve_country(profile) == ("XX", "default")
     assert "USD 2026" in joined
     assert "Praha" not in joined
     assert "CZK" not in joined
@@ -987,7 +986,7 @@ def test_detected_country_normalizes_case_and_whitespace() -> None:
 @pytest.mark.fast
 def test_resolve_country_aliases_uk_to_gb() -> None:
     profile = _cz_profile(location="London").model_copy(update={"detected_country": "UK"})
-    assert _resolve_country(profile) == "GB"
+    assert _resolve_country(profile) == ("GB", "cv_explicit")
 
 
 @pytest.mark.fast
@@ -996,10 +995,10 @@ def test_resolve_country_falls_back_when_unsupported() -> None:
     # bias the salary stage into a USD default — fall back to location-based
     # resolution so CZ-leaning candidates still go to CZ.
     profile = _cz_profile(location="Prague").model_copy(update={"detected_country": "AQ"})
-    assert _resolve_country(profile) == "CZ"
+    assert _resolve_country(profile) == ("CZ", "inferred")
     # Non-CZ location with unsupported country -> XX (downstream USD default).
     profile = _cz_profile(location="Berlin").model_copy(update={"detected_country": "AQ"})
-    assert _resolve_country(profile) == "XX"
+    assert _resolve_country(profile) == ("XX", "default")
 
 
 @pytest.mark.fast
@@ -1227,3 +1226,158 @@ async def test_senior_fixture_estimate_returns_czk_range() -> None:
     assert len(result.sources) >= 1
     for s in result.sources:
         assert str(s.url).startswith("http")
+
+
+def _fake_rows(n: int = 3) -> list[dict[str, Any]]:
+    return [
+        {
+            "href": f"https://www.platy.cz/platy/it/row-{i}",
+            "body": f"Data role {i}: 90 000 - 130 000 Kč gross monthly.",
+        }
+        for i in range(n)
+    ]
+
+
+@pytest.mark.fast
+def test_ddg_cache_returns_cached_result_on_second_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        calls.append(query)
+        return _fake_rows()
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    first = salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+    second = salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+
+    assert len(calls) == 1
+    assert second == first
+    # Cache hits serve copies so a caller mutation can't poison later requests.
+    second[0]["body"] = "mutated"
+    third = salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+    assert third[0]["body"] != "mutated"
+
+
+@pytest.mark.fast
+def test_ddg_cache_misses_after_ttl_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GANDER_DDG_CACHE_TTL_S", "0")
+    calls: list[str] = []
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        calls.append(query)
+        return _fake_rows()
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+    salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+
+    assert len(calls) == 2
+
+
+@pytest.mark.fast
+def test_ddg_cache_ttl_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GANDER_DDG_CACHE_TTL_S", "3600")
+    assert salary_mod._ddg_cache_ttl_s() == 3600
+
+
+@pytest.mark.fast
+def test_ddg_cache_evicts_oldest_at_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(salary_mod, "_DDG_CACHE_MAX_ENTRIES", 2)
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        return _fake_rows(1)
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    salary_mod._cached_ddg_text("query one", 5.0)
+    salary_mod._cached_ddg_text("query two", 5.0)
+    salary_mod._cached_ddg_text("query three", 5.0)
+
+    assert len(salary_mod._DDG_CACHE) == 2
+    assert "query one" not in salary_mod._DDG_CACHE
+
+
+@pytest.mark.fast
+def test_cached_ddg_text_concurrent_eviction_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The eviction + insert critical section must be serialized by
+    `_DDG_CACHE_LOCK`.
+
+    Deterministically forces the race the lock closes: a `_DDG_CACHE` whose
+    iterator deliberately yields the GIL mid-iteration (via a sleeping
+    `_SlowIterCache`). A background thread hammers the same cache. Without the
+    lock around the `next(iter(...))`/`pop`/insert region, the concurrent insert
+    raises `RuntimeError: dictionary changed size during iteration`; with it, the
+    run is clean. (Verified fail-before by removing the lock.)
+    """
+
+    class _SlowIterCache(dict):
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            for i, k in enumerate(list(super().__iter__())):
+                if i == 0:
+                    time.sleep(0.001)  # widen the eviction window for the racer
+                yield k
+
+    monkeypatch.setattr(salary_mod, "_DDG_CACHE", _SlowIterCache())
+    monkeypatch.setattr(salary_mod, "_DDG_CACHE_MAX_ENTRIES", 4)
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        return _fake_rows(1)
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def hammer() -> None:
+        i = 0
+        try:
+            while not stop.is_set():
+                salary_mod._cached_ddg_text(f"bg-{i}", 5.0)
+                i += 1
+        except BaseException as exc:  # noqa: BLE001 - surfaced via errors below
+            errors.append(exc)
+
+    bg = threading.Thread(target=hammer)
+    bg.start()
+    try:
+        for i in range(400):
+            salary_mod._cached_ddg_text(f"main-{i}", 5.0)
+    except BaseException as exc:  # noqa: BLE001
+        errors.append(exc)
+    finally:
+        stop.set()
+        bg.join()
+
+    assert not errors, f"concurrent cache access raised: {errors!r}"
+    assert len(salary_mod._DDG_CACHE) <= 4
+
+
+@pytest.mark.fast
+async def test_ratelimit_exception_gives_specific_user_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ddgs.exceptions import RatelimitException
+
+    def ratelimited_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        raise RatelimitException("202 rate limit")
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", ratelimited_ddg_text)
+
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await estimate_salary(_cz_profile())
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "salary"
+    assert "rate-limited" in result.user_message
+    # §4.8: the obs trail must distinguish a rate-limited search from any other
+    # search failure, not just the user-facing copy.
+    failure_evt = next(e for e in events if e["event"] == "stage_failure")
+    assert failure_evt["reason"] == "ratelimited"
+    assert failure_evt["exc_type"] == "_RateLimitError"

@@ -411,3 +411,39 @@ Deferred from the PR #39 review-fix round:
   comma-year annotations ("2019 - 2026, maternity leave, 2021 - 2022")
   are string-indistinguishable from multi-dash ranges / rehire stints and
   resolve in the range's favor. Revisit only if live fixtures surface them.
+
+## prod-readiness-p0 — 2026-06-12T07:35Z
+Report: tasks/T51_dev-report.md (in dev/prod-readiness-p0)
+
+### Should-fix
+- [ai-ml-engineer] src/gander/prompts/growth.md:37 — HARD RULE 2 mechanism examples are still CZ-anchored ("30-50k CZK/mo"); the DE example lacks units/market name. Add a non-CZ concrete example (e.g. USD annual band delta) so non-CZK markets get pattern diversity.
+- [ai-ml-engineer] src/gander/ingest.py — document that `_DEFAULT_MAX_INPUT_CHARS` is a post-annotation limit; `_annotate_sections` inflates size, so the effective raw-text budget is smaller than 50,000.
+- [ai-ml-engineer] src/gander/schemas.py / salary.py — document that `market_provenance` is profile-derived (pre-generation), not LLM output, so reviewers don't mistake it for a generation-context leak into the confidence judge (§4.3).
+- [ai-ml-engineer] tests/test_confidence_unit.py — add an assertion that the Step A user payload does not contain `market_provenance`/`provenance`, locking the §4.3 independence boundary programmatically.
+- [ux-engineer] app.py:225 — queue overflow surfaces Gradio's raw "Queue is full. Max size is 4…" string; rewrite to calm product copy (§4.8: don't let unavailability read as breakage).
+- [ux-engineer] src/gander/ingest.py:261 — magic-byte mismatch uses CORRUPT_MSG; for a renamed/wrong-format file the §4.6 UNKNOWN_MSG ("Unable to read this file. Please upload a valid PDF or DOCX.") is the more accurate copy.
+- [ux-engineer] src/gander/ingest.py:314 — truncation is invisible to the user; add a report-visible notice when input was truncated ("analysis covers the first ~50,000 characters").
+- [product-owner] tests/test_growth_unit.py — mock fixture mechanism strings throughout are still CZ-specific ("+30k CZK/mo", "in CZ market"); misleading post-de-CZ. Refresh fixture debt.
+- [hiring-manager] src/gander/normalize.py:232 — `years` param is `noqa: ARG001`-reserved for unimplemented band-floor logic; remove until the logic exists.
+- [hiring-manager] src/gander/confidence.py:256-257 — `low_regex` is assigned once pre-regen but used in two places with different semantic requirements (salary-tier-Low vs CV-floor-Low); restructure for legibility.
+- [hiring-manager] src/gander/market.py:22-26 — `_CZ_TOKEN_PATTERN` city tokens (`brno`, `prague`) can false-positive on non-location strings in the inferred-fallback path; consider tightening.
+- [qa-engineer] tests/test_salary.py — the `ddg_cache_hit` obs emit (salary.py:237) is untested; if deleted, no fast test fails. Assert it on the cache-hit path.
+- [qa-engineer] tests/test_privacy_obs.py — the PII-in-obs test only covers redact-stage events whose fields are structurally numeric; expand to an LLM-calling stage (mocked client) or document the scope limitation.
+- [qa-engineer] tests/test_adversarial.py — autouse `_deterministic_ingest` fixture is a blanket module-wide env override; convert to per-test setup so test intent stays readable.
+
+### Must-fix (remaining)
+- none — all 5 consolidated must-fixes healed in ac4e43e.
+
+### Nits
+- [ai-ml-engineer→adjudicated, qa-engineer] src/gander/ingest.py:315 — `input_truncated` event lacks `duration_ms`; consistent with other mid-stage counters (`ingest_llm_fallback`, `docx_llm_start`). No action planned.
+- [ai-ml-engineer] src/gander/prompts/salary.md:1 — "The pipeline's primary market is the Czech Republic" is stale CZ-bias post-MarketSpec.
+- [ai-ml-engineer] src/gander/llm.py:682 — `get_client` lru_cache + env-at-construction coupling deserves a warning comment (stale client if key injected after first call).
+- [ux-engineer] app.py:148 — disclosure caption sentence grouping: consider parallel structure "PDF pages are sent to OpenRouter/Gemini; DOCX is read locally; salary data is fetched via DuckDuckGo search."
+- [product-owner] tests/test_adversarial.py:155 — test comment undersells the intent (magic passes, then parse error follows).
+- [product-owner] src/gander/redact.py:9-18 — module docstring documents US paren phones as matching while line 18 notes CZ paren grouping does not; clarify side by side.
+- [product-owner] tasks/todo.md — MiniMax references (T32–T35 listed open) not updated alongside R1 spike deletion.
+- [hiring-manager] src/gander/pipeline.py:339 — enumerate-based yield gate ("yield after every task except the last") is less obvious than a counter drain.
+- [hiring-manager] src/gander/growth.py:51-53 — `_BAN_PHRASES` docstring misses the punctuation-stripping behavior `_check_ban_phrase` actually applies.
+- [hiring-manager] src/gander/market.py:6 — "Hoisted out of `salary.py` (P0.1)" task reference in docstring; keep the durable why, drop the task pointer.
+- [hiring-manager] tests/test_pipeline_fast.py:159-166 — cascade-contract test asserts only a dict constant; documents intent but cannot catch a broken cascade.
+- [qa-engineer] tests/test_redact.py:576 — version-string false-positive test should also assert `[ADDRESS]` absent to pin `_STREET_ADDR_LINE` against over-reach.

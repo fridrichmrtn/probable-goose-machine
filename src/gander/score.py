@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.obs import emit, subscribe
 from gander.schemas import COMPONENT_WEIGHTS, Component, Profile, RedactedCV, Score
 from gander.verify import _section_text, verify_quote
@@ -147,7 +147,7 @@ async def score_profile(redacted: RedactedCV, profile: Profile) -> Score | Stage
         def _ms() -> int:
             return int((time.perf_counter() - t0) * 1000)
 
-        client = LLMClient()
+        client = get_client()
         user_message = _build_user_message(redacted, profile)
 
         required = set(COMPONENT_WEIGHTS.keys())
