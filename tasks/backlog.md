@@ -447,3 +447,25 @@ Report: tasks/T51_dev-report.md (in dev/prod-readiness-p0)
 - [hiring-manager] src/gander/market.py:6 — "Hoisted out of `salary.py` (P0.1)" task reference in docstring; keep the durable why, drop the task pointer.
 - [hiring-manager] tests/test_pipeline_fast.py:159-166 — cascade-contract test asserts only a dict constant; documents intent but cannot catch a broken cascade.
 - [qa-engineer] tests/test_redact.py:576 — version-string false-positive test should also assert `[ADDRESS]` absent to pin `_STREET_ADDR_LINE` against over-reach.
+
+## prod-readiness-p1 — 2026-06-12T18:43Z
+Report: tasks/prod-readiness-p1_dev-report.md (in dev/prod-readiness-p1)
+
+### Should-fix
+- [ai-ml-engineer] src/gander/verify.py / src/gander/extract.py:266 — the claim–quote gate is extract-only and the verb-substitution case ("Led" anchoring to "Joined", Jaccard ≈0.25 > 0.10 threshold) still passes. Acknowledged limitation at this cost point; a cheap-slot justification check would close it (PRD §4.5).
+- [hiring-manager] src/gander/llm.py:213 — `_build_client` uses the sentinel `"missing-openrouter-key"` instead of `""`. Defensible (the SDK rejects an empty key at construction and `check_env()` is the real boot gate), but a sentinel can mask a real misconfig; revisit if it ever reaches a live call path other than the intended 401→StageFailure.
+- [hiring-manager] app.py:80-84 — `_write_report_md` uses `tempfile(delete=False)` with no cleanup; temp `.md` files accumulate over a long-lived Space lifetime. Accepted for a no-persistence prototype; add reaping if disk pressure shows up.
+- [hiring-manager] Dockerfile:3 — `pip install uv` into the system Python is fragile on minimal/newer base images; prefer the official `ghcr.io/astral-sh/uv` binary (`COPY --from`). Builds on `python:3.11-slim` today, so deferred not blocking.
+- [ux-engineer] src/gander/report.py:338-339 — `_about_banner()` is a trivial wrapper over the `_ABOUT_BANNER` constant; inline it in `render_body`.
+- [ux-engineer] app.py:174-176 — `gr.DownloadButton` renders below the report body; consider hoisting it adjacent to the score for discoverability.
+- [qa-engineer] tests/test_degradation_synthetic.py:53-66 — `_hallucinated_profile` hard-codes `detected_role`/`detected_years_experience`; the assertions couple to those literals rather than the degradation behavior.
+- [qa-engineer] tests/test_verify.py:395-422 — name the P1.5 regression case explicitly as the gate's guard (old `verify_quote` alone passes; the new combined gate drops) so its intent is unmissable to a future editor.
+
+### Nits
+- [ai-ml-engineer] src/gander/verify.py:223,309 — `_emit_claim_mismatch` counts words by whitespace split while `_content_tokens` uses `_WORD_RE`; the two obs word-counts can disagree. Also `_WORD_RE = [0-9a-z] re.ASCII` after `_normalize` silently drops non-ASCII tokens (CZ diacritics) — document or fold the casefold into normalize.
+- [ux-engineer] src/gander/report.py:388 — seniority band renders as `(senior)` in parentheses; the plan suggested a `· senior` middot in the heading.
+- [hiring-manager] app.py:199-201 — `_DOWNLOAD_IDLE` / `_CANCEL_SHOWN` / `_CANCEL_HIDDEN` `gr.update()` values are built at import time inside the `gr.Blocks()` scope; works today but fragile if Gradio changes update semantics.
+- [qa-engineer] tests/test_render.py:341 — the negative banner assertion (`"About this report" not in out`) has a paired positive test elsewhere; keeping both in view of each other would harden the pair.
+- [qa-engineer] src/gander/llm.py:211 — no test verifies that a 401 from the HTTP layer (the missing-key path) becomes a user-facing `StageFailure`; the behavior is asserted only by comment.
+- [qa-engineer] src/gander/obs.py:61 — `run_scope`'s finally-on-`aclose()` semantics (holds even under `asyncio.CancelledError`) deserve a one-line in-code note; currently implicit.
+
