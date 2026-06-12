@@ -15,12 +15,12 @@ jobs:
       group: ci-static-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -74,14 +74,14 @@ jobs:
           echo "::error::OPENROUTER_API_KEY repository secret is required for openrouter-live"
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.openrouter-secret.outputs.available == 'true'
         with:
           lfs: true
 
       - name: Set up uv
         if: steps.openrouter-secret.outputs.available == 'true'
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
