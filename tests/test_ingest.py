@@ -599,21 +599,22 @@ async def test_docx_file_mode_text_skips_llm_normalization(
 
 @pytest.mark.fast
 @pytest.mark.parametrize(
-    ("env_name", "filename", "expected_modes"),
+    ("env_name", "filename", "file_bytes", "expected_modes"),
     [
-        ("GANDER_PDF_INGEST_MODE", "cv.pdf", "text, vision"),
-        ("GANDER_DOCX_INGEST_MODE", "cv.docx", "llm, text"),
+        ("GANDER_PDF_INGEST_MODE", "cv.pdf", b"%PDF-not-a-real-file", "text, vision"),
+        ("GANDER_DOCX_INGEST_MODE", "cv.docx", b"PK\x03\x04not-a-real-file", "llm, text"),
     ],
 )
 async def test_file_specific_ingest_mode_validation_is_clear(
     monkeypatch: pytest.MonkeyPatch,
     env_name: str,
     filename: str,
+    file_bytes: bytes,
     expected_modes: str,
 ) -> None:
     monkeypatch.setenv(env_name, "fast")
 
-    result = await extract_text(b"not-a-real-file", filename)
+    result = await extract_text(file_bytes, filename)
 
     assert isinstance(result, StageFailure)
     assert result.stage == "ingest"

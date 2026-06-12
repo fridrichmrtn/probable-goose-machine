@@ -58,6 +58,10 @@ _DEFAULT_VISION_MAX_TOTAL_IMAGE_BYTES = 48_000_000
 _DEFAULT_VISION_MAX_PDF_BYTES = 10_000_000
 _DEFAULT_VISION_CONCURRENCY = 4
 _MIN_DOCX_SOURCE_OVERLAP = 0.70
+_PDF_MAGIC = b"%PDF"
+# DOCX is a ZIP container; PK\x03\x04 is the ZIP local-file-header signature.
+_DOCX_MAGIC = b"PK\x03\x04"
+_DEFAULT_MAX_INPUT_CHARS = 50_000
 
 _SIDEBAR_TOKENS = (
     "kontakt",
@@ -100,6 +104,19 @@ class _RenderedPdf:
 
 def _load_prompt(name: str) -> str:
     return (Path(__file__).with_name("prompts") / name).read_text(encoding="utf-8")
+
+
+def _check_magic_bytes(file_bytes: bytes, suffix: str) -> bool:
+    """Return True when the file's leading bytes match its claimed suffix."""
+    if suffix == ".pdf":
+        return file_bytes[:4] == _PDF_MAGIC
+    if suffix == ".docx":
+        return file_bytes[:4] == _DOCX_MAGIC
+    return True
+
+
+def _max_input_chars() -> int:
+    return env_int("GANDER_MAX_INPUT_CHARS", _DEFAULT_MAX_INPUT_CHARS, max_value=200_000)
 
 
 def _ingest_mode() -> str:
@@ -230,6 +247,21 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
             obs.emit("ingest", "rejected", reason="doc_legacy", duration_ms=_ms())
             return StageFailure(stage="ingest", user_message=DOC_MSG)
 
+        if not _check_magic_bytes(file_bytes, suffix):
+            obs.emit(
+                "ingest",
+                "rejected",
+                reason="wrong_magic_bytes",
+                suffix=suffix,
+                size_bytes=len(file_bytes),
+                duration_ms=_ms(),
+            )
+            return StageFailure(
+                stage="ingest",
+                user_message=CORRUPT_MSG,
+                debug_detail=f"magic-byte mismatch for {suffix}: {len(file_bytes)} bytes",
+            )
+
         mode: str
         if suffix == ".pdf":
             mode = _pdf_ingest_mode()
@@ -278,6 +310,15 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
 
         repaired = _repair_inline_section_breaks(text)
         annotated = _annotate_sections(repaired)
+        max_chars = _max_input_chars()
+        if len(annotated) > max_chars:
+            obs.emit(
+                "ingest",
+                "input_truncated",
+                original_chars=len(annotated),
+                max_chars=max_chars,
+            )
+            annotated = annotated[:max_chars]
         obs.emit(
             "ingest",
             "done",
