@@ -16,7 +16,7 @@ def test_subscribe_roundtrip_and_unregister() -> None:
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
         emit("stage_a", "tick", k=1)
-    assert events == [{"stage": "stage_a", "event": "tick", "k": 1}]
+    assert events == [{"stage": "stage_a", "event": "tick", "run_id": None, "k": 1}]
 
     emit("stage_a", "tick_after", k=2)
     assert len(events) == 1
@@ -75,4 +75,49 @@ def test_subscriber_exception_is_swallowed_not_propagated() -> None:
     with subscribe(bad_callback), subscribe(good_events.append):
         emit("stage_x", "tick", k=1)
 
-    assert good_events == [{"stage": "stage_x", "event": "tick", "k": 1}]
+    assert good_events == [{"stage": "stage_x", "event": "tick", "run_id": None, "k": 1}]
+
+
+def test_emit_includes_run_id_when_set() -> None:
+    events: list[dict[str, Any]] = []
+    with obs.run_scope("run-123"), subscribe(events.append):
+        emit("stage_a", "tick", k=1)
+    assert events[0]["run_id"] == "run-123"
+
+
+def test_emit_run_id_none_when_unset() -> None:
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        emit("stage_a", "tick")
+    assert events[0]["run_id"] is None
+
+
+def test_run_scope_resets_on_exit() -> None:
+    # Read obs.current_run_id (the live module attribute) rather than the name
+    # imported at module top: an earlier reload test rebinds obs's ContextVars.
+    assert obs.current_run_id.get() is None
+    with obs.run_scope("abc"):
+        assert obs.current_run_id.get() == "abc"
+    assert obs.current_run_id.get() is None
+
+
+async def test_run_id_isolated_across_gather_siblings() -> None:
+    a_events: list[dict[str, Any]] = []
+    b_events: list[dict[str, Any]] = []
+
+    async def task_a() -> None:
+        with obs.run_scope("run-a"), subscribe(a_events.append):
+            emit("a", "evt1")
+            await asyncio.sleep(0)
+            emit("a", "evt2")
+
+    async def task_b() -> None:
+        with obs.run_scope("run-b"), subscribe(b_events.append):
+            emit("b", "evt1")
+            await asyncio.sleep(0)
+            emit("b", "evt2")
+
+    await asyncio.gather(task_a(), task_b())
+
+    assert all(e["run_id"] == "run-a" for e in a_events)
+    assert all(e["run_id"] == "run-b" for e in b_events)

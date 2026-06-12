@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from gander.llm import LLMClient, LogicalModel, _strip_think
+from gander.llm import LLMClient, LogicalModel, _strip_think, check_env
 from gander.obs import current_stage, subscribe
 
 
@@ -193,13 +193,37 @@ def test_openrouter_route_env_override_and_duplicate_fallback_removal(
 
 
 @pytest.mark.fast
-def test_openrouter_missing_key_and_removed_providers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
+def test_check_env_raises_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Boot-time gate: check_env() is where a missing key fails fast. Construction
+    # itself stays cheap (see test_llmclient_construction_is_cheap_without_key).
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
-        LLMClient()
+        check_env()
+
+
+@pytest.mark.fast
+def test_check_env_passes_with_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    check_env()  # must not raise
+
+
+@pytest.mark.fast
+def test_llmclient_construction_is_cheap_without_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The T47 wart: tests had to stub OPENROUTER_API_KEY purely because the
+    # constructor raised. After the move to check_env(), construction succeeds
+    # with no key and the first real call is the failure point instead.
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "openrouter")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    LLMClient()  # must not raise
+
+
+@pytest.mark.fast
+def test_removed_providers_still_rejected_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
 
     monkeypatch.setenv("GANDER_LLM_PROVIDER", "anthropic")
     with pytest.raises(RuntimeError, match="'openrouter'"):

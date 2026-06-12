@@ -489,6 +489,41 @@ async def test_prd_observability_counters_visible_on_golden_run(
 
 
 @pytest.mark.fast
+async def test_run_id_correlates_all_events_in_one_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+    events: list[dict[str, Any]] = []
+
+    with obs.subscribe(events.append):
+        await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    run_ids = {e["run_id"] for e in events}
+    assert len(run_ids) == 1
+    only = run_ids.pop()
+    assert isinstance(only, str) and only  # a non-empty uuid string
+    # The contextvar is reset after the run completes.
+    assert obs.current_run_id.get() is None
+
+
+@pytest.mark.fast
+async def test_run_ids_differ_across_separate_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_happy_path(monkeypatch)
+    events: list[dict[str, Any]] = []
+
+    with obs.subscribe(events.append):
+        await _collect(pipeline.run(b"x", "cv.pdf"))
+        first_run_ids = {e["run_id"] for e in events}
+        events.clear()
+        await _collect(pipeline.run(b"x", "cv.pdf"))
+        second_run_ids = {e["run_id"] for e in events}
+
+    assert first_run_ids.isdisjoint(second_run_ids)
+
+
+@pytest.mark.fast
 async def test_cost_and_latency_accumulate_from_obs_emit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

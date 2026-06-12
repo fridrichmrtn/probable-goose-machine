@@ -22,6 +22,7 @@ from typing import Any
 import gradio as gr
 
 from gander.errors import StageFailure
+from gander.llm import check_env
 from gander.pipeline import run as pipeline_run
 from gander.report import render_body, render_tracker
 from gander.schemas import Profile, Report
@@ -220,6 +221,11 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
 
 
 if __name__ == "__main__":
+    # Fail fast with a clear message if the runtime LLM key is missing, instead
+    # of launching a UI that errors on the first real request. HF Spaces and the
+    # local run path both invoke this as __main__; `import app` (smoke tests)
+    # stays key-free.
+    check_env()
     # Free HF Space: 2 concurrent pipeline runs, 4 queued — caps LLM-budget
     # blast radius from simultaneous users rather than CPU.
     demo.queue(max_size=4, default_concurrency_limit=2).launch(max_file_size="10mb")

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -178,16 +179,20 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
     accumulator to this run only.
     """
     state = _Run()
-    # Emit only the suffix, never the raw filename: CV filenames embed candidate
-    # names ("Jane Smith CV.pdf"), which would defeat the no-PII-in-obs posture.
-    obs.emit(
-        None,
-        "pipeline_start",
-        filename_suffix=Path(filename).suffix.lower(),
-        bytes=len(file_bytes),
-    )
+    # One uuid4 per run correlates every obs event from this pipeline. A uuid
+    # carries no CV content, so it is safe to log (see test_privacy_obs).
+    run_id = str(uuid.uuid4())
+    with obs.run_scope(run_id), obs.subscribe(_make_accumulator(state)):
+        # Emit only the suffix, never the raw filename: CV filenames embed
+        # candidate names ("Jane Smith CV.pdf"), which would defeat the
+        # no-PII-in-obs posture.
+        obs.emit(
+            None,
+            "pipeline_start",
+            filename_suffix=Path(filename).suffix.lower(),
+            bytes=len(file_bytes),
+        )
 
-    with obs.subscribe(_make_accumulator(state)):
         # Initial yield: tracker says pending, body is empty (renderer
         # short-circuits on profile=None).
         yield state.snapshot()

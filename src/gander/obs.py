@@ -13,6 +13,9 @@ _subscribers: ContextVar[tuple[Callable[[dict[str, Any]], None], ...]] = Context
     "subscribers", default=()
 )
 current_stage: ContextVar[str | None] = ContextVar("current_stage", default=None)
+# Correlates every event from one pipeline run. Set once at pipeline entry; a
+# uuid4, so it carries no CV content and is safe to log (see test_privacy_obs).
+current_run_id: ContextVar[str | None] = ContextVar("current_run_id", default=None)
 
 
 def _configure_once() -> None:
@@ -37,8 +40,9 @@ _logger = structlog.get_logger("gander")
 
 
 def emit(stage: str | None, event: str, **kv: Any) -> None:
-    record: dict[str, Any] = {"stage": stage, "event": event, **kv}
-    _logger.info(event, stage=stage, **kv)
+    run_id = current_run_id.get()
+    record: dict[str, Any] = {"stage": stage, "event": event, "run_id": run_id, **kv}
+    _logger.info(event, stage=stage, run_id=run_id, **kv)
     for callback in _subscribers.get():
         try:
             callback(record)
@@ -51,6 +55,20 @@ def emit(stage: str | None, event: str, **kv: Any) -> None:
                 origin_event=event,
                 error=repr(cb_err),
             )
+
+
+@contextmanager
+def run_scope(run_id: str) -> Iterator[None]:
+    """Bind `run_id` to the current context for the duration of one pipeline run.
+
+    Reset in finally so a cancelled or GC'd async generator can't leak the id
+    into a later run reusing the same task/context.
+    """
+    token = current_run_id.set(run_id)
+    try:
+        yield
+    finally:
+        current_run_id.reset(token)
 
 
 @contextmanager

@@ -11,10 +11,8 @@ import pytest
 from gander import ingest
 from gander.llm import LLMClient, get_client
 
-
-@pytest.fixture(autouse=True)
-def _api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
+# No OPENROUTER_API_KEY stub: LLMClient construction is cheap and these tests
+# either patch the LLM methods or never construct over HTTP (T47 / P1.3).
 
 
 @pytest.mark.fast
