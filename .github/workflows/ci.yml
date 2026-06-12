@@ -108,3 +108,12 @@ jobs:
         # (LLM HTTPS dominates wall time). The DDG-touching salary test carries
         # @pytest.mark.xdist_group("ddg") so loadgroup pins it to a single worker.
         run: uv run pytest -m live --strict-markers --reruns 1 --reruns-delay 2 -n 4 --dist=loadgroup -v
+
+  # Deploy is the last step of CI: the HF Space only receives commits that passed
+  # both static and the live acceptance suite. Skipped (not failed) on PRs.
+  # Manual re-sync without CI: workflow_dispatch on sync-to-hub.yml.
+  sync:
+    needs: [static, openrouter-live]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/sync-to-hub.yml
+    secrets: inherit

@@ -1,14 +1,17 @@
 name: Sync to Hugging Face Space
 
 on:
-  push:
-    branches: [main]
+  # Called as the final job of ci.yml — deploys only after static + openrouter-live pass.
+  workflow_call:
+  # Manual escape hatch for triage. Bypasses CI gating — use only when you know
+  # the current main is good (e.g. re-syncing after an HF-side hiccup).
   workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 5 min for checkout+push, plus up to ~5 min of health-check polling below.
+    timeout-minutes: 10
     # Single global queue — never race two pushes to the same HF remote.
     # `cancel-in-progress: false` lets in-flight pushes finish; the newer push queues behind.
     concurrency:
@@ -31,3 +34,30 @@ jobs:
         # (e.g. someone direct-pushed to `hf` while CI ran) and should fail loudly for triage.
         run: |
           git push "https://x-access-token:${HF_TOKEN}@huggingface.co/spaces/fridrichmrtn/probable-goose-machine" main
+
+      - name: Guard — HF_SPACE_URL must be set
+        env:
+          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
+        run: |
+          if [ -z "$HF_SPACE_URL" ]; then
+            echo "::error::repo variable HF_SPACE_URL is not set — cannot verify the deploy"
+            exit 1
+          fi
+
+      - name: Wait for Space to serve the app
+        env:
+          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
+        # HF_SPACE_URL is the *.hf.space app endpoint (warm-keeper HEAD-pings the same URL),
+        # which returns non-2xx while the Space is building or broken — a 200 means the app
+        # is actually serving. Post-push rebuilds include dependency install, so poll up to
+        # ~5 min (30 × 10 s) before declaring the deploy broken.
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sfI "$HF_SPACE_URL" > /dev/null; then
+              echo "Space is serving (attempt $i)."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Space did not return 2xx within ~5 min of the push — deploy looks broken"
+          exit 1
