@@ -15,6 +15,7 @@ Analyze CV (the handler's first yield calls `render_tracker(reading_report)`).
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,21 @@ def _read_error_report(user_message: str) -> Report:
             "growth": "skipped",
         },
     )
+
+
+def _write_report_md(report: Report) -> str:
+    """Write the rendered report body to a temp .md file; return its path.
+
+    Gradio's DownloadButton serves a file from disk, so the completed report is
+    materialized once per run. delete=False because the file must outlive this
+    function for Gradio to stream it; the OS temp dir is the accepted lifecycle
+    for a no-persistence prototype.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", prefix="gander-report-", delete=False, encoding="utf-8"
+    ) as handle:
+        handle.write(render_body(report))
+        return handle.name
 
 
 _HERO_CSS = """<style>
@@ -150,25 +166,50 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             "locally. Salary data is fetched via DuckDuckGo search. "
             "Uploads are not retained by Gander.</p>"
         )
-        run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
+        with gr.Row():
+            run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
+            cancel_btn = gr.Button("Cancel", variant="secondary", visible=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
         report_md = gr.Markdown(value="", visible=False, elem_classes=["gander-output"])
+        download_btn = gr.DownloadButton(
+            "Download report (.md)", visible=False, elem_classes=["gander-output"]
+        )
+
+    def _on_file_change(
+        file_path: str | None,
+    ) -> tuple[Any, Any, Any, Any]:
+        # Toggle the run button and clear any prior run's output so a stale
+        # report can't sit under a freshly chosen file.
+        return (
+            gr.Button(interactive=file_path is not None),
+            gr.update(value="", visible=False),
+            gr.update(value="", visible=False),
+            gr.update(value=None, visible=False),
+        )
 
     file_in.change(
-        lambda f: gr.Button(interactive=f is not None),
+        _on_file_change,
         inputs=[file_in],
-        outputs=[run_btn],
+        outputs=[run_btn, tracker_html, report_md, download_btn],
         show_progress="hidden",
     )
 
+    # Yield order matches the run_btn.click outputs list below:
+    # (tracker_html, report_md, download_btn, cancel_btn).
+    _DOWNLOAD_IDLE = gr.update(visible=False)
+    _CANCEL_SHOWN = gr.update(visible=True)
+    _CANCEL_HIDDEN = gr.update(visible=False)
+
     async def handle(
         file_path: str | None,
-    ) -> AsyncIterator[tuple[dict[str, Any], dict[str, Any]]]:
+    ) -> AsyncIterator[tuple[Any, Any, Any, Any]]:
         if file_path is None:
             failed = _read_error_report("Select a CV first.")
             yield (
                 gr.update(visible=True, value=render_tracker(failed)),
                 gr.update(visible=True, value=render_body(failed)),
+                _DOWNLOAD_IDLE,
+                _CANCEL_HIDDEN,
             )
             return
         try:
@@ -180,12 +221,14 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             yield (
                 gr.update(visible=True, value=render_tracker(failed)),
                 gr.update(visible=True, value=render_body(failed)),
+                _DOWNLOAD_IDLE,
+                _CANCEL_HIDDEN,
             )
             return
         filename = Path(file_path).name
 
         # Acknowledge the click before pipeline_run yields its first state — cold-start
-        # silence reads as breakage (PRD §8).
+        # silence reads as breakage (PRD §8). Show Cancel for the duration of the run.
         reading_report = _initial_report()
         reading_report.statuses["profile"] = "running"
         reading_copy = (
@@ -194,9 +237,13 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         yield (
             gr.update(visible=True, value=render_tracker(reading_report)),
             gr.update(visible=True, value=reading_copy),
+            _DOWNLOAD_IDLE,
+            _CANCEL_SHOWN,
         )
 
+        last_report: Report | None = None
         async for report in pipeline_run(file_bytes, filename):
+            last_report = report
             # render_body short-circuits to a failure callout when profile is still a
             # StageFailure placeholder; hold neutral copy until profile is a real Profile.
             if isinstance(report.profile, Profile):
@@ -210,13 +257,31 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             yield (
                 gr.update(visible=True, value=render_tracker(report)),
                 gr.update(visible=True, value=body),
+                _DOWNLOAD_IDLE,
+                _CANCEL_SHOWN,
             )
 
-    run_btn.click(
+        # Offer the download only for a report that actually rendered a body
+        # (profile resolved to a real Profile, not a top-level failure callout).
+        # Tracker and body keep their last values; only reveal the download and
+        # hide Cancel now that the run is done.
+        if last_report is not None and isinstance(last_report.profile, Profile):
+            download = gr.update(visible=True, value=_write_report_md(last_report))
+        else:
+            download = _DOWNLOAD_IDLE
+        yield (gr.update(), gr.update(), download, _CANCEL_HIDDEN)
+
+    run_event = run_btn.click(
         handle,
         inputs=[file_in],
-        outputs=[tracker_html, report_md],
+        outputs=[tracker_html, report_md, download_btn, cancel_btn],
         show_progress="hidden",
+    )
+    cancel_btn.click(
+        lambda: gr.update(visible=False),
+        inputs=None,
+        outputs=[cancel_btn],
+        cancels=[run_event],
     )
 
 
