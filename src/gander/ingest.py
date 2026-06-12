@@ -17,7 +17,7 @@ import pypdf
 from gander import obs
 from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.sections import NORMALIZED_SECTION_NAMES, SECTION_NAMES, normalize_section_name
 
 SCANNED_MSG = "This appears to be a scanned PDF. Text-based PDFs and DOCX are required."
@@ -336,13 +336,13 @@ async def extract_text(file_bytes: bytes, filename: str) -> str | StageFailure:
 async def _extract_pdf(file_bytes: bytes, *, mode: str | None = None) -> str:
     resolved_mode = _pdf_ingest_mode() if mode is None else mode
     if resolved_mode == "text":
-        return _extract_pdf_text(file_bytes)
+        return await asyncio.to_thread(_extract_pdf_text, file_bytes)
 
     try:
         return await _extract_pdf_vlm(file_bytes)
     except _VisionBudgetExceeded as exc:
         obs.emit("ingest", "ingest_llm_fallback", file_type="pdf", reason=exc.reason)
-        text = _extract_pdf_text(file_bytes)
+        text = await asyncio.to_thread(_extract_pdf_text, file_bytes)
         if len(text.strip()) >= MIN_TEXT_CHARS:
             obs.emit(
                 "ingest",
@@ -363,12 +363,12 @@ async def _extract_pdf(file_bytes: bytes, *, mode: str | None = None) -> str:
             reason="api_error",
             exc_type=type(exc).__name__,
         )
-    return _extract_pdf_text(file_bytes)
+    return await asyncio.to_thread(_extract_pdf_text, file_bytes)
 
 
 async def _extract_docx(file_bytes: bytes, *, mode: str | None = None) -> str:
     resolved_mode = _docx_ingest_mode() if mode is None else mode
-    deterministic = _extract_docx_text(file_bytes)
+    deterministic = await asyncio.to_thread(_extract_docx_text, file_bytes)
     if resolved_mode == "text":
         return deterministic
     if len(deterministic.strip()) < MIN_TEXT_CHARS:
@@ -534,13 +534,13 @@ def _render_pdf_pages_for_vision(file_bytes: bytes, dpi: int) -> _RenderedPdf:
 
 async def _extract_pdf_vlm(file_bytes: bytes) -> str:
     dpi = _vision_dpi()
-    rendered = _render_pdf_pages_for_vision(file_bytes, dpi=dpi)
+    rendered = await asyncio.to_thread(_render_pdf_pages_for_vision, file_bytes, dpi=dpi)
     pages = rendered.pages
     if not pages:
         raise _IngestLLMReject("page_render_failed")
 
     prompt = _load_prompt("ingest_vlm.md")
-    client = LLMClient()
+    client = get_client()
     obs.emit(
         "ingest",
         "ingest_vlm_start",
@@ -605,7 +605,9 @@ async def _normalize_docx_with_llm(source_text: str) -> str:
         f"{source_text}"
     )
     obs.emit("ingest", "docx_llm_start", source_chars=len(source_text))
-    text = await LLMClient().complete_text(system=system, user=user, model="cheap", temperature=0.0)
+    text = await get_client().complete_text(
+        system=system, user=user, model="cheap", temperature=0.0
+    )
     return _strip_transcript_fences(text)
 
 

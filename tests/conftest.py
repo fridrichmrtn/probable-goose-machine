@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+import gander.llm as _llm_mod
 
 _DDG_CASSETTE_PATH = Path(__file__).parent / "fixtures" / "ddg" / "market_cassettes.json"
 _ORIGINAL_DDG_TEXT: object | None = None
@@ -19,6 +22,14 @@ _NON_CZ_MARKERS = (
     "tokyo",
     "japan",
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_llm_client_cache() -> Generator[None, None, None]:
+    """Isolate the process-singleton LLMClient cache between tests."""
+    _llm_mod.get_client.cache_clear()
+    yield
+    _llm_mod.get_client.cache_clear()
 
 
 def _load_ddg_cassettes() -> dict[str, list[dict[str, str]]]:

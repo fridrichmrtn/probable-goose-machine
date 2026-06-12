@@ -335,13 +335,13 @@ async def _llm_canonicalize_role(
     years: int,
 ) -> NormalizedRole | None:
     """Extraction-slot LLM fallback. Returns `None` on low confidence, error, or bad shape."""
-    from gander.llm import LLMClient
+    from gander.llm import get_client
 
     payload = json.dumps(
         {"detected_role": detected_role, "experience_titles": experience_titles[:5], "years": years}
     )
     try:
-        client = LLMClient()
+        client = get_client()
         raw = await client.complete_json(
             system=_LLM_CANONICALIZE_PROMPT,
             user=payload,

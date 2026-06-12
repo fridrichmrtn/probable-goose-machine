@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.market import currency_to_period, resolve_market
 from gander.obs import emit
 from gander.schemas import Profile, SalaryEstimate, Source
@@ -399,7 +399,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
                 debug_detail=f"{type(exc).__name__}: {exc}",
             )
 
-        client = LLMClient()
+        client = get_client()
         # Canonical fields feed the LLM the seniority signal it needs to anchor
         # correctly on management profiles even when the snippets are IC-only
         # (T27, R5). Fall back to the verbatim headline when normalization

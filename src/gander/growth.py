@@ -31,7 +31,7 @@ from typing import NamedTuple
 from pydantic import BaseModel
 
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.obs import emit
 from gander.schemas import GrowthAction, Profile, ProfileItem, RedactedCV, Score
 from gander.tenure import _PRESENT_TOKENS, work_experience_slice
@@ -517,7 +517,7 @@ async def plan_growth(
             return int((time.perf_counter() - t0) * 1000)
 
         try:
-            client = LLMClient()
+            client = get_client()
             current_hint, closed_hint = _compute_employer_hints(redacted, profile)
             user_message = _build_user_message(
                 redacted,

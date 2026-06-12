@@ -15,7 +15,7 @@ from pathlib import Path
 from gander import obs
 from gander.errors import StageFailure, stage_boundary
 from gander.ingest import LOW_EVIDENCE_MSG
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.normalize import normalize_role_with_llm_fallback
 from gander.schemas import Anchor, Profile, ProfileItem, RedactedCV
 from gander.verify import drop_unverified, verify_quote
@@ -245,7 +245,7 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
         return int((time.perf_counter() - t0) * 1000)
 
     with stage_boundary("extract") as cm:
-        client = LLMClient()
+        client = get_client()
         raw = await client.complete_json(
             system=load_prompt("extract.md"),
             user=redacted.text,

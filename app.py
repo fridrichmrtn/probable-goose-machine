@@ -221,4 +221,6 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
 
 
 if __name__ == "__main__":
-    demo.queue().launch(max_file_size="10mb")
+    # Free HF Space: 2 concurrent pipeline runs, 4 queued — caps LLM-budget
+    # blast radius from simultaneous users rather than CPU.
+    demo.queue(max_size=4, default_concurrency_limit=2).launch(max_file_size="10mb")

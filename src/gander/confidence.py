@@ -23,7 +23,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from gander.errors import StageFailure, stage_boundary
-from gander.llm import LLMClient
+from gander.llm import get_client
 from gander.obs import emit
 from gander.schemas import Confidence, CVQualitySignals, Source
 from gander.source_rubric import SourceRubricResult, evaluate_source_rubric
@@ -164,7 +164,7 @@ async def judge(
         def _ms() -> int:
             return int((time.perf_counter() - t0) * 1000)
 
-        client = LLMClient()
+        client = get_client()
 
         step_a_user = json.dumps({"sources": [s.model_dump(mode="json") for s in sources]})
         try:
