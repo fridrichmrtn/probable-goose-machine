@@ -85,6 +85,7 @@ def _growth() -> list[GrowthAction]:
             what="ship a Rust CLI",
             time_horizon_months=6,
             mechanism="weekend project",
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         )
     ]

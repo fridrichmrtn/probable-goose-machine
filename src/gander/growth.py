@@ -1,8 +1,11 @@
 """L5 growth-plan generator.
 
-Generates 3-5 CV-specific salary-growth actions, each verifiable against the
+Generates CV-specific salary-growth actions, each verifiable against the
 source CV via ``verify_quote``, with a hard anti-slop ban list as the central
-discriminator (PRD §4.4).
+discriminator (PRD §4.4). The 3-5 action count is the prompt/internal
+contract — PRD §4.4 itself asks only for "a concrete set of actions" — and a
+run with just 1-2 verified survivors ships them as a degraded partial list
+(PRD §4.5) instead of failing.
 
 Signature widened from the T13_growth.md contract to take ``RedactedCV`` (needed
 to call ``verify_quote`` on each action's anchor) and return
@@ -23,6 +26,7 @@ import string
 import time
 import unicodedata
 from pathlib import Path
+from typing import NamedTuple
 
 from pydantic import BaseModel
 
@@ -53,37 +57,15 @@ _BAN_PHRASES: tuple[str, ...] = (
     "network more",
 )
 
-_FORWARD_MARKERS: tuple[str, ...] = (
-    "next role",
-    "next employer",
-    "next position",
-    "new role",
-    "new employer",
-    "new position",
-    "future role",
-    "interview",
-    "land a role",
-    "land a job",
-    "job hunt",
-    "open source",
-    "open-source",
-    "certification",
-    "certificate",
-    "certify",
-    "certified",
-    "paper",
-    "publish",
-    "publication",
-    "side project",
-    "side-project",
-)
+# "phd" needs a leading word boundary: punctuation-stripping turns "GraphDB"
+# into "graphdb" and "graph-database" into "graphdatabase", both of which
+# contain the bare substring. Trailing boundary stays open so "phds" and the
+# post-strip form of "Ph.D." still match.
+_PHD_RE = re.compile(r"(?<!\w)phd")
 
-# Word-boundary match: "oss" must not match inside "across"/"loss",
-# "paper" must not match inside "whitepaper"/"newspaper".
-_FORWARD_MARKER_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(m) for m in _FORWARD_MARKERS) + r")\b",
-    flags=re.IGNORECASE,
-)
+# Prompt rule 6 softeners, enforced on `what` only — "explore" in a mechanism
+# sentence is commentary, but a softened imperative is slop (PRD §4.4).
+_SOFTENER_RE = re.compile(r"\b(?:consider|explore|look into)\b", re.IGNORECASE)
 
 _BOILERPLATE_JACCARD_THRESHOLD = 0.6
 # Baseline lives inside the package so a wheel install keeps the smoke check wired.
@@ -144,7 +126,10 @@ def _check_ban_phrase(action: GrowthAction) -> str | None:
     translator = str.maketrans("", "", string.punctuation)
     haystack = " ".join(raw.translate(translator).split())
     for phrase in _BAN_PHRASES:
-        if phrase in haystack:
+        if phrase == "phd":
+            if _PHD_RE.search(haystack):
+                return phrase
+        elif phrase in haystack:
             return phrase
     return None
 
@@ -220,133 +205,95 @@ def _extract_current_employer_hint(redacted: RedactedCV, profile: Profile) -> li
 
 
 def _normalize_for_match(text: str) -> str:
+    # Punctuation becomes a space so legal-suffix and dash variants compare
+    # equal ("s.r.o." vs "s. r. o.", "Acme—Retail" vs "Acme-Retail") and a
+    # lone "—" can never substring-match the "Title — Company" hint join.
     stripped = "".join(
         c for c in unicodedata.normalize("NFKD", text).lower() if not unicodedata.combining(c)
     )
-    return " ".join(stripped.split())
+    cleaned = "".join(c if c.isalnum() else " " for c in stripped)
+    return " ".join(cleaned.split())
 
 
-_COMPANY_STOPWORDS: frozenset[str] = frozenset(
-    {
-        "manager",
-        "senior",
-        "junior",
-        "lead",
-        "principal",
-        "staff",
-        "engineer",
-        "scientist",
-        "analyst",
-        "director",
-        "data",
-        "ai",
-        "science",
-        "research",
-        "platform",
-        "software",
-        "head",
-        "of",
-        "and",
-        "the",
-        "member",
-        # Employer-descriptor / contract-shape words that aren't a company
-        # name. Without these, "Research Engineer — Independent" emits the
-        # candidate "independent", and an action mentioning "independent
-        # contractor" would falsely satisfy the current-employer bypass.
-        "independent",
-        "freelance",
-        "freelancer",
-        "contract",
-        "contractor",
-        "consultant",
-        "consulting",
-        "remote",
-        "onsite",
-        "hybrid",
-        "self",
-        "employed",
-        "current",
-        "present",
-        # Common legal/entity suffixes that survive normalization but don't
-        # discriminate (Alza.cz a.s., Acme Inc., Foo LLC, …).
-        "inc",
-        "llc",
-        "ltd",
-        "corp",
-        "gmbh",
-        "spol",
-        "sro",
-        "kft",
-    }
-)
+def _hint_segments(headers: list[str]) -> list[list[str]]:
+    """Tokenized match candidates per hint header: each dash-separated part
+    ("Title — Company" → "Title", "Company") plus the full header. Splitting
+    happens before normalization so hyphenated names ("Acme-Retail") stay
+    whole; em/en-dash company joins still match via the full-header candidate.
+    Empty headers yield no candidates — they must never match anything."""
+    segments: list[list[str]] = []
+    for header in headers:
+        for part in [*re.split(r"\s+-\s+|[—–]", header), header]:
+            tokens = _normalize_for_match(part).split()
+            if tokens:
+                segments.append(tokens)
+    return segments
 
 
-def _token_in(needle: str, haystack: str) -> bool:
-    """Word-boundary match for single-token candidates, substring for phrases.
+def _tokens_match(a: list[str], b: list[str]) -> bool:
+    """True when one token list appears as a contiguous subsequence of the
+    other. Token-level containment keeps "ING" from matching inside
+    "Consulting" while letting short verbatim employers ("O2") through."""
 
-    Bare substring (`needle in haystack`) lets short tokens like "inc" match
-    inside "increase" and "oss" match inside "across". Multi-word candidates
-    (after `_normalize_for_match` collapses whitespace, the candidate retains
-    spaces only when it was a multi-word header part) keep substring
-    semantics — false-positive risk is low and word boundaries get muddled
-    by internal punctuation like "alza.cz a.s.".
-    """
-    if not needle:
-        return False
-    if " " in needle:
-        return needle in haystack
-    pattern = re.compile(rf"(?<!\w){re.escape(needle)}(?!\w)")
-    return bool(pattern.search(haystack))
+    def contains(haystack: list[str], needle: list[str]) -> bool:
+        if not needle or len(needle) > len(haystack):
+            return False
+        return any(
+            haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
+        )
+
+    return contains(a, b) or contains(b, a)
 
 
-def _employer_match_candidates(header: str) -> list[str]:
-    # An EmployerEntry.header is "Title — Company"; an action's `what` rarely
-    # quotes the full header. Match the whole header, each dash-split part
-    # (>=4 chars), or any non-stopword token (>=3 chars) within those parts —
-    # the latter catches "alza.cz" inside "alza.cz a.s.".
-    normalized = _normalize_for_match(header)
-    if not normalized:
-        return []
-    candidates: set[str] = {normalized}
-    for part in re.split(r"\s+[-–—]\s+", normalized):
-        part = part.strip()
-        # Only add multi-token parts as phrase candidates. A single-token
-        # part like "independent" must clear the stopword filter via the
-        # per-token path below; otherwise an employer header that ends in
-        # a generic descriptor pollutes the candidate set.
-        if " " in part and len(part) >= 4:
-            candidates.add(part)
-        for token in part.split():
-            stripped = token.strip(".,;:")
-            if len(stripped) >= 3 and stripped not in _COMPANY_STOPWORDS:
-                candidates.add(stripped)
-    return [c for c in candidates if c]
-
-
-def _violates_forward_setting(
+def _setting_violation(
     action: GrowthAction,
     current_employers: list[str],
     closed_employers: list[str],
-) -> str | None:
-    what = _normalize_for_match(action.what)
-    closed_candidates = [c for h in closed_employers for c in _employer_match_candidates(h)]
-    closed_hits = [c for c in closed_candidates if _token_in(c, what)]
-    # Resolve the closed-employer signal first so a generic current-employer
-    # token can't short-circuit before we've seen the closed evidence.
-    if not closed_hits:
+) -> tuple[str, str] | None:
+    """Validate the model's declared setting instead of keyword-guessing.
+
+    Only `current_employer` declarations are checkable. A target that is
+    token-for-token equal to a full closed-employer header was copied verbatim
+    from a CLOSED entry and drops as `closed_employer_target` before any
+    current-hint matching — shared title segments ("Senior Manager — ...")
+    must not rubber-stamp it. Exception: a target token-equal to a CURRENT
+    hint segment (rehire headers, company-only closed headers) names a place
+    the candidate provably works now. Otherwise the target must token-match a
+    current-employer hint segment (contiguous token subsequence, either
+    direction). A target matching only a closed-employer hint is also a
+    `closed_employer_target` violation — actions never happen at a past
+    employer. A target matching neither, or whose normalized form has fewer
+    than 2 alphanumeric characters, drops as `unverified_target_employer`.
+    `future_role` / `capability_artifact` have no employer to verify. With no
+    current hints only the closed check applies — otherwise same skip as the
+    old gate, kept observable via the `growth_employer_hints` event.
+    """
+    if action.setting != "current_employer":
         return None
-    if _FORWARD_MARKER_RE.search(what):
+    if not action.target_employer:
+        if current_employers:
+            return ("unverified_target_employer", "missing_target")
         return None
-    current_candidates = [c for h in current_employers for c in _employer_match_candidates(h)]
-    closed_set = set(closed_candidates)
-    # Only a current-employer candidate that is *not* also a closed candidate
-    # can override a closed hit. With the expanded stopword filter the
-    # remaining tokens are real company names, so a hit here is a genuine
-    # current-employer reference rather than a generic title token.
-    current_hits = [c for c in current_candidates if c not in closed_set and _token_in(c, what)]
-    if current_hits:
+    detail = action.target_employer[:40]
+    normalized = _normalize_for_match(action.target_employer)
+    if sum(c.isalnum() for c in normalized) >= 2:
+        target_tokens = normalized.split()
+        current_segments = _hint_segments(current_employers)
+        # Token equality with a current segment exempts the verbatim guard:
+        # rehires carry the same header in both lists, and a company-only
+        # closed header ("Alza.cz") equals the company segment of the current
+        # one — both name a place the candidate provably works now.
+        if not any(target_tokens == seg for seg in current_segments) and any(
+            target_tokens == _normalize_for_match(header).split() for header in closed_employers
+        ):
+            return ("closed_employer_target", detail)
+        if any(_tokens_match(target_tokens, seg) for seg in current_segments):
+            return None
+        if any(_tokens_match(target_tokens, seg) for seg in _hint_segments(closed_employers)):
+            return ("closed_employer_target", detail)
+    if not current_employers:
         return None
-    return "forward_setting_targets_closed_employer:" + closed_hits[0][:40]
+    return ("unverified_target_employer", detail)
 
 
 def _compute_employer_hints(redacted: RedactedCV, profile: Profile) -> tuple[list[str], list[str]]:
@@ -354,8 +301,23 @@ def _compute_employer_hints(redacted: RedactedCV, profile: Profile) -> tuple[lis
     if timeline:
         current_hint = [e.header for e in timeline if e.is_current]
         closed_hint = [e.header for e in timeline if not e.is_current]
+        emit(
+            "growth",
+            "growth_employer_hints",
+            source="timeline",
+            current_count=len(current_hint),
+            closed_count=len(closed_hint),
+        )
         return current_hint, closed_hint
-    return _extract_current_employer_hint(redacted, profile), []
+    current_hint = _extract_current_employer_hint(redacted, profile)
+    emit(
+        "growth",
+        "growth_employer_hints",
+        source="anchor_fallback",
+        current_count=len(current_hint),
+        closed_count=0,
+    )
+    return current_hint, []
 
 
 def _build_user_message(
@@ -391,24 +353,151 @@ def _build_user_message(
     return json.dumps(payload, ensure_ascii=False)
 
 
+class _Drop(NamedTuple):
+    idx: int
+    what: str
+    # "ban_phrase" | "softener_phrase" | "unverified_anchor"
+    # | "unverified_target_employer" | "closed_employer_target"
+    reason: str
+    detail: str | None  # matched phrase / employer token
+    quote: str | None  # rejected anchor quote (first 120 chars), unverified_anchor only
+
+
+# Caps the rejected anchor quote stored on drop events and _Drop records so a
+# runaway model quote cannot bloat telemetry or the retry prompt.
+_QUOTE_SNIPPET_LIMIT = 120
+
+
+def _action_key(action: GrowthAction) -> str:
+    # Keyed on normalized `what` only: the same action re-anchored on retry
+    # (different quote) must not pool twice and ship as a duplicate.
+    return " ".join(action.what.casefold().split())
+
+
+def _filter_actions(
+    actions: list[GrowthAction],
+    redacted_text: str,
+    current_employers: list[str],
+    closed_employers: list[str],
+) -> tuple[list[GrowthAction], list[_Drop], dict[str, int]]:
+    survivors: list[GrowthAction] = []
+    drops: list[_Drop] = []
+    drop_reasons: dict[str, int] = {}
+
+    def _record(drop: _Drop) -> None:
+        drops.append(drop)
+        drop_reasons[drop.reason] = drop_reasons.get(drop.reason, 0) + 1
+
+    for index, action in enumerate(actions):
+        if action.setting != "current_employer" and action.target_employer is not None:
+            # Prompt rule 7 says target_employer must be null here; the field
+            # is never rendered, so silently normalize instead of dropping.
+            action = action.model_copy(update={"target_employer": None})
+        banned = _check_ban_phrase(action)
+        if banned is not None:
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason="ban_phrase",
+                phrase=banned,
+                what=action.what[:80],
+            )
+            _record(_Drop(index, action.what, "ban_phrase", banned, None))
+            continue
+        softener = _SOFTENER_RE.search(action.what)
+        if softener is not None:
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason="softener_phrase",
+                phrase=softener.group(0).lower(),
+                what=action.what[:80],
+            )
+            _record(_Drop(index, action.what, "softener_phrase", softener.group(0).lower(), None))
+            continue
+        if not verify_quote(action.anchor.quote, redacted_text, section=action.anchor.section):
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason="unverified_anchor",
+                what=action.what[:80],
+                quote=action.anchor.quote[:_QUOTE_SNIPPET_LIMIT],
+            )
+            _record(
+                _Drop(
+                    index,
+                    action.what,
+                    "unverified_anchor",
+                    None,
+                    action.anchor.quote[:_QUOTE_SNIPPET_LIMIT],
+                )
+            )
+            continue
+        setting_violation = _setting_violation(action, current_employers, closed_employers)
+        if setting_violation is not None:
+            reason, detail = setting_violation
+            emit(
+                "growth",
+                "growth_action_dropped",
+                reason=reason,
+                what=action.what[:80],
+                detail=detail,
+            )
+            _record(_Drop(index, action.what, reason, detail, None))
+            continue
+        survivors.append(action)
+    return survivors, drops, drop_reasons
+
+
 def _build_retry_user_message(
-    user_message: str,
+    base_user_message: str,
     *,
-    returned: int,
-    survived: int,
-    drop_reasons: dict[str, int],
+    kept: list[GrowthAction],
+    drops: list[_Drop],
+    needed: int,
+    current_employers: list[str],
 ) -> str:
-    return (
-        user_message
-        + "\n\nYour previous growth-plan output failed downstream verification: "
-        + f"returned={returned} verified={survived} drop_reasons={drop_reasons}. "
-        + "Return corrected JSON only. Emit 3 to 5 actions that survive all checks: "
-        + "copy each anchor.quote as a literal 8+ word substring from redacted_cv; "
-        + "copy the visible CV section header without translating it, or set section "
-        + "to null if uncertain; make each action concrete and forward-looking; and "
-        + "do not make a closed employer from closed_employer_hint the setting of the "
-        + "action unless the action explicitly targets a next/future role."
+    lines = [base_user_message, ""]
+    if kept:
+        lines.append(
+            f"Of your previous actions, {len(kept)} passed verification and are KEPT — "
+            "do not repeat or rephrase them:"
+        )
+        lines.extend(f"- {action.what}" for action in kept)
+    if drops:
+        lines.append("These actions FAILED verification:")
+        for drop in drops:
+            lines.append(f'- action {drop.idx}: "{drop.what[:80]}" — {drop.reason}')
+            if drop.reason == "unverified_anchor" and drop.quote is not None:
+                lines.append(
+                    f'  The anchor quote "{drop.quote}" was not found verbatim in '
+                    "redacted_cv. Copy at least 8 consecutive words "
+                    "character-for-character from one CV section."
+                )
+            elif drop.reason == "unverified_target_employer":
+                declared = "null" if drop.detail == "missing_target" else drop.detail
+                hints = ", ".join(current_employers) if current_employers else "none"
+                lines.append(
+                    f'  Declared target_employer "{declared}" does not match the '
+                    f"current-employer hint(s): {hints}. Copy the employer verbatim from "
+                    'the hint, or use setting "future_role" or "capability_artifact".'
+                )
+            elif drop.reason == "closed_employer_target":
+                hints = ", ".join(current_employers) if current_employers else "none"
+                lines.append(
+                    f'  Declared target_employer "{drop.detail}" is a past employer per '
+                    "closed_employer_hint — an action never happens at a closed employer. "
+                    f"Set the action at a current employer ({hints}) or use setting "
+                    '"future_role" or "capability_artifact".'
+                )
+            elif drop.detail:
+                lines.append(f"  Matched: {drop.detail}")
+    max_new = 5 - len(kept)
+    lines.append(
+        f"Return a JSON object with {needed} to {max_new} NEW action(s) in the same schema. "
+        "Do not include the kept actions."
     )
+    return "\n".join(lines)
 
 
 async def plan_growth(
@@ -437,7 +526,12 @@ async def plan_growth(
                 closed_hint,
             )
 
-            survivors: list[GrowthAction] = []
+            base_user_message = user_message
+            # Survivors pool across attempts (keyed on normalized what), so a
+            # verified action from attempt 1 is never discarded by a weaker attempt 2.
+            pool: dict[str, GrowthAction] = {}
+            last_returned = 0
+            last_drop_reasons: dict[str, int] = {}
             for attempt in range(_GROWTH_LOGICAL_MAX_RETRIES + 1):
                 try:
                     # temperature=0.0 for determinism — matches T10/T11/T12 stages.
@@ -450,6 +544,17 @@ async def plan_growth(
                         max_tokens=1536,
                     )
                 except Exception as exc:
+                    if pool:
+                        # A failed top-up call must not throw away already-verified
+                        # actions — degrade to the pooled partial list (PRD §4.5).
+                        emit(
+                            "growth",
+                            "growth_attempt_error",
+                            reason="llm_error",
+                            exc_type=type(exc).__name__,
+                            attempt=attempt,
+                        )
+                        break
                     emit(
                         "growth",
                         "stage_failure",
@@ -464,6 +569,15 @@ async def plan_growth(
                     )
 
                 if not isinstance(raw, _GrowthList):
+                    if pool:
+                        emit(
+                            "growth",
+                            "growth_attempt_error",
+                            reason="invalid_llm_output",
+                            got_type=type(raw).__name__,
+                            attempt=attempt,
+                        )
+                        break
                     emit(
                         "growth",
                         "stage_failure",
@@ -477,61 +591,25 @@ async def plan_growth(
                         debug_detail=f"complete_json returned {type(raw).__name__}",
                     )
 
-                survivors = []
-                dropped = 0
-                drop_reasons: dict[str, int] = {}
-                for action in raw.actions:
-                    banned = _check_ban_phrase(action)
-                    if banned is not None:
-                        reason = "ban_phrase"
-                        emit(
-                            "growth",
-                            "growth_action_dropped",
-                            reason=reason,
-                            phrase=banned,
-                            what=action.what[:80],
-                        )
-                        dropped += 1
-                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
-                        continue
-                    if not verify_quote(
-                        action.anchor.quote, redacted.text, section=action.anchor.section
-                    ):
-                        reason = "unverified_anchor"
-                        emit(
-                            "growth",
-                            "growth_action_dropped",
-                            reason=reason,
-                            what=action.what[:80],
-                        )
-                        dropped += 1
-                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
-                        continue
-                    forward_violation = _violates_forward_setting(action, current_hint, closed_hint)
-                    if forward_violation is not None:
-                        reason = "closed_employer_setting"
-                        emit(
-                            "growth",
-                            "growth_action_dropped",
-                            reason=reason,
-                            what=action.what[:80],
-                            detail=forward_violation,
-                        )
-                        dropped += 1
-                        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
-                        continue
-                    survivors.append(action)
+                attempt_survivors, drops, drop_reasons = _filter_actions(
+                    raw.actions, redacted.text, current_hint, closed_hint
+                )
+                for action in attempt_survivors:
+                    pool.setdefault(_action_key(action), action)
+                last_returned = len(raw.actions)
+                last_drop_reasons = drop_reasons
 
                 emit(
                     "growth",
                     "growth_anti_slop_check",
                     returned=len(raw.actions),
-                    dropped=dropped,
-                    survived=len(survivors),
+                    dropped=len(drops),
+                    survived=len(attempt_survivors),
+                    pooled=len(pool),
                     attempt=attempt,
                 )
 
-                if len(survivors) >= 3:
+                if len(pool) >= 3:
                     break
                 if attempt < _GROWTH_LOGICAL_MAX_RETRIES:
                     emit(
@@ -539,28 +617,42 @@ async def plan_growth(
                         "growth_retry",
                         reason="insufficient_verified_actions",
                         returned=len(raw.actions),
-                        survived=len(survivors),
-                        dropped=dropped,
+                        survived=len(pool),
+                        dropped=len(drops),
                         drop_reasons=drop_reasons,
                     )
                     user_message = _build_retry_user_message(
-                        user_message,
-                        returned=len(raw.actions),
-                        survived=len(survivors),
-                        drop_reasons=drop_reasons,
+                        base_user_message,
+                        kept=list(pool.values()),
+                        drops=drops,
+                        needed=3 - len(pool),
+                        current_employers=current_hint,
                     )
-                    continue
+
+            survivors = list(pool.values())
+            if not survivors:
                 emit(
                     "growth",
                     "stage_failure",
                     reason="insufficient_verified_actions",
-                    survived=len(survivors),
+                    survived=0,
+                    returned=last_returned,
+                    drop_reasons=last_drop_reasons,
                     duration_ms=_ms(),
                 )
                 return StageFailure(
                     stage="growth",
                     user_message=_FAILURE_MSG,
-                    debug_detail=f"only {len(survivors)} verified actions, PRD §4.4 requires 3-5",
+                    debug_detail="only 0 verified actions; prompt contract asks for 3-5",
+                )
+            if len(survivors) < 3:
+                # PRD §4.5: a shorter list, not a placeholder.
+                emit(
+                    "growth",
+                    "growth_degraded",
+                    count=len(survivors),
+                    returned=last_returned,
+                    drop_reasons=last_drop_reasons,
                 )
 
             if len(survivors) > 5:

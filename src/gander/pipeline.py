@@ -57,20 +57,21 @@ from gander.score import score_profile
 # Cascade messages shown to the user when an upstream stage failed and the
 # downstream stage cannot meaningfully run. Keyed by the downstream stage so
 # the wording matches the section header the reviewer will see.
+#
+# Every growth cascade message carries GROWTH_CASCADE_PREFIX — consumers
+# (scripts/eval_corpus.py) use it to tell "growth never ran" apart from a
+# genuine growth StageFailure, which carries the §4.6 copy instead.
+GROWTH_CASCADE_PREFIX = "Cannot generate growth plan without"
 _CASCADE_PROFILE_FAILED: dict[StageName, str] = {
     "score": "Cannot score without profile extraction.",
     "salary": "Cannot estimate salary without profile extraction.",
     "confidence": "Cannot judge confidence without salary estimate.",
-    "growth": "Cannot generate growth plan without profile extraction.",
+    "growth": f"{GROWTH_CASCADE_PREFIX} profile extraction.",
 }
 _CONFIDENCE_NO_SALARY_RATIONALE = "Insufficient market data. See salary block."
-_GROWTH_NO_BASELINE = "Cannot generate growth plan without scoring or salary baseline."
-_GROWTH_NEEDS_SCORE = (
-    "Cannot generate growth plan without scoring; salary baseline alone is insufficient."
-)
-_GROWTH_NEEDS_SALARY = (
-    "Cannot generate growth plan without salary baseline; scoring alone is insufficient."
-)
+_GROWTH_NO_BASELINE = f"{GROWTH_CASCADE_PREFIX} scoring or salary baseline."
+_GROWTH_NEEDS_SCORE = f"{GROWTH_CASCADE_PREFIX} scoring; salary baseline alone is insufficient."
+_GROWTH_NEEDS_SALARY = f"{GROWTH_CASCADE_PREFIX} salary baseline; scoring alone is insufficient."
 
 
 @dataclass

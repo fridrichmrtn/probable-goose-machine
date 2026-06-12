@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from datetime import date
 
 import pytest
 
@@ -46,6 +47,132 @@ def test_scan_classifies_closed_when_only_years() -> None:
     entries = scan_employer_timeline(text)
     assert len(entries) == 1
     assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+def test_scan_marks_current_when_end_year_reaches_current_year() -> None:
+    # Em-dash range: redact.py masks only hyphen/en-dash year ranges, so this
+    # shape reaches the scanner unredacted. Year built dynamically so the
+    # test does not rot when the year changes.
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 — {date.today().year}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
+
+
+@pytest.mark.fast
+def test_scan_marks_current_when_end_year_in_future() -> None:
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n2022 — {date.today().year + 1}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    ("date_line", "expected_current"),
+    [
+        (f"Berry s.r.o. — 2022 — {date.today().year}", True),
+        (f"Senior Consultant — Deloitte — 2024 — {date.today().year}", True),
+        ("Berry s.r.o. — 2014 — 2016", False),
+        ("Company — [YEAR] -", True),
+        ("Company — [YEAR] - [YEAR]", False),
+        # A trailing modifier after the end year is a separator, not the
+        # range dash — the year before it stays the endpoint.
+        (f"2024 - {date.today().year} - Remote", True),
+        ("2014 - 2016 - Remote", False),
+        # An annotation holding an inner dash-joined range must not steal
+        # the endpoint — the prefix already carries two year tokens.
+        (f"2018 - {date.today().year} (parental leave 2020 - 2021)", True),
+        (f"2019 — {date.today().year}, sabbatical 2021 - 2022", True),
+        ("2012 - 2015 (parental leave 2013 - 2014)", False),
+        # A lone year after a comma opens a second stint on a rehire line —
+        # the dash after it is a range dash, not annotation text.
+        (f"2014 - 2016, 2019 - {date.today().year}", True),
+        (f"Acme — 2014 — 2016, 2019 — {date.today().year}", True),
+        ("Acme — 2014 — 2016, 2019 —", True),
+        ("2010 - 2012, 2014 - 2016", False),
+        # ...but a parenthesised comma stays an annotation.
+        (f"2019 — {date.today().year} (maternity leave, 2021 - 2022)", True),
+    ],
+)
+def test_scan_compound_header_range_lines(date_line: str, expected_current: bool) -> None:
+    # One-line entries dash-join the header to the range, so the RHS of the
+    # first dash still contains the range START. The endpoint is the text
+    # after the last dash preceded by a year-shaped token — the start year
+    # must never be read as the end year.
+    text = f"## Work Experience\nPlatform Lead\n{date_line}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].header == "Platform Lead"
+    assert entries[0].is_current is expected_current
+
+
+@pytest.mark.fast
+def test_scan_em_dash_closed_range_stays_closed() -> None:
+    text = "## Work Experience\nPlatform Lead — Berry s.r.o.\n2014 — 2016\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+def test_scan_annotation_year_does_not_flip_closed_entry() -> None:
+    # Only the endpoint (first year-shaped token after the dash) decides
+    # is_current; a future annotation year must not flip a closed range.
+    text = (
+        "## Work Experience\nData Engineer — Past Company\n"
+        f"2018 - 2021 (extension option {date.today().year})\n"
+    )
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+def test_scan_annotation_year_after_redacted_range_stays_closed() -> None:
+    # Post-redaction shape: "2018 - 2021" was masked but the annotation year
+    # outside the range context survived redact.py.
+    text = (
+        "## Work Experience\nData Engineer — Past Company\n"
+        f"[YEAR] - [YEAR] (extension option {date.today().year})\n"
+    )
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is False
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    ("date_line", "expected_current"),
+    [
+        ("[YEAR] - [YEAR]", False),  # redacted endpoint is unknown → closed
+        ("[YEAR] -", True),  # open-ended range
+        ("[YEAR] - Present", True),  # present token wins
+    ],
+)
+def test_scan_redacted_endpoint_shapes(date_line: str, expected_current: bool) -> None:
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n{date_line}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is expected_current
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("date_line", ["2022 -", "2022 –", "ledna 2022 -"])
+def test_scan_marks_current_for_open_ended_range(date_line: str) -> None:
+    text = f"## Work Experience\nPlatform Lead — Berry s.r.o.\n{date_line}\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
+
+
+@pytest.mark.fast
+def test_scan_marks_current_for_open_ended_year_marker() -> None:
+    text = "## Work Experience\nPlatform Lead — Berry s.r.o.\n[YEAR] -\n"
+    entries = scan_employer_timeline(text)
+    assert len(entries) == 1
+    assert entries[0].is_current is True
 
 
 @pytest.mark.fast

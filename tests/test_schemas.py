@@ -73,6 +73,7 @@ def _growth() -> list[GrowthAction]:
             what="learn rust",
             time_horizon_months=6,
             mechanism="ship a small CLI",
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         )
     ]
@@ -158,6 +159,7 @@ def test_growth_action_rejects_out_of_range_months() -> None:
         what="x",
         time_horizon_months=12,
         mechanism="y",
+        setting="capability_artifact",
         anchor=Anchor(quote="z"),
     )
     with pytest.raises(ValidationError):
@@ -165,6 +167,7 @@ def test_growth_action_rejects_out_of_range_months() -> None:
             what="x",
             time_horizon_months=0,
             mechanism="y",
+            setting="capability_artifact",
             anchor=Anchor(quote="z"),
         )
     with pytest.raises(ValidationError):
@@ -172,6 +175,43 @@ def test_growth_action_rejects_out_of_range_months() -> None:
             what="x",
             time_horizon_months=25,
             mechanism="y",
+            setting="capability_artifact",
+            anchor=Anchor(quote="z"),
+        )
+
+
+@pytest.mark.fast
+def test_growth_action_requires_setting() -> None:
+    # `setting` is the load-bearing field of the declared-setting gate, and
+    # required-ness triggers complete_json's validation retry when the model
+    # omits it.
+    with pytest.raises(ValidationError):
+        GrowthAction(  # type: ignore[call-arg]
+            what="x",
+            time_horizon_months=12,
+            mechanism="y",
+            anchor=Anchor(quote="z"),
+        )
+
+
+@pytest.mark.fast
+def test_growth_action_setting_literal_and_optional_target() -> None:
+    for setting in ("current_employer", "future_role", "capability_artifact"):
+        action = GrowthAction(
+            what="x",
+            time_horizon_months=12,
+            mechanism="y",
+            setting=setting,  # type: ignore[arg-type]
+            anchor=Anchor(quote="z"),
+        )
+        # target_employer is optional and defaults to None.
+        assert action.target_employer is None
+    with pytest.raises(ValidationError):
+        GrowthAction(
+            what="x",
+            time_horizon_months=12,
+            mechanism="y",
+            setting="past_employer",  # type: ignore[arg-type]
             anchor=Anchor(quote="z"),
         )
 

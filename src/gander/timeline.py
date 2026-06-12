@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Final
 
 from gander.tenure import (
@@ -25,7 +26,10 @@ from gander.tenure import (
 
 _YEAR_MARKER_RE: Final = re.compile(r"\[YEAR\]")
 _BARE_YEAR_RE: Final = re.compile(r"\b(?:19|20)\d{2}\b")
+_YEAR_SHAPED_RE: Final = re.compile(r"\[YEAR\]|\b(?:19|20)\d{2}\b")
+_ENDS_WITH_YEAR_SHAPED_RE: Final = re.compile(r"(?:\[YEAR\]|\b(?:19|20)\d{2})\s*$")
 _DASH_CHARS: Final = ("—", "–", "-")
+_DASH_RE: Final = re.compile("|".join(re.escape(d) for d in _DASH_CHARS))
 _BULLET_GLYPHS: Final = ("-", "*", "•", "–", "—")
 
 _PRESENT_ALT: Final = "|".join(
@@ -73,6 +77,61 @@ def _clean_header_line(line: str) -> str:
     return s.strip()
 
 
+_LONE_YEAR_SEGMENT_RE: Final = re.compile(r"^\s*(?:\[YEAR\]|(?:19|20)\d{2})\s*$")
+
+
+def _starts_new_stint(prefix: str) -> bool:
+    """A dash after ", 2019" opens a second stint on a rehire line
+    ("2014 - 2016, 2019 - 2026"): the text after the last list separator is
+    a lone year token. Parenthesised commas stay annotations ("(maternity
+    leave, 2021 - 2022)") — an open paren in the prefix disqualifies."""
+    if prefix.count("(") != prefix.count(")"):
+        return False
+    segment = re.split(r"[,;]", prefix)[-1]
+    return bool(_LONE_YEAR_SEGMENT_RE.match(segment))
+
+
+def _is_current_range(right_of_dash: str) -> bool:
+    if _PRESENT_TOKEN_RE.search(_normalize(right_of_dash)):
+        return True
+    # The RHS comes from _split_on_first_dash, so compound one-line entries
+    # ("Berry s.r.o. — 2022 — 2026") leave the range START inside it. The
+    # endpoint region is the text after the LAST dash preceded by a
+    # year-shaped token; with no such dash, the whole RHS is the endpoint.
+    # A year-preceded dash whose suffix has no year-shaped token is a
+    # trailing modifier separator ("2024 - 2026 - Remote"), not the range
+    # dash — unless the suffix is empty (open-ended "2022 -"). A prefix
+    # holding two or more year tokens means the endpoint already passed and
+    # the dash sits inside annotation text ("2018 - 2026 (parental leave
+    # 2020 - 2021)") — never re-anchor into it, except when the dash opens
+    # a new stint on a rehire line ("2014 - 2016, 2019 - 2026").
+    endpoint = right_of_dash
+    for dash in _DASH_RE.finditer(right_of_dash):
+        prefix = right_of_dash[: dash.start()]
+        if not _ENDS_WITH_YEAR_SHAPED_RE.search(prefix):
+            continue
+        if len(_YEAR_SHAPED_RE.findall(prefix)) != 1 and not _starts_new_stint(prefix):
+            continue
+        suffix = right_of_dash[dash.end() :]
+        if not suffix.strip() or _YEAR_SHAPED_RE.search(suffix):
+            endpoint = suffix
+    # Open-ended range ("2022 -", "Company — [YEAR] -"): nothing after the
+    # closing dash means the role has no recorded end.
+    if not endpoint.strip():
+        return True
+    # Only the FIRST year-shaped token in the endpoint region is the range
+    # end. Later bare years are annotations ("2018 - 2021 (extension option
+    # 2026)" — annotation years survive redaction because redact.py masks
+    # years only in range-shaped contexts) and must not flip a closed entry
+    # to current. A redacted endpoint ("[YEAR]") is unknown → treat as closed.
+    first = _YEAR_SHAPED_RE.search(endpoint)
+    if first is None or first.group() == "[YEAR]":
+        return False
+    # An end year at or beyond the current year is still running ("2022 — 2026"
+    # written mid-2026). Closed by construction once the year passes.
+    return int(first.group()) >= date.today().year
+
+
 def _is_section_heading(line: str) -> bool:
     norm = _normalize(line).strip()
     if not norm:
@@ -107,6 +166,6 @@ def scan_employer_timeline(redacted_text: str) -> list[EmployerEntry]:
         header_parts.reverse()
         header = " — ".join(header_parts)
         right_of_dash = _split_on_first_dash(line)[1]
-        is_current = bool(_PRESENT_TOKEN_RE.search(_normalize(right_of_dash)))
+        is_current = _is_current_range(right_of_dash)
         out.append(EmployerEntry(header=header, dates_raw=line.strip(), is_current=is_current))
     return out

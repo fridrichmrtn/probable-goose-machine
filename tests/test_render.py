@@ -96,12 +96,14 @@ def _growth() -> list[GrowthAction]:
             what="learn rust",
             time_horizon_months=6,
             mechanism="ship a small CLI",
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         ),
         GrowthAction(
             what="lead a project",
             time_horizon_months=12,
             mechanism="volunteer for cross-team work",
+            setting="capability_artifact",
             anchor=Anchor(quote="senior engineer"),
         ),
     ]
@@ -715,6 +717,7 @@ def test_render_body_escapes_html_in_growth_action_fields() -> None:
             what=bad_what,
             time_horizon_months=6,
             mechanism=bad_mech,
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         )
     ]
@@ -803,6 +806,7 @@ def test_render_body_escapes_markdown_link_payload_in_body_fields(field: str) ->
                 what=payload,
                 time_horizon_months=6,
                 mechanism="ok",
+                setting="capability_artifact",
                 anchor=Anchor(quote="C++ background"),
             )
         ]
@@ -812,6 +816,7 @@ def test_render_body_escapes_markdown_link_payload_in_body_fields(field: str) ->
                 what="learn rust",
                 time_horizon_months=6,
                 mechanism=payload,
+                setting="capability_artifact",
                 anchor=Anchor(quote="C++ background"),
             )
         ]
@@ -904,6 +909,7 @@ def test_render_body_growth_action_what_cannot_inject_list() -> None:
             what="learn rust\n- rogue bullet",
             time_horizon_months=6,
             mechanism="ship a small CLI",
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         )
     ]
@@ -920,6 +926,7 @@ def test_render_body_growth_action_mechanism_cannot_inject_table() -> None:
             what="learn rust",
             time_horizon_months=6,
             mechanism="ship a CLI\n| col | col |\n| --- | --- |",
+            setting="capability_artifact",
             anchor=Anchor(quote="C++ background"),
         )
     ]
