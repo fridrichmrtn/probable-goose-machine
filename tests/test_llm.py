@@ -5,10 +5,11 @@ import os
 import time
 from typing import Any
 
+import httpx
 import pytest
 from pydantic import BaseModel
 
-from gander.llm import LLMClient, LogicalModel, _strip_think, check_env
+from gander.llm import _OPENROUTER_ROUTES, LLMClient, LogicalModel, _strip_think, check_env
 from gander.obs import current_stage, subscribe
 
 
@@ -32,20 +33,20 @@ _LOGICAL_MODELS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "v
 
 _EXPECTED_DEFAULT_ROUTE: dict[LogicalModel, tuple[str, tuple[str, ...]]] = {
     "reasoning": (
-        "google/gemini-2.5-flash",
-        ("google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"),
+        "google/gemini-3.5-flash",
+        ("google/gemini-3.5-flash", "google/gemini-3.1-flash-lite"),
     ),
     "cheap": (
-        "google/gemini-2.5-flash-lite",
-        ("google/gemini-2.5-flash-lite", "google/gemini-2.5-flash"),
+        "google/gemini-3.1-flash-lite",
+        ("google/gemini-3.1-flash-lite", "google/gemini-3.5-flash"),
     ),
     "extract": (
-        "google/gemini-2.5-flash-lite",
-        ("google/gemini-2.5-flash-lite", "google/gemini-2.5-flash"),
+        "google/gemini-3.1-flash-lite",
+        ("google/gemini-3.1-flash-lite", "google/gemini-3.5-flash"),
     ),
     "vision": (
-        "google/gemini-2.5-flash-lite",
-        ("google/gemini-2.5-flash-lite", "google/gemini-2.5-flash"),
+        "google/gemini-3.1-flash-lite",
+        ("google/gemini-3.1-flash-lite", "google/gemini-3.5-flash"),
     ),
 }
 
@@ -134,22 +135,22 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
         assert client._resolve_models(logical) == expected_models
 
     monkeypatch.setenv("OPENROUTER_MODEL_REASONING", "anthropic/claude-sonnet-4.5")
-    monkeypatch.setenv("OPENROUTER_MODEL_CHEAP", "google/gemini-2.5-flash-lite")
+    monkeypatch.setenv("OPENROUTER_MODEL_CHEAP", "anthropic/claude-haiku-4.5")
     monkeypatch.setenv("OPENROUTER_MODEL_EXTRACT", "anthropic/claude-opus-4.5")
     monkeypatch.setenv("OPENROUTER_MODEL_VISION", "qwen/qwen2.5-vl-72b-instruct")
-    monkeypatch.setenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", "google/gemini-2.5-flash-lite")
-    monkeypatch.setenv("OPENROUTER_MODEL_VISION_FALLBACK", "google/gemini-2.5-flash")
+    monkeypatch.setenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", "google/gemini-3.1-flash-lite")
+    monkeypatch.setenv("OPENROUTER_MODEL_VISION_FALLBACK", "google/gemini-3.5-flash")
     assert client._resolve_model("reasoning") == "anthropic/claude-sonnet-4.5"
-    assert client._resolve_model("cheap") == "google/gemini-2.5-flash-lite"
+    assert client._resolve_model("cheap") == "anthropic/claude-haiku-4.5"
     assert client._resolve_model("extract") == "anthropic/claude-opus-4.5"
     assert client._resolve_model("vision") == "qwen/qwen2.5-vl-72b-instruct"
     assert client._resolve_models("extract") == (
         "anthropic/claude-opus-4.5",
-        "google/gemini-2.5-flash-lite",
+        "google/gemini-3.1-flash-lite",
     )
     assert client._resolve_models("vision") == (
         "qwen/qwen2.5-vl-72b-instruct",
-        "google/gemini-2.5-flash",
+        "google/gemini-3.5-flash",
     )
 
 
@@ -306,7 +307,7 @@ async def test_openrouter_chat_json_uses_openrouter_request_shape(
     client, fake_completions = _client_with_fake_chat("openrouter")
 
     text, prompt_tokens, completion_tokens, finish_reason, cost_usd = await client._chat_json(
-        "google/gemini-2.5-flash",
+        "google/gemini-3.5-flash",
         "System",
         "User",
         0.0,
@@ -327,7 +328,7 @@ async def test_openrouter_chat_json_handles_missing_usage() -> None:
     fake_completions.usage = None
 
     text, prompt_tokens, completion_tokens, finish_reason, cost_usd = await client._chat_json(
-        "google/gemini-2.5-flash",
+        "google/gemini-3.5-flash",
         "System",
         "User",
         0.0,
@@ -390,7 +391,7 @@ async def test_openrouter_extract_falls_back_from_lite_to_flash(
     monkeypatch.delenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", raising=False)
     events: list[dict[str, Any]] = []
     client, fake_completions = _client_with_fake_chat("openrouter")
-    fake_completions.fail_models = {"google/gemini-2.5-flash-lite"}
+    fake_completions.fail_models = {"google/gemini-3.1-flash-lite"}
 
     with subscribe(events.append):
         echo = await client.complete_json(
@@ -402,18 +403,18 @@ async def test_openrouter_extract_falls_back_from_lite_to_flash(
 
     assert echo == Echo(message="pong")
     assert [call["model"] for call in fake_completions.all_kwargs] == [
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.5-flash",
     ]
     fallback = next(e for e in events if e["event"] == "llm_model_fallback")
     assert fallback["logical_model"] == "extract"
-    assert fallback["from_model"] == "google/gemini-2.5-flash-lite"
-    assert fallback["to_model"] == "google/gemini-2.5-flash"
+    assert fallback["from_model"] == "google/gemini-3.1-flash-lite"
+    assert fallback["to_model"] == "google/gemini-3.5-flash"
     llm_event = next(e for e in events if e["event"] == "llm_call")
-    assert llm_event["model"] == "google/gemini-2.5-flash"
+    assert llm_event["model"] == "google/gemini-3.5-flash"
     assert llm_event["models_attempted"] == [
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.5-flash",
     ]
 
 
@@ -427,7 +428,7 @@ async def test_openrouter_chat_text_uses_openrouter_request_shape_and_handles_mi
     fake_completions.usage = None
 
     text, prompt_tokens, completion_tokens, finish_reason, cost_usd = await client._chat_text(
-        "google/gemini-2.5-flash",
+        "google/gemini-3.5-flash",
         "System",
         "User",
         0.0,
@@ -451,7 +452,7 @@ async def test_openrouter_complete_text_falls_back_from_lite_to_flash(
     events: list[dict[str, Any]] = []
     client, fake_completions = _client_with_fake_chat("openrouter")
     fake_completions.content = "Normalized transcript."
-    fake_completions.fail_models = {"google/gemini-2.5-flash-lite"}
+    fake_completions.fail_models = {"google/gemini-3.1-flash-lite"}
 
     with subscribe(events.append):
         text = await client.complete_text(
@@ -462,18 +463,18 @@ async def test_openrouter_complete_text_falls_back_from_lite_to_flash(
 
     assert text == "Normalized transcript."
     assert [call["model"] for call in fake_completions.all_kwargs] == [
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.5-flash",
     ]
     fallback = next(e for e in events if e["event"] == "llm_model_fallback")
     assert fallback["logical_model"] == "cheap"
-    assert fallback["from_model"] == "google/gemini-2.5-flash-lite"
-    assert fallback["to_model"] == "google/gemini-2.5-flash"
+    assert fallback["from_model"] == "google/gemini-3.1-flash-lite"
+    assert fallback["to_model"] == "google/gemini-3.5-flash"
     llm_event = next(e for e in events if e["event"] == "llm_call")
-    assert llm_event["model"] == "google/gemini-2.5-flash"
+    assert llm_event["model"] == "google/gemini-3.5-flash"
     assert llm_event["models_attempted"] == [
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.5-flash",
     ]
 
 
@@ -509,7 +510,7 @@ async def test_openrouter_complete_vision_text_uses_image_url_and_telemetry(
 
     assert text == "Visible CV transcript"
     assert fake_completions.kwargs is not None
-    assert fake_completions.kwargs["model"] == "google/gemini-2.5-flash-lite"
+    assert fake_completions.kwargs["model"] == "google/gemini-3.1-flash-lite"
     assert fake_completions.kwargs["timeout"] == 9.0
     content = fake_completions.kwargs["messages"][0]["content"]
     assert content[0] == {"type": "text", "text": "Transcribe this page."}
@@ -518,7 +519,7 @@ async def test_openrouter_complete_vision_text_uses_image_url_and_telemetry(
     assert fake_completions.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
     llm_event = next(e for e in events if e["event"] == "llm_call")
     assert llm_event["provider"] == "openrouter"
-    assert llm_event["model"] == "google/gemini-2.5-flash-lite"
+    assert llm_event["model"] == "google/gemini-3.1-flash-lite"
     assert llm_event["usd_cost"] == 0.00042
 
 
@@ -531,7 +532,7 @@ async def test_openrouter_complete_vision_text_falls_back_to_flash(
     events: list[dict[str, Any]] = []
     client, fake_completions = _client_with_fake_chat("openrouter")
     fake_completions.content = "Fallback vision transcript"
-    fake_completions.fail_models = {"google/gemini-2.5-flash-lite"}
+    fake_completions.fail_models = {"google/gemini-3.1-flash-lite"}
 
     with subscribe(events.append):
         text = await client.complete_vision_text(
@@ -541,18 +542,18 @@ async def test_openrouter_complete_vision_text_falls_back_to_flash(
 
     assert text == "Fallback vision transcript"
     assert [call["model"] for call in fake_completions.all_kwargs] == [
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.5-flash",
     ]
     fallback = next(e for e in events if e["event"] == "llm_model_fallback")
     assert fallback["logical_model"] == "vision"
-    assert fallback["from_model"] == "google/gemini-2.5-flash-lite"
-    assert fallback["to_model"] == "google/gemini-2.5-flash"
+    assert fallback["from_model"] == "google/gemini-3.1-flash-lite"
+    assert fallback["to_model"] == "google/gemini-3.5-flash"
     llm_event = next(e for e in events if e["event"] == "llm_call")
-    assert llm_event["model"] == "google/gemini-2.5-flash"
+    assert llm_event["model"] == "google/gemini-3.5-flash"
     assert llm_event["models_attempted"] == [
-        "google/gemini-2.5-flash-lite",
-        "google/gemini-2.5-flash",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.5-flash",
     ]
 
 
@@ -750,7 +751,7 @@ async def test_chat_json_emits_llm_truncated_when_finish_reason_length(
     assert len(truncations) == 1
     truncation = truncations[0]
     assert truncation["stage"] == "test_stage"
-    assert truncation["model"] == "google/gemini-2.5-flash-lite"
+    assert truncation["model"] == "google/gemini-3.1-flash-lite"
     assert truncation["max_tokens"] == 512
     assert truncation["prompt_tokens"] == 3
     assert truncation["completion_tokens"] == 4
@@ -782,3 +783,36 @@ async def test_openrouter_complete_json_roundtrip_emits_telemetry(
     assert e["completion_tokens"] >= 0
     assert e["duration_ms"] >= 0
     assert e["usd_cost"] > 0.0
+
+
+@pytest.mark.live
+@pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="OPENROUTER_API_KEY not set")
+async def test_configured_slugs_present_in_catalog() -> None:
+    """Catalog guard — fail CI if any configured slug is delisted from OpenRouter.
+
+    The 2.5 family was silently delisted (both primary AND fallback 404'd
+    together), so this asserts every route's primary and fallbacks still resolve
+    against the live `/models` catalog. Covers fallbacks too: a rotted fallback
+    is invisible until the primary also fails, which is exactly how the 2.5
+    outage stayed hidden.
+    """
+    configured: set[str] = set()
+    for route in _OPENROUTER_ROUTES.values():
+        configured.add(route.primary)
+        configured.update(route.fallbacks)
+
+    key = os.environ["OPENROUTER_API_KEY"]
+    async with httpx.AsyncClient(timeout=30.0) as http:
+        resp = await http.get(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        resp.raise_for_status()
+        catalog = {entry["id"] for entry in resp.json()["data"]}
+
+    missing = sorted(slug for slug in configured if slug not in catalog)
+    assert not missing, (
+        f"Configured OpenRouter slugs absent from the live catalog: {missing}. "
+        "Re-pin _OPENROUTER_ROUTES in gander.llm (and the CLAUDE.md / .env.example "
+        "model policy) to currently-listed ids."
+    )

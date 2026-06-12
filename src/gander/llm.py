@@ -106,34 +106,35 @@ class _OpenRouterRoute:
 # adversarial CZ fixtures (PRD §4.4 anchor-verified actions), so this slot keeps
 # full Flash as primary. The cheap/extract/vision slots default to Flash-Lite.
 #
-# Slug pinning (P1.4): these are FLOATING tags, not pinned snapshots. OpenRouter
-# publishes no dated/snapshot variant for the Gemini 2.5 Flash family — there is
-# no `google/gemini-2.5-flash-...-MM-YYYY` to pin to — so "pin to a dated slug"
-# is not an available option here; the bare slug is the only id the API accepts.
-# Known risk, verified 2026-06-12 against https://openrouter.ai/api/v1/models:
-# the live catalog had already rotated to `google/gemini-3.5-flash` /
-# `google/gemini-3.1-flash-lite` and no longer lists the 2.5 ids at all. These
-# routes are therefore time-sensitive: when a 2.5 slug stops resolving, the
-# fallback chain still points at the sibling 2.5 slug (same vintage), so both
-# can fail together. Re-pin to the current Gemini flash-tier ids — or to the
-# `~google/gemini-flash-latest` router alias — when refreshing this table.
+# Slug pinning (P1.4 → re-pinned 2026-06-12): OpenRouter publishes no dated
+# snapshot for the Gemini flash family (no `...-MM-YYYY` id), so the bare slug is
+# the only id the API accepts. The 2.5 family was DELISTED from the live catalog
+# (verified against https://openrouter.ai/api/v1/models): both 2.5 ids 404, so
+# the prior routes had primary AND fallback failing together. Re-pinned to the
+# current generation — `google/gemini-3.5-flash` (reasoning) / `-3.1-flash-lite`
+# (cheap/extract/vision), each falling back to its sibling tier. We pin explicit
+# generation ids (not the `~google/gemini-flash-latest` auto-track alias) to keep
+# the eval baseline reproducible — a silently-rotating model would drift scores
+# and cost under us. The `live`-marked test_configured_slugs_present_in_catalog
+# guard fails CI if any configured primary stops resolving, so this can't rot
+# silently again.
 _OPENROUTER_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
 _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
     "reasoning": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash",
-        fallbacks=("google/gemini-2.5-flash-lite",),
+        primary="google/gemini-3.5-flash",
+        fallbacks=("google/gemini-3.1-flash-lite",),
     ),
     "cheap": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash-lite",
-        fallbacks=("google/gemini-2.5-flash",),
+        primary="google/gemini-3.1-flash-lite",
+        fallbacks=("google/gemini-3.5-flash",),
     ),
     "extract": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash-lite",
-        fallbacks=("google/gemini-2.5-flash",),
+        primary="google/gemini-3.1-flash-lite",
+        fallbacks=("google/gemini-3.5-flash",),
     ),
     "vision": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash-lite",
-        fallbacks=("google/gemini-2.5-flash",),
+        primary="google/gemini-3.1-flash-lite",
+        fallbacks=("google/gemini-3.5-flash",),
     ),
 }
 
