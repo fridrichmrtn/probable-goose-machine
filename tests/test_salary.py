@@ -1226,3 +1226,94 @@ async def test_senior_fixture_estimate_returns_czk_range() -> None:
     assert len(result.sources) >= 1
     for s in result.sources:
         assert str(s.url).startswith("http")
+
+
+def _fake_rows(n: int = 3) -> list[dict[str, Any]]:
+    return [
+        {
+            "href": f"https://www.platy.cz/platy/it/row-{i}",
+            "body": f"Data role {i}: 90 000 - 130 000 Kč gross monthly.",
+        }
+        for i in range(n)
+    ]
+
+
+@pytest.mark.fast
+def test_ddg_cache_returns_cached_result_on_second_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        calls.append(query)
+        return _fake_rows()
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    first = salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+    second = salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+
+    assert len(calls) == 1
+    assert second == first
+    # Cache hits serve copies so a caller mutation can't poison later requests.
+    second[0]["body"] = "mutated"
+    third = salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+    assert third[0]["body"] != "mutated"
+
+
+@pytest.mark.fast
+def test_ddg_cache_misses_after_ttl_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GANDER_DDG_CACHE_TTL_S", "0")
+    calls: list[str] = []
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        calls.append(query)
+        return _fake_rows()
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+    salary_mod._cached_ddg_text("data scientist salary Praha", 5.0)
+
+    assert len(calls) == 2
+
+
+@pytest.mark.fast
+def test_ddg_cache_ttl_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GANDER_DDG_CACHE_TTL_S", "3600")
+    assert salary_mod._ddg_cache_ttl_s() == 3600
+
+
+@pytest.mark.fast
+def test_ddg_cache_evicts_oldest_at_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(salary_mod, "_DDG_CACHE_MAX_ENTRIES", 2)
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        return _fake_rows(1)
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    salary_mod._cached_ddg_text("query one", 5.0)
+    salary_mod._cached_ddg_text("query two", 5.0)
+    salary_mod._cached_ddg_text("query three", 5.0)
+
+    assert len(salary_mod._DDG_CACHE) == 2
+    assert "query one" not in salary_mod._DDG_CACHE
+
+
+@pytest.mark.fast
+async def test_ratelimit_exception_gives_specific_user_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ddgs.exceptions import RatelimitException
+
+    def ratelimited_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        raise RatelimitException("202 rate limit")
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", ratelimited_ddg_text)
+
+    result = await estimate_salary(_cz_profile())
+
+    assert isinstance(result, StageFailure)
+    assert result.stage == "salary"
+    assert "rate-limited" in result.user_message

@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ddgs import DDGS
+from ddgs.exceptions import RatelimitException
 from pydantic import ValidationError
 
 from gander.config import env_float, env_int
@@ -28,6 +29,9 @@ _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 # failure) surfaces this string; differentiation lives in structured
 # `stage_failure.reason` events + `debug_detail`.
 _INSUFFICIENT_DATA_MSG = "Insufficient market data for this profile"
+# Distinct copy for the transient outcome: search transport refused us, the
+# market data itself is not missing. §4.6 covers the "no data" path above.
+_RATELIMIT_MSG = "Salary search is temporarily rate-limited — please try again in a moment"
 _DEFAULT_SALARY_SEARCH_BACKENDS = "brave,duckduckgo,yahoo,mojeek"
 _SALARY_SEARCH_MAX_RESULTS = 20
 _SALARY_LLM_SOURCE_LIMIT = 8
@@ -48,6 +52,21 @@ _SALARY_DOMAIN_PRIORITY: tuple[str, ...] = (
 )
 
 _ISO_4217_SHAPE = re.compile(r"^[A-Z]{3}$")
+
+# Process-wide search cache: identical queries within the TTL reuse the prior
+# results instead of re-hitting DDG (rate-limit pressure on a shared Space IP).
+_DDG_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_DDG_CACHE_MAX_ENTRIES = 512
+_DEFAULT_DDG_CACHE_TTL_S = 7 * 24 * 3600
+
+
+def _ddg_cache_ttl_s() -> int:
+    return env_int(
+        "GANDER_DDG_CACHE_TTL_S",
+        _DEFAULT_DDG_CACHE_TTL_S,
+        min_value=0,
+        max_value=30 * 24 * 3600,
+    )
 
 
 def _salary_search_backends() -> str:
@@ -210,6 +229,21 @@ def _ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]
             )
 
 
+def _cached_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+    key = query.strip()
+    now = time.monotonic()
+    cached = _DDG_CACHE.get(key)
+    if cached is not None and now - cached[0] < _ddg_cache_ttl_s():
+        emit("salary", "ddg_cache_hit", query_len=len(key))
+        # Copies, so callers can't mutate rows served to later requests.
+        return [dict(row) for row in cached[1]]
+    results = _ddg_text(query, timeout_s)
+    if len(_DDG_CACHE) >= _DDG_CACHE_MAX_ENTRIES:
+        _DDG_CACHE.pop(next(iter(_DDG_CACHE)))
+    _DDG_CACHE[key] = (now, results)
+    return results
+
+
 def _to_source(raw: dict[str, Any]) -> Source | None:
     url = raw.get("href") or raw.get("url")
     snippet = raw.get("body") or raw.get("snippet") or ""
@@ -280,7 +314,7 @@ async def search(
             timeout_s = min(
                 float(_salary_search_timeout_s()), _remaining_search_timeout_s(deadline)
             )
-            return await asyncio.to_thread(_ddg_text, query, timeout_s), None
+            return await asyncio.to_thread(_cached_ddg_text, query, timeout_s), None
         except Exception as exc:
             # DDG occasionally rejects one query shape (e.g. site:a OR site:b)
             # while the others succeed. Treat single-query failures as expected
@@ -359,6 +393,10 @@ async def search(
     if len(sources) < 2:
         if failed_queries:
             types = sorted({fq["exc_type"] for fq in failed_queries})
+            # RatelimitException has no subclasses and ddgs raises it directly,
+            # so the recorded class name identifies it exactly.
+            if types == [RatelimitException.__name__]:
+                raise RuntimeError(_RATELIMIT_MSG)
             raise RuntimeError(f"{_INSUFFICIENT_DATA_MSG} (query failures: {','.join(types)})")
         raise RuntimeError(_INSUFFICIENT_DATA_MSG)
 
@@ -386,6 +424,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             # the deliberate `<2 sources` RuntimeError, anything else) so the
             # user-facing string never falls back to `stage_boundary`'s `str(exc)`
             # default, which would leak ddgs/tenacity internals.
+            user_msg = _RATELIMIT_MSG if _RATELIMIT_MSG in str(exc) else _INSUFFICIENT_DATA_MSG
             emit(
                 "salary",
                 "stage_failure",
@@ -395,7 +434,7 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             )
             return StageFailure(
                 stage="salary",
-                user_message=_INSUFFICIENT_DATA_MSG,
+                user_message=user_msg,
                 debug_detail=f"{type(exc).__name__}: {exc}",
             )
 

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 import gander.llm as _llm_mod
+import gander.salary as _salary_mod
 
 _DDG_CASSETTE_PATH = Path(__file__).parent / "fixtures" / "ddg" / "market_cassettes.json"
 _ORIGINAL_DDG_TEXT: object | None = None
@@ -25,11 +26,13 @@ _NON_CZ_MARKERS = (
 
 
 @pytest.fixture(autouse=True)
-def _clear_llm_client_cache() -> Generator[None, None, None]:
-    """Isolate the process-singleton LLMClient cache between tests."""
+def _clear_process_caches() -> Generator[None, None, None]:
+    """Isolate process-wide caches (LLM client, DDG results) between tests."""
     _llm_mod.get_client.cache_clear()
+    _salary_mod._DDG_CACHE.clear()
     yield
     _llm_mod.get_client.cache_clear()
+    _salary_mod._DDG_CACHE.clear()
 
 
 def _load_ddg_cassettes() -> dict[str, list[dict[str, str]]]:
