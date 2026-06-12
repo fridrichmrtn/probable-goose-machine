@@ -1302,6 +1302,63 @@ def test_ddg_cache_evicts_oldest_at_capacity(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.fast
+def test_cached_ddg_text_concurrent_eviction_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The eviction + insert critical section must be serialized by
+    `_DDG_CACHE_LOCK`.
+
+    Deterministically forces the race the lock closes: a `_DDG_CACHE` whose
+    iterator deliberately yields the GIL mid-iteration (via a sleeping
+    `_SlowIterCache`). A background thread hammers the same cache. Without the
+    lock around the `next(iter(...))`/`pop`/insert region, the concurrent insert
+    raises `RuntimeError: dictionary changed size during iteration`; with it, the
+    run is clean. (Verified fail-before by removing the lock.)
+    """
+
+    class _SlowIterCache(dict):
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            for i, k in enumerate(list(super().__iter__())):
+                if i == 0:
+                    time.sleep(0.001)  # widen the eviction window for the racer
+                yield k
+
+    monkeypatch.setattr(salary_mod, "_DDG_CACHE", _SlowIterCache())
+    monkeypatch.setattr(salary_mod, "_DDG_CACHE_MAX_ENTRIES", 4)
+
+    def fake_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        return _fake_rows(1)
+
+    monkeypatch.setattr(salary_mod, "_ddg_text", fake_ddg_text)
+
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def hammer() -> None:
+        i = 0
+        try:
+            while not stop.is_set():
+                salary_mod._cached_ddg_text(f"bg-{i}", 5.0)
+                i += 1
+        except BaseException as exc:  # noqa: BLE001 - surfaced via errors below
+            errors.append(exc)
+
+    bg = threading.Thread(target=hammer)
+    bg.start()
+    try:
+        for i in range(400):
+            salary_mod._cached_ddg_text(f"main-{i}", 5.0)
+    except BaseException as exc:  # noqa: BLE001
+        errors.append(exc)
+    finally:
+        stop.set()
+        bg.join()
+
+    assert not errors, f"concurrent cache access raised: {errors!r}"
+    assert len(salary_mod._DDG_CACHE) <= 4
+
+
+@pytest.mark.fast
 async def test_ratelimit_exception_gives_specific_user_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

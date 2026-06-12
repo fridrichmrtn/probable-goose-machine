@@ -310,6 +310,10 @@ _ADDRESS_SCAN_LINES: Final = 20
 _STREET_ADDR_LINE: Final = re.compile(
     r"\d{1,5} +[A-ZÀ-Ž][a-zA-ZÀ-ž .]{3,40}(?:, *[\wÀ-ž][\wÀ-ž .-]*)*"
 )
+# Year-first header lines ("2024 Data Science Bootcamp") share the number-first
+# shape but are CV evidence, not addresses — masking them destroys anchor text
+# (PRD §4.5). Skip any line whose stripped form opens with a 19xx/20xx token.
+_YEAR_FIRST_LINE: Final = re.compile(r"(?:19|20)\d{2}\b")
 
 
 def _redact_header_address(text: str, audit: list[Redaction]) -> str:
@@ -318,7 +322,11 @@ def _redact_header_address(text: str, audit: list[Redaction]) -> str:
     offset = 0
     for i, line in enumerate(lines[:_ADDRESS_SCAN_LINES]):
         stripped = line.strip()
-        if stripped and _STREET_ADDR_LINE.fullmatch(stripped):
+        if (
+            stripped
+            and not _YEAR_FIRST_LINE.match(stripped)
+            and _STREET_ADDR_LINE.fullmatch(stripped)
+        ):
             leading_ws = len(line) - len(line.lstrip())
             lines[i] = line[:leading_ws] + "[ADDRESS]" + line[leading_ws + len(stripped) :]
             span_start = offset + leading_ws

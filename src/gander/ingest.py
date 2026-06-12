@@ -109,8 +109,13 @@ def _load_prompt(name: str) -> str:
 def _check_magic_bytes(file_bytes: bytes, suffix: str) -> bool:
     """Return True when the file's leading bytes match its claimed suffix."""
     if suffix == ".pdf":
-        return file_bytes[:4] == _PDF_MAGIC
+        # pypdf tolerates a leading UTF-8 BOM or whitespace before `%PDF`, so
+        # scan a bounded leading window instead of requiring offset 0. Genuine
+        # non-PDFs still fail because `%PDF` won't appear in the first 1 KiB.
+        head = file_bytes[:1024].lstrip(b"\xef\xbb\xbf").lstrip()
+        return _PDF_MAGIC in head
     if suffix == ".docx":
+        # ZIP local-file-header signature must sit at offset 0 — no tolerated prefix.
         return file_bytes[:4] == _DOCX_MAGIC
     return True
 

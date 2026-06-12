@@ -156,6 +156,39 @@ async def test_valid_pdf_magic_passes_magic_check() -> None:
 
 
 @pytest.mark.fast
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        b"\xef\xbb\xbf",  # leading UTF-8 BOM
+        b"   \n",  # leading ASCII whitespace
+    ],
+)
+async def test_bom_or_whitespace_prefixed_pdf_passes_magic_check(prefix: bytes) -> None:
+    # pypdf tolerates a leading BOM / whitespace before `%PDF`; the magic gate
+    # must too. Broken body -> reaches the parser (reason="corrupt"), not the
+    # gate (reason="wrong_magic_bytes").
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_text(prefix + b"%PDF-1.4 garbage body, not parseable", "test.pdf")
+
+    assert isinstance(result, StageFailure)
+    rejected = next(e for e in events if e["event"] == "rejected")
+    assert rejected["reason"] == "corrupt"
+
+
+@pytest.mark.fast
+async def test_non_pdf_still_fails_magic_check_after_bom_tolerance() -> None:
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await extract_text(b"\xef\xbb\xbfGIF89a not a pdf at all", "test.pdf")
+
+    assert isinstance(result, StageFailure)
+    assert result.user_message == CORRUPT_MSG
+    rejected = next(e for e in events if e["event"] == "rejected")
+    assert rejected["reason"] == "wrong_magic_bytes"
+
+
+@pytest.mark.fast
 async def test_input_truncation_at_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GANDER_MAX_INPUT_CHARS", "150")
     paragraphs = ["Work Experience"] + [

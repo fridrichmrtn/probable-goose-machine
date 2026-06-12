@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -17,9 +18,14 @@ from pydantic import ValidationError
 from gander.config import env_float, env_int
 from gander.errors import StageFailure, stage_boundary
 from gander.llm import get_client
-from gander.market import currency_to_period, resolve_market
+from gander.market import country_to_currency, currency_to_period, resolve_market
 from gander.obs import emit
 from gander.schemas import Profile, SalaryEstimate, Source
+
+# country_to_currency was a public helper on this module before the P0.1 hoist to
+# gander.market; keep the import re-exported so callers importing it from
+# gander.salary don't break.
+__all__ = ["build_queries", "country_to_currency", "estimate_salary", "search"]
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "salary.md"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -62,6 +68,11 @@ _ISO_4217_SHAPE = re.compile(r"^[A-Z]{3}$")
 # Process-wide search cache: identical queries within the TTL reuse the prior
 # results instead of re-hitting DDG (rate-limit pressure on a shared Space IP).
 _DDG_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+# search() fans out via asyncio.to_thread, so cache reads/evictions/writes run on
+# worker threads concurrently. The lock keeps the dict ops atomic — without it,
+# FIFO eviction's `next(iter(...))` can race an insert ("dictionary changed size
+# during iteration"). Held only around dict ops, never across the DDG network call.
+_DDG_CACHE_LOCK = threading.Lock()
 _DDG_CACHE_MAX_ENTRIES = 512
 _DEFAULT_DDG_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -237,16 +248,22 @@ def _ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]
 
 def _cached_ddg_text(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
     key = query.strip()
-    now = time.monotonic()
-    cached = _DDG_CACHE.get(key)
-    if cached is not None and now - cached[0] < _ddg_cache_ttl_s():
-        emit("salary", "ddg_cache_hit", query_len=len(key))
-        # Copies, so callers can't mutate rows served to later requests.
-        return [dict(row) for row in cached[1]]
+    ttl = _ddg_cache_ttl_s()
+    with _DDG_CACHE_LOCK:
+        cached = _DDG_CACHE.get(key)
+        if cached is not None and time.monotonic() - cached[0] < ttl:
+            # Copies, so callers can't mutate rows served to later requests.
+            hit = [dict(row) for row in cached[1]]
+            emit("salary", "ddg_cache_hit", query_len=len(key))
+            return hit
+
+    # Network call runs outside the lock so concurrent misses don't serialize.
     results = _ddg_text(query, timeout_s)
-    if len(_DDG_CACHE) >= _DDG_CACHE_MAX_ENTRIES:
-        _DDG_CACHE.pop(next(iter(_DDG_CACHE)))
-    _DDG_CACHE[key] = (now, results)
+    stored = [dict(row) for row in results]
+    with _DDG_CACHE_LOCK:
+        if len(_DDG_CACHE) >= _DDG_CACHE_MAX_ENTRIES and key not in _DDG_CACHE:
+            _DDG_CACHE.pop(next(iter(_DDG_CACHE)))
+        _DDG_CACHE[key] = (time.monotonic(), stored)
     return results
 
 

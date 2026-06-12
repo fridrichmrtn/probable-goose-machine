@@ -1,7 +1,9 @@
 """Market resolution — one spec per profile, consumed by salary, growth, confidence.
 
-`resolve_market` runs once post-normalize and answers "which labor market is
-this CV in?" with explicit provenance. Hoisted out of `salary.py` (P0.1) so
+`resolve_market` answers "which labor market is this CV in?" with explicit
+provenance, resolved per stage from the normalized profile. It is pure and
+idempotent, so the repeated calls (build_queries, estimate_salary, confidence,
+growth) are cheap and need no hoisting. Hoisted out of `salary.py` (P0.1) so
 growth no longer assumes CZ while salary resolves 50+ markets, and so the
 confidence judge can discount estimates whose geography was never detected.
 

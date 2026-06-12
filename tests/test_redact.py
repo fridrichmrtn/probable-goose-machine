@@ -604,3 +604,32 @@ def test_street_address_in_body_not_redacted() -> None:
     assert isinstance(result, RedactedCV)
     assert "123 Main Street, Springfield" in result.text
     assert "[ADDRESS]" not in result.text
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "header_line",
+    [
+        "2024 Data Science Bootcamp",
+        "2023 Senior Data Analyst",
+        "1998 Bachelor of Science in Statistics",
+    ],
+)
+def test_year_first_header_line_not_clobbered_as_address(header_line: str) -> None:
+    # Year-first lines share the number-first address shape but are CV evidence;
+    # masking them would destroy anchor text (PRD §4.5).
+    result = redact(f"Jane Doe\n{header_line}\nSenior Data Engineer profile.")
+    assert isinstance(result, RedactedCV)
+    assert header_line in result.text
+    assert "[ADDRESS]" not in result.text
+
+
+@pytest.mark.fast
+def test_street_address_still_redacts_alongside_year_lines() -> None:
+    # A genuine street address in the header still redacts even when year-first
+    # lines are present — the year guard must not blanket-disable the pass.
+    result = redact("2024 Data Science Bootcamp\n123 Main Street, Springfield\nProfile.")
+    assert isinstance(result, RedactedCV)
+    assert "2024 Data Science Bootcamp" in result.text
+    assert "[ADDRESS]" in result.text
+    assert "Main Street" not in result.text

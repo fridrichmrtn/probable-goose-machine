@@ -424,8 +424,6 @@ Report: tasks/T51_dev-report.md (in dev/prod-readiness-p0)
 - [ux-engineer] src/gander/ingest.py:261 — magic-byte mismatch uses CORRUPT_MSG; for a renamed/wrong-format file the §4.6 UNKNOWN_MSG ("Unable to read this file. Please upload a valid PDF or DOCX.") is the more accurate copy.
 - [ux-engineer] src/gander/ingest.py:314 — truncation is invisible to the user; add a report-visible notice when input was truncated ("analysis covers the first ~50,000 characters").
 - [product-owner] tests/test_growth_unit.py — mock fixture mechanism strings throughout are still CZ-specific ("+30k CZK/mo", "in CZ market"); misleading post-de-CZ. Refresh fixture debt.
-- [hiring-manager] src/gander/market.py:3 — docstring claims `resolve_market` "runs once post-normalize" but it is called 4× (build_queries, estimate_salary, 2× pipeline.py). Either hoist to a single resolution passed down or fix the docstring. (product-owner flagged the pipeline double-call too.)
-- [hiring-manager] src/gander/salary.py — `_DDG_CACHE` read-check-write from `asyncio.to_thread` workers is not atomic; a `threading.Lock` around lookup/insert/evict removes the duplicate-fetch and eviction races.
 - [hiring-manager] src/gander/normalize.py:232 — `years` param is `noqa: ARG001`-reserved for unimplemented band-floor logic; remove until the logic exists.
 - [hiring-manager] src/gander/confidence.py:256-257 — `low_regex` is assigned once pre-regen but used in two places with different semantic requirements (salary-tier-Low vs CV-floor-Low); restructure for legibility.
 - [hiring-manager] src/gander/market.py:22-26 — `_CZ_TOKEN_PATTERN` city tokens (`brno`, `prague`) can false-positive on non-location strings in the inferred-fallback path; consider tightening.
@@ -444,8 +442,8 @@ Report: tasks/T51_dev-report.md (in dev/prod-readiness-p0)
 - [product-owner] tests/test_adversarial.py:155 — test comment undersells the intent (magic passes, then parse error follows).
 - [product-owner] src/gander/redact.py:9-18 — module docstring documents US paren phones as matching while line 18 notes CZ paren grouping does not; clarify side by side.
 - [product-owner] tasks/todo.md — MiniMax references (T32–T35 listed open) not updated alongside R1 spike deletion.
-- [hiring-manager] src/gander/market.py:3 — "Hoisted out of `salary.py` (P0.1)" task reference in docstring; keep the durable why, drop the task pointer.
 - [hiring-manager] src/gander/pipeline.py:339 — enumerate-based yield gate ("yield after every task except the last") is less obvious than a counter drain.
 - [hiring-manager] src/gander/growth.py:51-53 — `_BAN_PHRASES` docstring misses the punctuation-stripping behavior `_check_ban_phrase` actually applies.
+- [hiring-manager] src/gander/market.py:6 — "Hoisted out of `salary.py` (P0.1)" task reference in docstring; keep the durable why, drop the task pointer.
 - [hiring-manager] tests/test_pipeline_fast.py:159-166 — cascade-contract test asserts only a dict constant; documents intent but cannot catch a broken cascade.
 - [qa-engineer] tests/test_redact.py:576 — version-string false-positive test should also assert `[ADDRESS]` absent to pin `_STREET_ADDR_LINE` against over-reach.

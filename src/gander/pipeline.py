@@ -29,6 +29,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 
 from gander import obs
@@ -177,7 +178,14 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
     accumulator to this run only.
     """
     state = _Run()
-    obs.emit(None, "pipeline_start", filename=filename, bytes=len(file_bytes))
+    # Emit only the suffix, never the raw filename: CV filenames embed candidate
+    # names ("Jane Smith CV.pdf"), which would defeat the no-PII-in-obs posture.
+    obs.emit(
+        None,
+        "pipeline_start",
+        filename_suffix=Path(filename).suffix.lower(),
+        bytes=len(file_bytes),
+    )
 
     with obs.subscribe(_make_accumulator(state)):
         # Initial yield: tracker says pending, body is empty (renderer
