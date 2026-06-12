@@ -35,6 +35,25 @@ authoritative for CZ personas; non-CZ personas don't carry an implied salary
 band in this table (`tasks/T46_salary_multi_market.md` Out-of-Scope: per-
 country sanity caps).
 
+### P1.4 breadth fixtures (out-of-corpus degradation)
+
+The corpus above is entirely CZ-context data/ML roles. Three `.txt`-only
+fixtures stretch it along the axes a reviewer will actually hit, used by
+`tests/test_degradation_synthetic.py` to assert graceful degradation (PRD §4.6),
+not happy-path scoring:
+
+- **#14 Tereza Fialová** — non-technical role (brand & content marketing), CZ.
+- **#15 Markéta Procházková** — career-changer (registered nurse → junior data
+  analyst via bootcamp), CZ.
+- **#16 Lukas Neumann** — non-CZ candidate (logistics operations, Berlin DE),
+  German/English, vocational (Ausbildung) education.
+
+All three names are clearly fictional, emails use `example.cz`/`example.de`,
+and each body carries a "synthetic fixture, not a real person" line. No
+`.pdf`/`.docx` siblings — the degradation tests synthesize a `.docx` in memory
+from the `.txt` so real ingest + redact + verify run while the LLM seam is
+mocked.
+
 ## Rendering tools
 
 - DOCX: `python-docx` straight to `.docx` via `_build_docx` (shared by 04, 06,

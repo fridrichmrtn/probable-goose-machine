@@ -105,6 +105,18 @@ class _OpenRouterRoute:
 # `reasoning` is the growth-stage slot; Flash-Lite hit its capability boundary on
 # adversarial CZ fixtures (PRD §4.4 anchor-verified actions), so this slot keeps
 # full Flash as primary. The cheap/extract/vision slots default to Flash-Lite.
+#
+# Slug pinning (P1.4): these are FLOATING tags, not pinned snapshots. OpenRouter
+# publishes no dated/snapshot variant for the Gemini 2.5 Flash family — there is
+# no `google/gemini-2.5-flash-...-MM-YYYY` to pin to — so "pin to a dated slug"
+# is not an available option here; the bare slug is the only id the API accepts.
+# Known risk, verified 2026-06-12 against https://openrouter.ai/api/v1/models:
+# the live catalog had already rotated to `google/gemini-3.5-flash` /
+# `google/gemini-3.1-flash-lite` and no longer lists the 2.5 ids at all. These
+# routes are therefore time-sensitive: when a 2.5 slug stops resolving, the
+# fallback chain still points at the sibling 2.5 slug (same vintage), so both
+# can fail together. Re-pin to the current Gemini flash-tier ids — or to the
+# `~google/gemini-flash-latest` router alias — when refreshing this table.
 _OPENROUTER_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
 _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
     "reasoning": _OpenRouterRoute(
