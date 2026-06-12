@@ -11,9 +11,11 @@ import asyncio
 from typing import Any
 
 import pytest
+from ddgs.exceptions import RatelimitException
 
-from gander import obs, pipeline
+from gander import obs, pipeline, salary
 from gander.errors import StageFailure
+from gander.report import render_body
 from gander.schemas import (
     Anchor,
     Component,
@@ -359,6 +361,40 @@ async def test_salary_failure_short_circuits_confidence_without_llm(
     # Score still ran (parallel with salary), so growth can use it… but Decision
     # A in the T15 plan requires BOTH score AND salary. Growth cascades.
     assert isinstance(final.growth, StageFailure)
+
+
+@pytest.mark.fast
+async def test_salary_ratelimit_degrades_only_salary_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PRD §4.6: a rate-limited salary search degrades only the salary block.
+
+    Runs the REAL estimate_salary against a DDG stub that always rate-limits;
+    every other stage stays canned-success. The rendered body must carry the
+    rate-limit copy in the salary block while score renders real content and
+    growth degrades with its cascade copy instead of crashing the report.
+    """
+    _patch_happy_path(monkeypatch)
+    monkeypatch.setattr(pipeline, "estimate_salary", salary.estimate_salary)
+
+    def _ratelimited_ddg(query: str, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        raise RatelimitException("202 rate limit")
+
+    monkeypatch.setattr(salary, "_ddg_text", _ratelimited_ddg)
+
+    reports = await _collect(pipeline.run(b"x", "cv.pdf"))
+    final = reports[-1]
+
+    assert isinstance(final.salary, StageFailure)
+    assert final.statuses["salary"] == "failed"
+    assert final.statuses["score"] == "done"
+
+    body = render_body(final)
+    assert "temporarily rate-limited" in body
+    assert "## Score: " in body
+    assert "## Confidence" in body
+    assert "## Plan" in body
+    assert "Cannot generate growth plan without salary baseline" in body
 
 
 @pytest.mark.fast

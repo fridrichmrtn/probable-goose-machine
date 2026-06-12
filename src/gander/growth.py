@@ -510,7 +510,7 @@ async def plan_growth(
     currency: str,
     market_name: str | None = None,
 ) -> list[GrowthAction] | StageFailure:
-    async with stage_boundary("growth"):
+    async with stage_boundary("growth") as cm:
         t0 = time.perf_counter()
 
         def _ms() -> int:
@@ -703,6 +703,4 @@ async def plan_growth(
                 user_message=_FAILURE_MSG,
                 debug_detail=f"{type(exc).__name__}: {exc}",
             )
-    # Unreachable: every branch above returns. Present for mypy + a final safety net
-    # if `stage_boundary` ever gains pre-body exit semantics.
-    return StageFailure(stage="growth", user_message=_FAILURE_MSG, debug_detail="unreachable")
+    return cm.failure  # type: ignore[return-value]

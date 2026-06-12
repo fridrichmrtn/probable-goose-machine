@@ -1312,8 +1312,15 @@ async def test_ratelimit_exception_gives_specific_user_message(
 
     monkeypatch.setattr(salary_mod, "_ddg_text", ratelimited_ddg_text)
 
-    result = await estimate_salary(_cz_profile())
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = await estimate_salary(_cz_profile())
 
     assert isinstance(result, StageFailure)
     assert result.stage == "salary"
     assert "rate-limited" in result.user_message
+    # §4.8: the obs trail must distinguish a rate-limited search from any other
+    # search failure, not just the user-facing copy.
+    failure_evt = next(e for e in events if e["event"] == "stage_failure")
+    assert failure_evt["reason"] == "ratelimited"
+    assert failure_evt["exc_type"] == "_RateLimitError"

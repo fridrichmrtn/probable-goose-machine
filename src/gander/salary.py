@@ -32,6 +32,12 @@ _INSUFFICIENT_DATA_MSG = "Insufficient market data for this profile"
 # Distinct copy for the transient outcome: search transport refused us, the
 # market data itself is not missing. §4.6 covers the "no data" path above.
 _RATELIMIT_MSG = "Salary search is temporarily rate-limited — please try again in a moment"
+
+
+class _RateLimitError(RuntimeError):
+    """Every search query failed on DDG rate-limiting — transient, not missing data."""
+
+
 _DEFAULT_SALARY_SEARCH_BACKENDS = "brave,duckduckgo,yahoo,mojeek"
 _SALARY_SEARCH_MAX_RESULTS = 20
 _SALARY_LLM_SOURCE_LIMIT = 8
@@ -300,8 +306,9 @@ async def search(
 ) -> list[Source]:
     """Run DDG queries off the event loop, dedupe by URL, return up to 8 sources.
 
-    Raises ``RuntimeError`` if fewer than 2 valid sources come back; the caller's
-    ``stage_boundary`` converts that into a ``StageFailure``.
+    Raises ``_RateLimitError`` when every query failure was rate-limiting, and
+    plain ``RuntimeError`` for any other <2-sources outcome; ``estimate_salary``
+    converts both into a ``StageFailure``.
     """
     search_backends = _salary_search_backends()
     raw_results: list[dict[str, Any]] = []
@@ -396,7 +403,7 @@ async def search(
             # RatelimitException has no subclasses and ddgs raises it directly,
             # so the recorded class name identifies it exactly.
             if types == [RatelimitException.__name__]:
-                raise RuntimeError(_RATELIMIT_MSG)
+                raise _RateLimitError(_RATELIMIT_MSG)
             raise RuntimeError(f"{_INSUFFICIENT_DATA_MSG} (query failures: {','.join(types)})")
         raise RuntimeError(_INSUFFICIENT_DATA_MSG)
 
@@ -424,17 +431,17 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
             # the deliberate `<2 sources` RuntimeError, anything else) so the
             # user-facing string never falls back to `stage_boundary`'s `str(exc)`
             # default, which would leak ddgs/tenacity internals.
-            user_msg = _RATELIMIT_MSG if _RATELIMIT_MSG in str(exc) else _INSUFFICIENT_DATA_MSG
+            ratelimited = isinstance(exc, _RateLimitError)
             emit(
                 "salary",
                 "stage_failure",
-                reason="search_error",
+                reason="ratelimited" if ratelimited else "search_error",
                 exc_type=type(exc).__name__,
                 duration_ms=_ms(),
             )
             return StageFailure(
                 stage="salary",
-                user_message=user_msg,
+                user_message=_RATELIMIT_MSG if ratelimited else _INSUFFICIENT_DATA_MSG,
                 debug_detail=f"{type(exc).__name__}: {exc}",
             )
 

@@ -180,7 +180,7 @@ def test_input_cap_env_default_is_50000(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.fast
-@pytest.mark.parametrize("prompt_name", ["extract.md", "score.md", "salary.md"])
+@pytest.mark.parametrize("prompt_name", ["extract.md", "score.md", "salary.md", "growth.md"])
 def test_untrusted_instruction_in_prompt(prompt_name: str) -> None:
     body = (PROMPTS_DIR / prompt_name).read_text(encoding="utf-8")
     assert "untrusted" in body
