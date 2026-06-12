@@ -85,7 +85,6 @@ class _Run:
     across iterations without being affected by subsequent mutation.
     """
 
-    raw_cv_text: str = ""
     redacted_cv_text: str = ""
     profile: Profile | StageFailure | None = None
     score: Score | StageFailure | None = None
@@ -108,7 +107,6 @@ class _Run:
             confidence=self.confidence,
             growth=self.growth,
             statuses=dict(self.statuses),
-            raw_cv_text=self.raw_cv_text,
             redacted_cv_text=self.redacted_cv_text,
             total_cost_usd=self.total_cost_usd,
             total_latency_ms=self.total_latency_ms,
@@ -201,7 +199,6 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
             obs.emit(None, "pipeline_done", outcome="ingest_failed")
             yield state.snapshot()
             return
-        state.raw_cv_text = text_result
 
         # === L2 redact (sync) ===
         redacted_result = redact(text_result)

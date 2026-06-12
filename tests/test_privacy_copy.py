@@ -25,4 +25,5 @@ def test_pdf_ingest_default_and_privacy_copy_are_explicit(
     assert "PDFs are uploaded " in app_py
     assert "to OpenRouter/Gemini as page images for transcription" in app_py
     assert "DOCX is read " in app_py
-    assert "locally. Uploads are not retained by Gander" in app_py
+    assert "locally. Salary data is fetched via DuckDuckGo search" in app_py
+    assert "Uploads are not retained by Gander" in app_py

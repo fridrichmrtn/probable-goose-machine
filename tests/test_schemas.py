@@ -296,7 +296,6 @@ def test_report_accepts_stage_failure_in_each_block(failed_field: str) -> None:
         confidence=blocks["confidence"],  # type: ignore[arg-type]
         growth=blocks["growth"],  # type: ignore[arg-type]
         statuses=_statuses(),
-        raw_cv_text="...",
     )
 
     assert isinstance(getattr(report, failed_field), StageFailure)
@@ -328,7 +327,6 @@ def test_report_statuses_require_known_complete_keys_and_allow_skipped() -> None
             "confidence": "skipped",
             "growth": "done",
         },
-        raw_cv_text="...",
     )
 
     assert report.statuses["confidence"] == "skipped"
@@ -343,7 +341,6 @@ def test_report_statuses_require_known_complete_keys_and_allow_skipped() -> None
             confidence=_confidence(),
             growth=_growth(),
             statuses=missing,
-            raw_cv_text="...",
         )
 
     extra: dict[str, str] = {**_statuses(), "ingest": "done"}
@@ -355,7 +352,6 @@ def test_report_statuses_require_known_complete_keys_and_allow_skipped() -> None
             confidence=_confidence(),
             growth=_growth(),
             statuses=extra,  # type: ignore[arg-type]
-            raw_cv_text="...",
         )
 
 
@@ -371,7 +367,6 @@ def test_report_accepts_none_blocks_for_pipeline_streaming() -> None:
             "confidence": "pending",
             "growth": "pending",
         },
-        raw_cv_text="",
     )
     assert report.profile is None
     assert report.score is None
@@ -389,7 +384,6 @@ def test_report_accepts_none_blocks_for_pipeline_streaming() -> None:
 def test_report_carries_cost_and_latency_totals() -> None:
     report = Report(
         statuses=_statuses(),
-        raw_cv_text="",
         total_cost_usd=0.0123,
         total_latency_ms=4567,
         wall_clock_ms=1234,
@@ -403,7 +397,6 @@ def test_report_carries_cost_and_latency_totals() -> None:
 def test_report_carries_notices() -> None:
     report = Report(
         statuses=_statuses(),
-        raw_cv_text="",
         notices=["Vision skipped: PDF over budget; used text extraction."],
     )
     assert report.notices == ["Vision skipped: PDF over budget; used text extraction."]

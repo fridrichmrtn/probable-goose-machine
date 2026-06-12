@@ -61,7 +61,6 @@ def test_stage_failure_does_not_block_other_stages() -> None:
         confidence=StageFailure(stage="confidence", user_message="Confidence judge offline"),
         growth=StageFailure(stage="growth", user_message="Plan generation failed"),
         statuses=_failed_statuses(),
-        raw_cv_text="raw text",
     )
     out = render_body(report)
 

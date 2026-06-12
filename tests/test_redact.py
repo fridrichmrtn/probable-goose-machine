@@ -554,3 +554,53 @@ def test_pii_count_event_per_corpus_fixture(fixture_path: Path) -> None:
     assert done_events[0]["count_name"] >= 1, (
         f"no name redacted in {fixture_path.name}; counts={done_events[0]!r}"
     )
+
+
+@pytest.mark.fast
+def test_us_paren_phone_redacted() -> None:
+    result = redact("Contact: (555) 123-4567\nSenior engineer.")
+    assert isinstance(result, RedactedCV)
+    assert "[PHONE]" in result.text
+    assert "(555) 123-4567" not in result.text
+
+
+@pytest.mark.fast
+def test_us_dot_phone_redacted() -> None:
+    result = redact("Contact: 555.123.4567\nSenior engineer.")
+    assert isinstance(result, RedactedCV)
+    assert "[PHONE]" in result.text
+    assert "555.123.4567" not in result.text
+
+
+@pytest.mark.fast
+def test_no_false_positive_version_string() -> None:
+    result = redact("Migrated services to Python 3.10.4567 builds.")
+    assert isinstance(result, RedactedCV)
+    assert "3.10.4567" in result.text
+    assert "[PHONE]" not in result.text
+
+
+@pytest.mark.fast
+def test_no_false_positive_date_dots() -> None:
+    result = redact("Released 2024.01.15 internal milestone.")
+    assert isinstance(result, RedactedCV)
+    assert "2024.01.15" in result.text
+    assert "[PHONE]" not in result.text
+
+
+@pytest.mark.fast
+def test_street_address_in_header_redacted() -> None:
+    result = redact("123 Main Street, Springfield\nSenior Data Engineer profile.")
+    assert isinstance(result, RedactedCV)
+    assert "[ADDRESS]" in result.text
+    assert "Main Street" not in result.text
+    assert any(r.kind == "address" for r in result.audit_log)
+
+
+@pytest.mark.fast
+def test_street_address_in_body_not_redacted() -> None:
+    body = "\n".join(f"Line {i} of the experience section." for i in range(24))
+    result = redact(f"{body}\n123 Main Street, Springfield")
+    assert isinstance(result, RedactedCV)
+    assert "123 Main Street, Springfield" in result.text
+    assert "[ADDRESS]" not in result.text

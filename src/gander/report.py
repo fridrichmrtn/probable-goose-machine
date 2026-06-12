@@ -286,7 +286,7 @@ def _pill_html(label: str, status: StageStatus, tooltip: str | None) -> str:
 
 
 def _label_for_stage(report: Report, stage: StageName) -> str:
-    if stage == "profile" and report.statuses[stage] == "running" and not report.raw_cv_text:
+    if stage == "profile" and report.statuses[stage] == "running" and not report.redacted_cv_text:
         return "Ingest"
     return _LABEL_BY_STAGE[stage]
 

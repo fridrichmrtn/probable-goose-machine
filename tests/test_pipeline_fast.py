@@ -177,7 +177,7 @@ async def test_initial_yield_is_all_pending(monkeypatch: pytest.MonkeyPatch) -> 
     assert initial.salary is None
     assert initial.confidence is None
     assert initial.growth is None
-    assert initial.raw_cv_text == ""
+    assert initial.redacted_cv_text == ""
     assert all(v == "pending" for v in initial.statuses.values())
     assert initial.total_cost_usd == 0.0
     assert initial.total_latency_ms == 0
@@ -196,8 +196,8 @@ async def test_happy_path_final_report_fully_populated(
     assert isinstance(final.confidence, Confidence)
     assert isinstance(final.growth, list)
     assert all(v == "done" for v in final.statuses.values())
-    # Raw text propagated through L1.
-    assert final.raw_cv_text == "raw text"
+    # Redacted text propagated through L2 (mock redact is identity).
+    assert final.redacted_cv_text == "raw text"
 
 
 @pytest.mark.fast
@@ -258,7 +258,6 @@ async def test_happy_path_yields_after_redaction_before_profile_extract(
         r
         for r in reports
         if r.statuses["profile"] == "running"
-        and r.raw_cv_text == "raw text"
         and r.redacted_cv_text == "raw text"
         and r.profile is None
     ]
