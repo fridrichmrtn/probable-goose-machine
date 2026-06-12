@@ -315,6 +315,30 @@ def render_tracker(report: Report) -> str:
     return f'{_CSS}\n<div class="tracker" role="status" aria-live="polite">{"".join(pills)}</div>'
 
 
+# Copy grounded in PRD §4.7 and the README "Decisions"/"Bias And Limits"
+# sections — no claims beyond what the system actually does. Keep these in sync
+# if the bias posture changes.
+_ABOUT_BANNER = (
+    "<details open>"
+    "<summary>About this report</summary>\n\n"
+    "CV screening is classified as high-risk AI under the EU AI Act and is "
+    "well documented to encode demographic bias. Read these results as "
+    "**candidate hypotheses to validate, not authoritative judgments.**\n\n"
+    "- Identifying details (name, contact info, age-implying dates) are "
+    "redacted before scoring, which evaluates skills, experience, education, "
+    "and role progression.\n"
+    "- Some bias-encoding signals — school names, language patterns, employer "
+    "prestige — cannot be fully removed without discarding legitimate signal, "
+    "so they may still influence the result.\n"
+    "- This system is **not validated for fairness across protected groups.**\n\n"
+    "</details>"
+)
+
+
+def _about_banner() -> str:
+    return _ABOUT_BANNER
+
+
 def _failure_callout_html(failure: StageFailure) -> str:
     return f'<div class="gander-callout" role="alert">{_esc(failure.user_message)}</div>'
 
@@ -328,7 +352,7 @@ def _failure_callout_md(failure: StageFailure) -> str:
     return "\n".join(quoted)
 
 
-def _score_section(score: Score | StageFailure | None) -> str:
+def _score_section(score: Score | StageFailure | None, seniority_band: str | None = None) -> str:
     if score is None:
         return ""
     if isinstance(score, StageFailure):
@@ -361,7 +385,8 @@ def _score_section(score: Score | StageFailure | None) -> str:
         )
     grid = '<div class="gander-components-grid" role="list">' + "".join(tiles) + "</div>"
 
-    body = f"## Score: {score.total}/100\n\n{grid}"
+    band = f" ({_esc(seniority_band)})" if seniority_band else ""
+    body = f"## Score: {score.total}/100{band}\n\n{grid}"
     if score.dropped:
         # Italic single-line footer naming the dropped categories so the
         # reviewer sees why the total is depressed (drop-as-zero, no re-norm).
@@ -479,7 +504,8 @@ def render_body(report: Report) -> str:
         return _failure_callout_html(report.profile)
 
     sections = [
-        _score_section(report.score),
+        _about_banner(),
+        _score_section(report.score, report.profile.seniority_band),
         _salary_section(report.salary),
         _confidence_section(report.confidence),
         _growth_section(report.growth),
