@@ -291,8 +291,12 @@ def drop_unverified(
         if not verify_quote(anchor.quote, source, section=anchor.section):
             continue
         if claim_attr is not None:
-            claim = getattr(item, claim_attr)
-            if not claim_supports_quote(claim, anchor.quote):
+            # Tolerate a missing claim attr: skip the compat gate rather than
+            # raise an AttributeError that stage_boundary would turn into an
+            # opaque generic StageFailure. A wrong `claim_attr` then degrades to
+            # the pre-gate (existence-only) behaviour instead of crashing.
+            claim = getattr(item, claim_attr, None)
+            if claim is not None and not claim_supports_quote(claim, anchor.quote):
                 _emit_claim_mismatch(claim, anchor.quote)
                 continue
         kept.append(item)

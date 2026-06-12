@@ -419,8 +419,9 @@ def _filter_actions(
             continue
         # Existence-only: a growth action's `what` is a forward-looking
         # deliverable that deliberately diverges from its anchor (prompts/growth.md
-        # rule 1), so the claim_supports_quote overlap gate used by extract/score
-        # would wrongly drop valid actions and must NOT be applied here.
+        # rule 1), so the claim_supports_quote overlap gate (applied at extract
+        # only; score verifies anchors directly via verify_quote) would wrongly
+        # drop valid actions and must NOT be applied here.
         if not verify_quote(action.anchor.quote, redacted_text, section=action.anchor.section):
             emit(
                 "growth",

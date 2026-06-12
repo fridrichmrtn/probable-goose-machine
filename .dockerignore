@@ -1,0 +1,25 @@
+# Keep the build context to runtime code only. Excluding test data and LFS-
+# tracked fixtures stops the image from shipping LFS pointer files / CV samples.
+.git/
+.github/
+.worktrees/
+tests/
+tasks/
+reports/
+scripts/
+assets/
+docs/
+
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+*.md
+!README.md
+.env
+.env.*

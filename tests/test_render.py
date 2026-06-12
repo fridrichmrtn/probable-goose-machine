@@ -356,6 +356,18 @@ def test_render_body_includes_about_banner_on_success_path() -> None:
 
 
 @pytest.mark.fast
+def test_render_body_score_heading_is_outside_about_banner_details() -> None:
+    # The banner is an HTML <details> block; render_body joins sections with
+    # "\n\n", so the `## Score:` heading must sit AFTER `</details>` with a blank
+    # line between them — otherwise Gradio's markdown swallows the heading into
+    # the details element and it stops rendering as a heading.
+    out = render_body(_make_report())
+    assert "</details>\n\n## Score:" in out
+    score_idx = out.index("## Score:")
+    assert out.index("</details>") < score_idx, "score heading must follow the closed banner"
+
+
+@pytest.mark.fast
 def test_render_body_shows_seniority_band_in_score_heading() -> None:
     report = _make_report(profile=_profile_with_band("senior"))
     out = render_body(report)

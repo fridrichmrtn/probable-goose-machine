@@ -507,6 +507,77 @@ async def test_run_id_correlates_all_events_in_one_run(
 
 
 @pytest.mark.fast
+async def test_run_id_present_on_stage_boundary_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stronger than the correlation test above: the happy-path stubs are
+    obs-silent, so that test only ever sees pipeline_start/pipeline_done. Here
+    the stage stubs emit the same counter events the golden-run test checks, so
+    we prove the actual stage events (verify / salary_search /
+    confidence_decision) carry the one non-None run_id — not just the
+    orchestrator's own bookend events."""
+    _patch_happy_path(monkeypatch)
+    events: list[dict[str, Any]] = []
+
+    async def _extract_emit(redacted: RedactedCV) -> Profile:
+        obs.emit("extract", "verify", kept=3, dropped=1)
+        return _profile()
+
+    async def _salary_emit(profile: Profile) -> SalaryEstimate:
+        obs.emit("salary", "salary_search", raw_results=4, dedup_results=3)
+        return _salary()
+
+    async def _judge_emit(
+        sources: list[Source],
+        low: int,
+        high: int,
+        currency: str,
+        period: str,
+        *,
+        cv_quality: CVQualitySignals,
+    ) -> Confidence:
+        obs.emit("confidence", "confidence_decision", tier="High")
+        return _confidence()
+
+    monkeypatch.setattr(pipeline, "extract_profile", _extract_emit)
+    monkeypatch.setattr(pipeline, "estimate_salary", _salary_emit)
+    monkeypatch.setattr(pipeline, "judge", _judge_emit)
+
+    with obs.subscribe(events.append):
+        await _collect(pipeline.run(b"x", "cv.pdf"))
+
+    stage_events = {"verify", "salary_search", "confidence_decision"}
+    seen = {e["event"] for e in events}
+    assert stage_events <= seen, f"missing stage events: {stage_events - seen}"
+
+    # Every event from those stages shares one non-None run_id.
+    stage_run_ids = {e["run_id"] for e in events if e["event"] in stage_events}
+    assert len(stage_run_ids) == 1
+    only = stage_run_ids.pop()
+    assert isinstance(only, str) and only
+    # And the bookend events agree with the stage events.
+    assert {e["run_id"] for e in events} == {only}
+
+
+@pytest.mark.fast
+async def test_run_id_resets_after_partial_drain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Gradio cancel path calls aclose() on the generator, which unwinds it
+    mid-run. Breaking iteration early must still trigger run_scope's finally and
+    reset current_run_id — otherwise a cancelled run leaks its id into the next
+    run reusing the same context."""
+    _patch_happy_path(monkeypatch)
+
+    agen = pipeline.run(b"x", "cv.pdf")
+    first = await agen.__anext__()
+    assert first is not None
+    # Mid-run the contextvar may be set; the contract is that it clears on close.
+    await agen.aclose()
+    assert obs.current_run_id.get() is None
+
+
+@pytest.mark.fast
 async def test_run_ids_differ_across_separate_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

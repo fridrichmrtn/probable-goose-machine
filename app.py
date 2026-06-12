@@ -15,6 +15,7 @@ Analyze CV (the handler's first yield calls `render_tracker(reading_report)`).
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -156,6 +157,18 @@ _HERO_HTML = """
 """
 
 
+# Fail fast at MODULE scope, not in __main__: the README front-matter is
+# `sdk: gradio` / `app_file: app.py`, so the HF Spaces runtime IMPORTS this
+# module and serves the module-level `demo` itself — `python app.py` (and so
+# `__main__`) never runs on the real deploy path. A missing OPENROUTER_API_KEY
+# must surface here, before the UI is built, instead of as a confusing 401 on
+# the first request. `GANDER_SKIP_ENV_CHECK=1` lets keyless tooling import the
+# module (e.g. `python -c "import app"` smoke checks); unit tests never import
+# `app`, and constructing LLMClient stays cheap and key-free.
+if os.environ.get("GANDER_SKIP_ENV_CHECK") != "1":
+    check_env()
+
+
 with gr.Blocks(title="Gander · CV analysis") as demo:
     with gr.Column(elem_id="gander-app"):
         gr.HTML(_HERO_CSS + _HERO_HTML)
@@ -177,20 +190,22 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
 
     def _on_file_change(
         file_path: str | None,
-    ) -> tuple[Any, Any, Any, Any]:
+    ) -> tuple[Any, Any, Any, Any, Any]:
         # Toggle the run button and clear any prior run's output so a stale
-        # report can't sit under a freshly chosen file.
+        # report can't sit under a freshly chosen file. Also hide a dangling
+        # Cancel button if the user picks a new file mid-run.
         return (
             gr.Button(interactive=file_path is not None),
             gr.update(value="", visible=False),
             gr.update(value="", visible=False),
             gr.update(value=None, visible=False),
+            gr.update(visible=False),
         )
 
     file_in.change(
         _on_file_change,
         inputs=[file_in],
-        outputs=[run_btn, tracker_html, report_md, download_btn],
+        outputs=[run_btn, tracker_html, report_md, download_btn, cancel_btn],
         show_progress="hidden",
     )
 
@@ -277,20 +292,32 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         outputs=[tracker_html, report_md, download_btn, cancel_btn],
         show_progress="hidden",
     )
+
+    def _on_cancel() -> tuple[Any, Any, Any, Any, Any]:
+        # `cancels=[run_event]` kills the generator before its final yield, so
+        # the tracker/report freeze mid-run with the Cancel button dangling and
+        # no "cancelled" signal. Settle the UI explicitly: clear the stale
+        # tracker, replace the partial body with a clear cancelled message, hide
+        # the (never-populated) download and Cancel buttons, and re-enable Run.
+        # Outputs order: tracker_html, report_md, download_btn, cancel_btn, run_btn.
+        return (
+            gr.update(value="", visible=False),
+            gr.update(value="_Run cancelled. The partial output was discarded._", visible=True),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.Button(interactive=True),
+        )
+
     cancel_btn.click(
-        lambda: gr.update(visible=False),
+        _on_cancel,
         inputs=None,
-        outputs=[cancel_btn],
+        outputs=[tracker_html, report_md, download_btn, cancel_btn, run_btn],
         cancels=[run_event],
     )
 
 
 if __name__ == "__main__":
-    # Fail fast with a clear message if the runtime LLM key is missing, instead
-    # of launching a UI that errors on the first real request. HF Spaces and the
-    # local run path both invoke this as __main__; `import app` (smoke tests)
-    # stays key-free.
-    check_env()
+    # check_env() already ran at module scope above (the import path HF uses).
     # Free HF Space: 2 concurrent pipeline runs, 4 queued — caps LLM-budget
     # blast radius from simultaneous users rather than CPU.
     demo.queue(max_size=4, default_concurrency_limit=2).launch(max_file_size="10mb")

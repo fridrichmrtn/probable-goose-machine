@@ -14,6 +14,14 @@ profile whose anchors are paraphrased rather than verbatim — exactly what an
 out-of-distribution CV provokes — so `drop_unverified` strips every item and
 the low-evidence gate fires. That is the realistic offline degradation: the
 extractor "works" but nothing survives anchor verification.
+
+Scope: these tests exercise ONLY the low-evidence cascade (hallucinated anchors
+→ all dropped → extract returns StageFailure(LOW_EVIDENCE_MSG) → score/salary/
+confidence/growth cascade). They do NOT drive the salary-failure or
+confidence-tier paths — those live in `tests/test_failures.py`. The `low_evidence`
+obs guard below pins that the cascade is reached through the evidence gate, so
+the test can't silently start passing through a happy path if anchor
+verification ever stops dropping these quotes.
 """
 
 from __future__ import annotations
@@ -24,7 +32,7 @@ from typing import Any
 
 import pytest
 
-from gander import pipeline
+from gander import obs, pipeline
 from gander.errors import StageFailure
 from gander.ingest import LOW_EVIDENCE_MSG
 from gander.llm import LLMClient
@@ -94,8 +102,16 @@ async def test_out_of_corpus_cv_degrades_gracefully(
     monkeypatch.setattr(LLMClient, "complete_json", _fake_complete_json)
 
     cv_text = (_FIXTURE_DIR / fixture_name).read_text(encoding="utf-8")
-    reports = await _collect(pipeline.run(_docx_bytes_from_text(cv_text), "cv.docx"))
+    events: list[dict[str, Any]] = []
+    with obs.subscribe(events.append):
+        reports = await _collect(pipeline.run(_docx_bytes_from_text(cv_text), "cv.docx"))
     final = reports[-1]
+
+    # Guard: prove the cascade was reached through the evidence gate, not a
+    # happy path that incidentally produced a failure elsewhere.
+    assert any(e["event"] == "low_evidence" for e in events), (
+        "expected a low_evidence obs event; cascade may not be going through the gate"
+    )
 
     assert isinstance(final.profile, StageFailure)
     assert final.profile.user_message == LOW_EVIDENCE_MSG

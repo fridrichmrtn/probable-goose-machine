@@ -353,13 +353,15 @@ def test_drop_unverified_drops_claim_that_quote_does_not_support() -> None:
     # Quote exists in SOURCE under Experience, but the claim is about an
     # unrelated metric — the compatibility gate must drop it even though the
     # substring check passes.
+    quote = "Built a recommendation system that reduced churn by 18% over six months"
+    # Self-doc: verify_quote ALONE passes this pair (the quote is verbatim in
+    # SOURCE), so a drop here proves the claim_supports_quote layer is what
+    # rejects it — not the existence check.
+    assert verify_quote(quote, SOURCE, section="experience") is True
     items = [
         _ClaimItem(
             text="Increased advertising revenue by forty percent",
-            anchor=Anchor(
-                quote="Built a recommendation system that reduced churn by 18% over six months",
-                section="experience",
-            ),
+            anchor=Anchor(quote=quote, section="experience"),
         )
     ]
     kept, dropped = drop_unverified(items, SOURCE, claim_attr="text")
@@ -375,6 +377,23 @@ def test_drop_unverified_keeps_claim_that_restates_quote() -> None:
                 quote="Built a recommendation system that reduced churn by 18% over six months",
                 section="experience",
             ),
+        )
+    ]
+    kept, dropped = drop_unverified(items, SOURCE, claim_attr="text")
+    assert len(kept) == 1
+    assert dropped == 0
+
+
+def test_drop_unverified_with_missing_claim_attr_skips_gate_without_crashing() -> None:
+    # A wrong/absent claim_attr must NOT raise (which stage_boundary would turn
+    # into an opaque generic StageFailure). `_Item` has no `text` attr; the
+    # compat gate is skipped and the item is kept on the existence check alone.
+    items = [
+        _Item(
+            anchor=Anchor(
+                quote="Built a recommendation system that reduced churn by 18% over six months",
+                section="experience",
+            )
         )
     ]
     kept, dropped = drop_unverified(items, SOURCE, claim_attr="text")

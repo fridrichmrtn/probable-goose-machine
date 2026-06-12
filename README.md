@@ -34,6 +34,16 @@ uv sync
 OPENROUTER_API_KEY=... uv run python app.py
 ```
 
+Docker (no local Python toolchain needed):
+
+```bash
+docker build -t gander .
+docker run -e OPENROUTER_API_KEY=... -p 7860:7860 gander
+```
+
+Then open http://localhost:7860. The container fails fast with a clear message
+if `OPENROUTER_API_KEY` is unset (`gander.llm.check_env()` runs at startup).
+
 Open the printed local Gradio URL, upload `tests/fixtures/cvs/03_ds_horak.pdf`
 or another PDF/DOCX CV, and wait for the final report. A healthy run has a
 non-empty score (`score.total > 0`) and either populated Salary, Confidence,
