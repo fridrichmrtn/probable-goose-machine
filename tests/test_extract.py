@@ -856,7 +856,9 @@ async def test_low_evidence_gate_passes_with_one_verified_experience(
         skills=[],
         experience=[
             ProfileItem(
-                text="experience owner",
+                # Claim restates the quote (real extractor output does too), so the
+                # claim-quote compatibility gate keeps it; see test_verify.py.
+                text="Owned the weekly executive readout for sales and operations",
                 anchor=Anchor(quote=_UNIQUE_EXP_QUOTE, section=None),
             ),
         ],

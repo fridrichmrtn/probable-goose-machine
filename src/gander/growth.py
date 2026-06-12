@@ -417,6 +417,10 @@ def _filter_actions(
             )
             _record(_Drop(index, action.what, "softener_phrase", softener.group(0).lower(), None))
             continue
+        # Existence-only: a growth action's `what` is a forward-looking
+        # deliverable that deliberately diverges from its anchor (prompts/growth.md
+        # rule 1), so the claim_supports_quote overlap gate used by extract/score
+        # would wrongly drop valid actions and must NOT be applied here.
         if not verify_quote(action.anchor.quote, redacted_text, section=action.anchor.section):
             emit(
                 "growth",

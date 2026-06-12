@@ -263,7 +263,7 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
         kept_lists: dict[str, list[ProfileItem]] = {}
         for field in _LIST_FIELDS:
             items: list[ProfileItem] = getattr(profile, field)
-            kept, dropped = drop_unverified(items, redacted.text)
+            kept, dropped = drop_unverified(items, redacted.text, claim_attr="text")
             kept_lists[field] = kept
             total_kept += len(kept)
             total_dropped += dropped

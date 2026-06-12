@@ -167,17 +167,146 @@ def verify_quote(quote: str, source: str, *, section: str | None = None) -> bool
     return count >= 1
 
 
+# Stop words stripped before measuring claim-quote overlap. Without this,
+# high-frequency function words dominate Jaccard and let an unrelated claim
+# ride on shared "the/a/of". English-only on purpose: CZ claims/quotes share
+# the same content nouns (names, tech, employers) that carry the signal.
+_STOPWORDS = frozenset(
+    (
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "of",
+        "to",
+        "in",
+        "on",
+        "at",
+        "by",
+        "for",
+        "with",
+        "as",
+        "is",
+        "was",
+        "are",
+        "were",
+        "be",
+        "been",
+        "this",
+        "that",
+        "these",
+        "those",
+        "from",
+        "into",
+        "over",
+        "under",
+        "across",
+        "it",
+        "its",
+        "their",
+        "our",
+        "your",
+        "his",
+        "her",
+        "they",
+        "we",
+        "you",
+        "i",
+        "he",
+        "she",
+        "them",
+        "us",
+    )
+)
+_WORD_RE = re.compile(r"[0-9a-z]+", re.ASCII)
+# What this gate catches and what it does NOT (measured, not assumed):
+#   - It catches TOPICAL mismatch — a claim and quote about different things
+#     share almost no content tokens (jaccard ~0): "increased revenue" anchored
+#     to "reduced churn", or a security claim on a marketing quote.
+#   - It does NOT catch fine-grained VERB SUBSTITUTION on a shared object:
+#     "Led a team of engineers" vs "Joined a team of engineers" scores 0.25 —
+#     above any threshold that still admits legitimate paraphrases (a real
+#     skill restatement measured as low as 0.22). Bag-of-words overlap cannot
+#     separate them; only an LLM judge can, which the latency/cost budget
+#     rejects for a per-anchor check. This limitation is intentional.
+# Threshold sits below the lowest measured legitimate-support pair (0.22) so the
+# gate never false-drops a paraphrase, while still rejecting the near-zero
+# topical mismatches. See test_claim_supports_quote_* for the measured pairs.
+_COMPAT_THRESHOLD = 0.1
+
+
+def _content_tokens(text: str) -> frozenset[str]:
+    return frozenset(_WORD_RE.findall(_normalize(text))) - _STOPWORDS
+
+
+def claim_quote_jaccard(claim: str, quote: str) -> float | None:
+    """Jaccard overlap of content tokens, or None when either side is empty.
+
+    None means "not enough signal to judge" — callers treat it as a pass.
+    """
+    claim_tokens = _content_tokens(claim)
+    quote_tokens = _content_tokens(quote)
+    if not claim_tokens or not quote_tokens:
+        return None
+    return len(claim_tokens & quote_tokens) / len(claim_tokens | quote_tokens)
+
+
+def claim_supports_quote(claim: str, quote: str) -> bool:
+    """Does `quote` plausibly support `claim`? (Jaccard token overlap gate.)
+
+    Separate from `verify_quote`, which only proves the quote EXISTS in the CV.
+    This catches the semantic gap where an existing quote is anchored to a claim
+    it does not support. A None jaccard (too few content tokens to judge) passes:
+    we defer to the existence check rather than drop a possibly-valid item.
+
+    Applied only at extract, where ProfileItem.text restates the evidence in the
+    quote. NOT applied to score justifications (evaluative synonyms like
+    "doctorate" vs a "Ph.D." quote false-drop under lexical overlap) nor to
+    forward-looking growth actions (which diverge from their anchor by design).
+    """
+    jaccard = claim_quote_jaccard(claim, quote)
+    return jaccard is None or jaccard >= _COMPAT_THRESHOLD
+
+
 def drop_unverified(
-    items: list[T], source: str, *, anchor_attr: str = "anchor"
+    items: list[T], source: str, *, anchor_attr: str = "anchor", claim_attr: str | None = None
 ) -> tuple[list[T], int]:
     """Filter `items` to those whose anchor quote verifies against `source`.
 
     Returns `(kept, dropped_count)`. Each item must expose an attribute named
     `anchor_attr` with `.quote: str` and `.section: str | None`.
+
+    When `claim_attr` is given, an item also has to pass `claim_supports_quote`
+    between `getattr(item, claim_attr)` and the anchor quote — this closes the
+    semantic gap where the quote exists but does not support the claim. A drop
+    on this path emits `verify_claim_mismatch` (token counts + jaccard, no CV
+    text). Leave `claim_attr` None for items whose claim diverges from the anchor
+    by design (growth actions).
     """
     kept: list[T] = []
     for item in items:
         anchor = getattr(item, anchor_attr)
-        if verify_quote(anchor.quote, source, section=anchor.section):
-            kept.append(item)
+        if not verify_quote(anchor.quote, source, section=anchor.section):
+            continue
+        if claim_attr is not None:
+            claim = getattr(item, claim_attr)
+            if not claim_supports_quote(claim, anchor.quote):
+                _emit_claim_mismatch(claim, anchor.quote)
+                continue
+        kept.append(item)
     return kept, len(items) - len(kept)
+
+
+def _emit_claim_mismatch(claim: str, quote: str) -> None:
+    """Emit `verify_claim_mismatch` for a dropped claim (token counts + jaccard,
+    never CV text)."""
+    jaccard = claim_quote_jaccard(claim, quote)
+    obs.emit(
+        obs.current_stage.get(),
+        "verify_claim_mismatch",
+        claim_word_count=len(claim.split()),
+        quote_word_count=len(quote.split()),
+        jaccard=round(jaccard, 3) if jaccard is not None else None,
+    )

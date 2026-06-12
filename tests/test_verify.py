@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from gander.obs import subscribe
 from gander.schemas import Anchor
-from gander.verify import drop_unverified, verify_quote
+from gander.verify import claim_supports_quote, drop_unverified, verify_quote
 
 pytestmark = pytest.mark.fast
 
@@ -270,3 +270,153 @@ def test_drop_unverified_filters_correctly() -> None:
     kept, dropped = drop_unverified(items, SOURCE)
     assert len(kept) == 1
     assert dropped == 2
+
+
+# ---------- claim_supports_quote (P1.5 semantic-gap gate) ----------
+#
+# These pairs were measured (see the jaccard values in comments) and the
+# threshold (0.1) was chosen to sit below the lowest legitimate-support pair.
+# The gate catches TOPICAL mismatch; it deliberately does NOT catch verb
+# substitution on a shared object — that case is asserted as a known limitation.
+
+
+class _ClaimItem(BaseModel):
+    text: str
+    anchor: Anchor
+
+
+@pytest.mark.parametrize(
+    "claim,quote",
+    [
+        # paraphrase, jaccard 0.667
+        (
+            "Led the migration from monolith to microservices",
+            "Led migration from monolith to microservices across three quarters",
+        ),
+        # skill restate, jaccard 0.222 — the lowest legitimate pair
+        (
+            "Strong Python and PyTorch background",
+            "Built recommendation system in Python and PyTorch over six months",
+        ),
+        # experience summary, jaccard 0.444
+        (
+            "Eighteen months owning production on-call",
+            "Owned the on-call rotation across two production squads for eighteen months",
+        ),
+    ],
+)
+def test_claim_supports_quote_keeps_legitimate_pairs(claim: str, quote: str) -> None:
+    assert claim_supports_quote(claim, quote) is True
+
+
+@pytest.mark.parametrize(
+    "claim,quote",
+    [
+        # different metric/topic, jaccard 0.0
+        (
+            "Increased revenue by 40 percent",
+            "Built recommendation system that reduced churn by 18% over six months",
+        ),
+        # unrelated domain, jaccard 0.0
+        (
+            "Designed the company security architecture",
+            "Wrote the quarterly marketing newsletter for the European retail team",
+        ),
+    ],
+)
+def test_claim_supports_quote_rejects_topical_mismatch(claim: str, quote: str) -> None:
+    assert claim_supports_quote(claim, quote) is False
+
+
+def test_claim_supports_quote_known_limitation_verb_substitution() -> None:
+    # KNOWN LIMITATION (intentional): bag-of-words overlap cannot separate
+    # "Led" from "Joined" on a shared object — jaccard 0.25, above the 0.222
+    # legitimate-support floor. Catching this needs an LLM judge, which the
+    # latency/cost budget rejects for a per-anchor check. Asserted so the
+    # limitation is visible and a future change to the gate is a conscious one.
+    assert (
+        claim_supports_quote(
+            "Led a team of engineers",
+            "Joined a team of engineers in the platform group last year",
+        )
+        is True
+    )
+
+
+def test_claim_supports_quote_passes_when_too_few_content_tokens() -> None:
+    # Both sides reduce to no content tokens after stop-word removal → no signal
+    # to reject on, so defer to the existence check (return True).
+    assert claim_supports_quote("in the at by", "to and or") is True
+
+
+def test_drop_unverified_drops_claim_that_quote_does_not_support() -> None:
+    # Quote exists in SOURCE under Experience, but the claim is about an
+    # unrelated metric — the compatibility gate must drop it even though the
+    # substring check passes.
+    items = [
+        _ClaimItem(
+            text="Increased advertising revenue by forty percent",
+            anchor=Anchor(
+                quote="Built a recommendation system that reduced churn by 18% over six months",
+                section="experience",
+            ),
+        )
+    ]
+    kept, dropped = drop_unverified(items, SOURCE, claim_attr="text")
+    assert kept == []
+    assert dropped == 1
+
+
+def test_drop_unverified_keeps_claim_that_restates_quote() -> None:
+    items = [
+        _ClaimItem(
+            text="Built a recommendation system that reduced churn",
+            anchor=Anchor(
+                quote="Built a recommendation system that reduced churn by 18% over six months",
+                section="experience",
+            ),
+        )
+    ]
+    kept, dropped = drop_unverified(items, SOURCE, claim_attr="text")
+    assert len(kept) == 1
+    assert dropped == 0
+
+
+def test_drop_unverified_without_claim_attr_skips_compat_gate() -> None:
+    # Backward compat: existing callers pass no claim_attr and only get the
+    # existence check, even when the (here absent) claim would mismatch.
+    items = [
+        _ClaimItem(
+            text="totally unrelated claim about marketing",
+            anchor=Anchor(
+                quote="Built a recommendation system that reduced churn by 18% over six months",
+                section="experience",
+            ),
+        )
+    ]
+    kept, dropped = drop_unverified(items, SOURCE)
+    assert len(kept) == 1
+    assert dropped == 0
+
+
+def test_drop_unverified_emits_claim_mismatch_without_cv_text() -> None:
+    item = _ClaimItem(
+        text="Increased advertising revenue by forty percent",
+        anchor=Anchor(
+            quote="Built a recommendation system that reduced churn by 18% over six months",
+            section="experience",
+        ),
+    )
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        drop_unverified([item], SOURCE, claim_attr="text")
+
+    mismatch = [e for e in events if e["event"] == "verify_claim_mismatch"]
+    assert len(mismatch) == 1
+    record = mismatch[0]
+    assert record["claim_word_count"] == 6
+    assert "jaccard" in record
+    # No CV text leaks — only counts and the numeric score.
+    serialized = " ".join(str(v) for v in record.values())
+    assert "revenue" not in serialized
+    assert "recommendation" not in serialized
