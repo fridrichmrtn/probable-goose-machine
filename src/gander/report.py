@@ -73,6 +73,13 @@ _CSS = """<style>
   display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
   font-family: system-ui, sans-serif; margin: 0 0 0.75rem 0;
 }
+/* Visually hidden but exposed to assistive tech (standard clip pattern). Carries
+   the single live announcement so screen readers hear one stage transition per
+   yield instead of the whole pill row re-read. */
+.gander-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 .pill {
   display: inline-flex; align-items: center; gap: 0.4rem;
   padding: 0.2rem 0.65rem 0.2rem 0.55rem;
@@ -88,7 +95,9 @@ _CSS = """<style>
 .pill.running { border-left-color: #f59e0b; color: #344054; }
 .pill.done    { border-left-color: #12b76a; color: #344054; }
 .pill.failed  { border-left-color: #f04438; color: #344054; }
-.pill.skipped { border-left-color: #d0d5dd; color: #98a2b3; text-decoration: line-through; }
+/* #667085 ~4.84:1 on the transparent (white) pill bg, was #98a2b3 = 2.58:1.
+   line-through + the em-dash glyph keep "skipped" legible without colour (1.4.1). */
+.pill.skipped { border-left-color: #d0d5dd; color: #667085; text-decoration: line-through; }
 .pill:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
 .gander-callout {
   border-left: 4px solid #f04438; background: #fef3f2; color: #7a271a;
@@ -162,6 +171,11 @@ _CSS = """<style>
   color: #475467;
   margin-bottom: 0.35rem;
 }
+.gander-salary-context {
+  font-size: 0.875rem;
+  color: #667085;
+  margin: 0 0 0.1rem;
+}
 .gander-salary-range {
   font-size: 1.5rem;
   font-weight: 600;
@@ -195,6 +209,7 @@ _CSS = """<style>
   .gander-component-score { color: #a1a1aa; }
   .gander-chip { border-color: #3f3f46; color: #d4d4d8; }
   .gander-plan-mech, .gander-salary-unit { color: #a1a1aa; }
+  .gander-salary-context { color: #a1a1aa; }
 }
 body.dark .pill {
   border-color: #3f3f46; border-left-color: #52525b;
@@ -215,6 +230,7 @@ body.dark .gander-component-quote { color: #a1a1aa; border-left-color: #3f3f46; 
 body.dark .gander-component-score { color: #a1a1aa; }
 body.dark .gander-chip { border-color: #3f3f46; color: #d4d4d8; }
 body.dark .gander-plan-mech, body.dark .gander-salary-unit { color: #a1a1aa; }
+body.dark .gander-salary-context { color: #a1a1aa; }
 </style>"""
 
 
@@ -291,12 +307,48 @@ def _label_for_stage(report: Report, stage: StageName) -> str:
     return _LABEL_BY_STAGE[stage]
 
 
+def _tracker_announcement(report: Report) -> str:
+    """One concise status line for the screen-reader live region.
+
+    The visual `.tracker` re-renders every pipeline yield; putting `aria-live` on
+    the whole pill row makes a screen reader re-announce all six pills each time.
+    Instead this returns a single string describing the *current* state. A polite
+    live region only fires when its text changes, so as the run advances
+    (Profile → Score → …) the reader hears one transition per stage.
+
+    Priority: the running stage, else the first failure, else — while stages are
+    still pending (the initial all-pending yield, and the gap after profile
+    finishes before score/salary start) — the next waiting stage. "Analysis
+    complete" is reserved for when every stage is terminal (done/failed/skipped),
+    so a screen reader is never told the run finished while pills still show
+    pending work.
+    """
+    failed_label: str | None = None
+    pending_label: str | None = None
+    for stage in REPORT_STAGE_NAMES:
+        status = report.statuses[stage]
+        if status == "running":
+            return f"{_label_for_stage(report, stage)}: in progress"
+        if status == "failed" and failed_label is None:
+            failed_label = _label_for_stage(report, stage)
+        if status == "pending" and pending_label is None:
+            pending_label = _label_for_stage(report, stage)
+    if failed_label is not None:
+        return f"{failed_label}: failed"
+    if pending_label is not None:
+        return f"{pending_label}: waiting"
+    return "Analysis complete"
+
+
 def render_tracker(report: Report) -> str:
     """Render the 5-stage tracker as a `<style>`+`<div>` HTML fragment.
 
     Reads `report.statuses[stage]` for each schema stage in pipeline order.
     Failed pills carry the originating `StageFailure.user_message` as a
-    tooltip; non-failed pills get no tooltip.
+    tooltip; non-failed pills get no tooltip. The pill row is a labelled group
+    (not a live region) so the per-pill `aria-label`s stay navigable; a separate
+    visually-hidden polite region (`_tracker_announcement`) carries incremental
+    spoken updates.
     """
     pills: list[str] = []
     for stage in REPORT_STAGE_NAMES:
@@ -312,7 +364,12 @@ def render_tracker(report: Report) -> str:
                 # Surface the inconsistency rather than render a tooltip-less pill.
                 tooltip = "Stage marked failed but no failure message available."
         pills.append(_pill_html(_label_for_stage(report, stage), status, tooltip))
-    return f'{_CSS}\n<div class="tracker" role="status" aria-live="polite">{"".join(pills)}</div>'
+    announcement = _esc(_tracker_announcement(report))
+    return (
+        f'{_CSS}\n<div class="tracker" role="group" aria-label="Pipeline progress">'
+        f"{''.join(pills)}</div>"
+        f'<p class="gander-sr-only" role="status" aria-live="polite">{announcement}</p>'
+    )
 
 
 # Copy grounded in PRD §4.7 and the README "Decisions"/"Bias And Limits"
@@ -416,14 +473,36 @@ def _source_line(src: Source) -> str:
     return f'- [{domain}]: "{snippet}"'
 
 
-def _salary_section(salary: SalaryEstimate | StageFailure | None) -> str:
+def _salary_context_line(role: str | None, location: str | None) -> str:
+    """Caption naming the role + market the range is anchored to (P2.2).
+
+    The estimate is for a *canonical* role (gander.normalize) in a detected
+    market — surfacing it above the number stops the range reading as a generic
+    figure. Both values are LLM-derived → `_html_inline`. Degrades gracefully:
+    no role → no caption; role but no location → role only.
+    """
+    role_text = _html_inline(role) if role and role.strip() else ""
+    if not role_text:
+        return ""
+    location_text = _html_inline(location) if location and location.strip() else ""
+    body = f"{role_text} · {location_text}" if location_text else role_text
+    return f'<p class="gander-salary-context">{body}</p>'
+
+
+def _salary_section(
+    salary: SalaryEstimate | StageFailure | None,
+    role: str | None = None,
+    location: str | None = None,
+) -> str:
     if salary is None:
         return ""
     if isinstance(salary, StageFailure):
         return "## Salary\n\n" + _failure_callout_md(salary)
 
     period = salary.period
+    context_line = _salary_context_line(role, location)
     range_line = (
+        f"{context_line}"
         '<p class="gander-salary-range">'
         f"<strong>{_format_money(salary.low)} - {_format_money(salary.high)}</strong> "
         f'<span class="gander-salary-unit">{_esc(salary.currency)} / {period}</span>'
@@ -508,10 +587,18 @@ def render_body(report: Report) -> str:
     if isinstance(report.profile, StageFailure):
         return _failure_callout_html(report.profile)
 
+    # A whitespace-only canonical_role is falsy for caption purposes — strip
+    # before the fallback so a blank LLM value yields detected_role, not a
+    # caption suppressed by `_salary_context_line`'s own empty-after-strip check.
+    salary_role = (report.profile.canonical_role or "").strip() or report.profile.detected_role
     sections = [
         _about_banner(),
         _score_section(report.score, report.profile.seniority_band),
-        _salary_section(report.salary),
+        _salary_section(
+            report.salary,
+            role=salary_role,
+            location=report.profile.detected_location,
+        ),
         _confidence_section(report.confidence),
         _growth_section(report.growth),
         _footer(report),

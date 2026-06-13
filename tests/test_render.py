@@ -253,6 +253,104 @@ def test_render_tracker_escapes_user_message_in_tooltip() -> None:
     assert "&lt;script&gt;" in out
 
 
+# ---------- render_tracker — a11y live region (P2.1) ----------
+
+
+@pytest.mark.fast
+def test_render_tracker_pill_row_is_not_a_live_region() -> None:
+    # The pill row must NOT be the live region — that re-announced all six pills
+    # on every yield. It is now a labelled group.
+    out = render_tracker(_make_report())
+    tracker_div = out.split('<div class="tracker"', 1)[1].split("</div>", 1)[0]
+    assert "aria-live" not in tracker_div
+    assert 'role="group"' in tracker_div
+    assert 'aria-label="Pipeline progress"' in tracker_div
+
+
+@pytest.mark.fast
+def test_render_tracker_has_exactly_one_polite_live_region() -> None:
+    out = render_tracker(_make_report())
+    # Exactly one aria-live in the whole fragment, and it's the sr-only region.
+    assert out.count('aria-live="polite"') == 1
+    assert 'class="gander-sr-only" role="status" aria-live="polite"' in out
+    assert ".gander-sr-only" in out  # CSS for the clip pattern is present
+
+
+@pytest.mark.fast
+def test_render_tracker_announces_running_stage() -> None:
+    report = _make_report(
+        statuses=_statuses(
+            score="running", salary="pending", confidence="pending", growth="pending"
+        )
+    )
+    out = render_tracker(report)
+    assert ">Score: in progress</p>" in out
+
+
+@pytest.mark.fast
+def test_render_tracker_running_takes_precedence_over_failed() -> None:
+    # A later running stage should still announce progress, not an earlier failure.
+    failure = StageFailure(stage="score", user_message="scoring unavailable")
+    report = _make_report(
+        score=failure,
+        statuses=_statuses(score="failed", salary="running", confidence="pending"),
+    )
+    out = render_tracker(report)
+    assert ">Salary: in progress</p>" in out
+
+
+@pytest.mark.fast
+def test_render_tracker_announces_failure_when_nothing_running() -> None:
+    failure = StageFailure(stage="salary", user_message="Insufficient market data")
+    report = _make_report(salary=failure, statuses=_statuses(salary="failed"))
+    out = render_tracker(report)
+    assert ">Salary: failed</p>" in out
+
+
+@pytest.mark.fast
+def test_render_tracker_announces_completion_when_all_terminal() -> None:
+    out = render_tracker(_make_report())
+    assert ">Analysis complete</p>" in out
+
+
+@pytest.mark.fast
+def test_render_tracker_announces_waiting_not_complete_when_all_pending() -> None:
+    # The pipeline's initial yield sets every stage pending. A polite live region
+    # must not announce "Analysis complete" before anything has run — it says the
+    # first waiting stage instead.
+    report = _make_report(
+        statuses=_statuses(
+            profile="pending",
+            score="pending",
+            salary="pending",
+            confidence="pending",
+            growth="pending",
+        )
+    )
+    out = render_tracker(report)
+    assert ">Profile: waiting</p>" in out
+    assert "Analysis complete" not in out
+
+
+@pytest.mark.fast
+def test_render_tracker_announces_next_waiting_stage_in_gap() -> None:
+    # After profile finishes but before score/salary start (a real intermediate
+    # yield) nothing is running and nothing failed — announce the next waiting
+    # stage, not completion.
+    report = _make_report(
+        statuses=_statuses(
+            profile="done",
+            score="pending",
+            salary="pending",
+            confidence="pending",
+            growth="pending",
+        )
+    )
+    out = render_tracker(report)
+    assert ">Score: waiting</p>" in out
+    assert "Analysis complete" not in out
+
+
 # ---------- render_body — populated ----------
 
 
@@ -392,6 +490,66 @@ def test_render_body_band_with_newline_does_not_split_score_heading() -> None:
     out = render_body(report)
     assert "## Score: 69/100 (senior ## Injected)" in out
     assert "\n## Injected" not in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_shows_canonical_role_and_location() -> None:
+    # The caption anchors the range to a specific role + market so the number
+    # never reads as a generic figure. Canonical role wins over detected_role.
+    profile = _profile().model_copy(
+        update={"canonical_role": "Software Engineer", "detected_location": "Prague"}
+    )
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">Software Engineer · Prague</p>' in out
+    # The caption sits above the range line.
+    assert out.index("gander-salary-context") < out.index("gander-salary-range")
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_falls_back_to_detected_role() -> None:
+    # _profile() leaves canonical_role None; the caption uses detected_role.
+    profile = _profile().model_copy(update={"detected_location": "Brno"})
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">engineer · Brno</p>' in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_falls_back_when_canonical_role_blank() -> None:
+    # A whitespace-only canonical_role is not a usable role: it must fall back to
+    # detected_role, not suppress the caption (it is falsy after strip()).
+    profile = _profile().model_copy(update={"canonical_role": "   ", "detected_location": "Brno"})
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">engineer · Brno</p>' in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_omits_location_when_absent() -> None:
+    # _profile() has detected_location None — caption shows role only, no
+    # trailing separator.
+    profile = _profile().model_copy(update={"canonical_role": "Data Analyst"})
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">Data Analyst</p>' in out
+    assert "Data Analyst ·" not in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_omitted_when_role_empty() -> None:
+    # No role at all (canonical None, detected blank) ⇒ no caption element.
+    profile = _profile().model_copy(update={"detected_role": "", "canonical_role": None})
+    out = render_body(_make_report(profile=profile))
+    assert "gander-salary-context" not in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_escapes_injection_in_role() -> None:
+    # Role is LLM-derived → must be HTML-escaped and whitespace-collapsed so it
+    # cannot break out of the caption paragraph or inject markup.
+    profile = _profile().model_copy(
+        update={"canonical_role": "<script>alert(1)</script>", "detected_location": None}
+    )
+    out = render_body(_make_report(profile=profile))
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
 
 
 @pytest.mark.fast
