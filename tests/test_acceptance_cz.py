@@ -34,7 +34,16 @@ EXPECTED: dict[str, dict[str, object]] = {
     STEALTH: {
         "low": 200_000,
         "high": 300_000,
-        "normalization_sources": {"tagline_shape", "llm_fallback"},
+        # This CV pairs a whimsical tagline ("Data Gardener") with a concrete
+        # experience-section job title ("Member of Staff — Stealth AI"). Which
+        # one the extractor surfaces as `detected_role` is model-dependent:
+        # `tagline_shape`/`llm_fallback` when it reads the tagline, but the
+        # Gemini 3.x slugs (re-pinned 2026-06-12 after the 2.5 delisting) read
+        # the literal "Member of Staff" title and route via `named_headline`.
+        # All three are valid routings of a deliberately-ambiguous stealth CV;
+        # the salary band below is the load-bearing assertion. A deterministic
+        # vague-title rule (so this doesn't ride on model variance) is backlogged.
+        "normalization_sources": {"tagline_shape", "llm_fallback", "named_headline"},
     },
     ACADEMIC: {
         "low": 60_000,

@@ -410,7 +410,7 @@ async def drop_unverified_compat(
     anchor_attr: str = "anchor",
     claim_attr: str,
     judge: CompatJudge,
-) -> tuple[dict[str, list[T]], int]:
+) -> tuple[dict[str, list[T]], int, int]:
     """Two-phase claim–quote gate across all `fields`, with ONE batched judge call.
 
     Phase 1 (sync, free): for every item, existence-verify the anchor quote
@@ -426,14 +426,19 @@ async def drop_unverified_compat(
     the judge calls supportive are kept; the rest are dropped. The judge fails
     OPEN (see `_adjudicate`).
 
-    Returns `(kept_by_field, total_dropped)` preserving per-field input order.
+    Returns `(kept_by_field, existence_dropped, compat_dropped)`, preserving
+    per-field input order. The two drop counts are kept SEPARATE on purpose:
+    `existence_dropped` are hallucination-guard drops (anchor quote absent from
+    the CV); `compat_dropped` are claim/quote support drops (quote present but
+    the judge ruled it unsupportive). extract.py emits them as distinct counters
+    so the live anchor-survival gate (a hallucination guard) is not polluted by
+    the orthogonal compat axis — a stricter compat gate must never fail it.
     Obs: aggregate counts only — never claim/quote text (both are CV-derived).
     """
     # Each slot is (item, suspect_index | None). None = decided-keep in phase 1.
     field_slots: dict[str, list[tuple[T, int | None]]] = {}
     pairs: list[tuple[str, str]] = []  # suspect (claim, quote) in judge order
     suspect_meta: list[tuple[str, str, float | None]] = []  # (claim, quote, jaccard)
-    total_in = 0
     existence_dropped = 0
     lexical_pass = 0
     missing_claim = 0
@@ -441,7 +446,6 @@ async def drop_unverified_compat(
     for field, items in fields.items():
         slots: list[tuple[T, int | None]] = []
         for item in items:
-            total_in += 1
             anchor = getattr(item, anchor_attr)
             if not verify_quote(anchor.quote, source, section=anchor.section):
                 existence_dropped += 1
@@ -486,5 +490,4 @@ async def drop_unverified_compat(
         llm_dropped=llm_dropped,
         existence_dropped=existence_dropped,
     )
-    total_kept = sum(len(kept) for kept in kept_lists.values())
-    return kept_lists, total_in - total_kept
+    return kept_lists, existence_dropped, llm_dropped

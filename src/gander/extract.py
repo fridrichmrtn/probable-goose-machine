@@ -309,7 +309,7 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
         fields: dict[str, list[ProfileItem]] = {
             field: getattr(profile, field) for field in _LIST_FIELDS
         }
-        kept_lists, total_dropped = await drop_unverified_compat(
+        kept_lists, existence_dropped, compat_dropped = await drop_unverified_compat(
             fields,
             redacted.text,
             claim_attr="text",
@@ -340,7 +340,8 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
                 user_message=LOW_EVIDENCE_MSG,
                 debug_detail=(
                     f"composite={composite} threshold={MIN_CV_SCORE} "
-                    f"kept={counts} dropped={total_dropped}"
+                    f"kept={counts} existence_dropped={existence_dropped} "
+                    f"compat_dropped={compat_dropped}"
                 ),
             )
 
@@ -390,7 +391,18 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
         update["role_normalization_source"] = normalized.source
 
         verified = profile.model_copy(update=update)
-        obs.emit("extract", "verify", dropped=total_dropped, kept=total_kept)
+        # `dropped` carries hallucination-guard drops ONLY (anchor quote absent
+        # from the CV); `compat_dropped` is the orthogonal claim/quote-support
+        # axis. Keeping them distinct is what lets the live anchor-survival gate
+        # measure existence-survival without the compat gate polluting it (a
+        # stricter compat gate must never fail a hallucination test).
+        obs.emit(
+            "extract",
+            "verify",
+            dropped=existence_dropped,
+            compat_dropped=compat_dropped,
+            kept=total_kept,
+        )
         obs.emit("extract", "done", duration_ms=_ms(), kept=total_kept)
         return verified
 

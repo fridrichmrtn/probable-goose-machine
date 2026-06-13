@@ -494,7 +494,7 @@ async def test_compat_keeps_cross_language_suspect_when_judge_supports() -> None
     assert lex_kept == [] and lex_dropped == 1
 
     judge, calls = _recording_judge([True])
-    kept, dropped = await drop_unverified_compat(
+    kept, _, dropped = await drop_unverified_compat(
         {"experience": [item]}, SOURCE_CZ, claim_attr="text", judge=judge
     )
     assert kept["experience"] == [item]
@@ -511,7 +511,7 @@ async def test_compat_drops_topical_mismatch_when_judge_rejects() -> None:
     judge, calls = _recording_judge([False])
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        kept, dropped = await drop_unverified_compat(
+        kept, _, dropped = await drop_unverified_compat(
             {"experience": [item]}, SOURCE, claim_attr="text", judge=judge
         )
     assert kept["experience"] == []
@@ -531,7 +531,7 @@ async def test_compat_fails_open_when_judge_raises() -> None:
     judge, _ = _recording_judge(raises=True)
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        kept, dropped = await drop_unverified_compat(
+        kept, _, dropped = await drop_unverified_compat(
             {"experience": [item]}, SOURCE_CZ, claim_attr="text", judge=judge
         )
     assert kept["experience"] == [item]  # suspect kept on grader failure
@@ -548,7 +548,7 @@ async def test_compat_fails_open_on_malformed_judge_length() -> None:
     judge, _ = _recording_judge([True, False])
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        kept, dropped = await drop_unverified_compat(
+        kept, _, dropped = await drop_unverified_compat(
             {"experience": [item]}, SOURCE_CZ, claim_attr="text", judge=judge
         )
     assert kept["experience"] == [item]
@@ -567,7 +567,7 @@ async def test_compat_makes_no_judge_call_when_no_suspects() -> None:
         ),
     )
     judge, calls = _recording_judge(raises=True)  # would explode if ever called
-    kept, dropped = await drop_unverified_compat(
+    kept, _, dropped = await drop_unverified_compat(
         {"experience": [item]}, SOURCE, claim_attr="text", judge=judge
     )
     assert kept["experience"] == [item]
@@ -593,7 +593,7 @@ async def test_compat_batches_suspects_across_fields_into_one_call() -> None:
         ),
     )
     judge, calls = _recording_judge([True, False])  # keep exp, drop skill
-    kept, dropped = await drop_unverified_compat(
+    kept, _, dropped = await drop_unverified_compat(
         {"experience": [exp], "skills": [skill]},
         SOURCE,
         claim_attr="text",
@@ -629,7 +629,7 @@ async def test_compat_preserves_field_order_around_a_dropped_suspect() -> None:
         ),
     )
     judge, _ = _recording_judge([False])  # drop the single suspect
-    kept, dropped = await drop_unverified_compat(
+    kept, _, dropped = await drop_unverified_compat(
         {"experience": [keep_a, suspect, keep_b]},
         SOURCE,
         claim_attr="text",
@@ -651,7 +651,7 @@ async def test_compat_emits_warning_and_keeps_when_claim_attr_missing() -> None:
     judge, calls = _recording_judge(raises=True)  # must not be called
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
-        kept, dropped = await drop_unverified_compat(
+        kept, _, dropped = await drop_unverified_compat(
             {"experience": [item]}, SOURCE, claim_attr="text", judge=judge
         )
     assert kept["experience"] == [item]
