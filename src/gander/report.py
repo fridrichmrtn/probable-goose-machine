@@ -73,6 +73,13 @@ _CSS = """<style>
   display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
   font-family: system-ui, sans-serif; margin: 0 0 0.75rem 0;
 }
+/* Visually hidden but exposed to assistive tech (standard clip pattern). Carries
+   the single live announcement so screen readers hear one stage transition per
+   yield instead of the whole pill row re-read. */
+.gander-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 .pill {
   display: inline-flex; align-items: center; gap: 0.4rem;
   padding: 0.2rem 0.65rem 0.2rem 0.55rem;
@@ -88,7 +95,9 @@ _CSS = """<style>
 .pill.running { border-left-color: #f59e0b; color: #344054; }
 .pill.done    { border-left-color: #12b76a; color: #344054; }
 .pill.failed  { border-left-color: #f04438; color: #344054; }
-.pill.skipped { border-left-color: #d0d5dd; color: #98a2b3; text-decoration: line-through; }
+/* #667085 ~4.84:1 on the transparent (white) pill bg, was #98a2b3 = 2.58:1.
+   line-through + the em-dash glyph keep "skipped" legible without colour (1.4.1). */
+.pill.skipped { border-left-color: #d0d5dd; color: #667085; text-decoration: line-through; }
 .pill:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
 .gander-callout {
   border-left: 4px solid #f04438; background: #fef3f2; color: #7a271a;
@@ -291,12 +300,37 @@ def _label_for_stage(report: Report, stage: StageName) -> str:
     return _LABEL_BY_STAGE[stage]
 
 
+def _tracker_announcement(report: Report) -> str:
+    """One concise status line for the screen-reader live region.
+
+    The visual `.tracker` re-renders every pipeline yield; putting `aria-live` on
+    the whole pill row makes a screen reader re-announce all six pills each time.
+    Instead this returns a single string describing the *current* state — the
+    running stage, else the first failure, else completion. A polite live region
+    only fires when its text changes, so as the running stage advances
+    (Profile → Score → …) the reader hears exactly one transition per stage.
+    """
+    failed_label: str | None = None
+    for stage in REPORT_STAGE_NAMES:
+        status = report.statuses[stage]
+        if status == "running":
+            return f"{_label_for_stage(report, stage)}: in progress"
+        if status == "failed" and failed_label is None:
+            failed_label = _label_for_stage(report, stage)
+    if failed_label is not None:
+        return f"{failed_label}: failed"
+    return "Analysis complete"
+
+
 def render_tracker(report: Report) -> str:
     """Render the 5-stage tracker as a `<style>`+`<div>` HTML fragment.
 
     Reads `report.statuses[stage]` for each schema stage in pipeline order.
     Failed pills carry the originating `StageFailure.user_message` as a
-    tooltip; non-failed pills get no tooltip.
+    tooltip; non-failed pills get no tooltip. The pill row is a labelled group
+    (not a live region) so the per-pill `aria-label`s stay navigable; a separate
+    visually-hidden polite region (`_tracker_announcement`) carries incremental
+    spoken updates.
     """
     pills: list[str] = []
     for stage in REPORT_STAGE_NAMES:
@@ -312,7 +346,12 @@ def render_tracker(report: Report) -> str:
                 # Surface the inconsistency rather than render a tooltip-less pill.
                 tooltip = "Stage marked failed but no failure message available."
         pills.append(_pill_html(_label_for_stage(report, stage), status, tooltip))
-    return f'{_CSS}\n<div class="tracker" role="status" aria-live="polite">{"".join(pills)}</div>'
+    announcement = _esc(_tracker_announcement(report))
+    return (
+        f'{_CSS}\n<div class="tracker" role="group" aria-label="Pipeline progress">'
+        f'{"".join(pills)}</div>'
+        f'<p class="gander-sr-only" role="status" aria-live="polite">{announcement}</p>'
+    )
 
 
 # Copy grounded in PRD §4.7 and the README "Decisions"/"Bias And Limits"
