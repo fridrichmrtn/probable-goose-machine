@@ -137,9 +137,28 @@ OPENROUTER_API_KEY=...
 GANDER_LLM_PROVIDER=openrouter
 ```
 
-The current supported provider value is `openrouter`.
 OpenRouter model slugs may point at Anthropic, Gemini, OpenAI, or other hosted
 models, but Gander does not use the direct Anthropic SDK/provider path.
+
+A second, non-paid provider value `local` targets a self-hosted,
+OpenAI-compatible endpoint (Ollama by default). It is OFF unless opted in per
+slot, so OpenRouter stays the default everywhere:
+
+```bash
+# Run the cheap + extract + reasoning slots against a local Ollama box.
+GANDER_LLM_PROVIDER_CHEAP=local
+GANDER_LLM_PROVIDER_EXTRACT=local
+GANDER_LLM_PROVIDER_REASONING=local
+GANDER_LOCAL_BASE_URL=http://localhost:11434/v1   # default
+GANDER_LOCAL_API_KEY=local                         # default; Ollama ignores it
+```
+
+Each local slot resolves its model from the matching `OPENROUTER_MODEL_<SLOT>`
+override or a built-in Ollama default; pull those models on your box first.
+Vision always uses OpenRouter (local models often lack a vision head), so a
+`GANDER_LLM_PROVIDER_VISION=local` override intentionally degrades back to
+OpenRouter rather than failing. Self-hosted inference is free, so local calls
+estimate to ~0 cost in telemetry.
 
 By default, PDF pages are rendered to images and uploaded unredacted to
 OpenRouter/Gemini for transcription. DOCX files use deterministic local text
