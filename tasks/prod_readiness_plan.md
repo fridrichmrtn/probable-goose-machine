@@ -83,18 +83,27 @@ Status legend: `[ ]` open · `[x]` done · `[~]` partially done.
 
 ## P2 — fast follows
 
-- [ ] **P2.1 — Accessibility**: light-mode disabled-button contrast (1.69:1);
-  skipped-pill contrast (2.58:1); `aria-live` tracker re-announcing all pills
-  every yield.
-- [ ] **P2.2 — Salary context**: render canonical role + location above the
-  range (verify whether T43 already covers this).
-- [ ] **P2.3 — Drop the rerun crutch**: remove `--reruns 1` from
-  `openrouter-live` and measure the post-T50 flake rate; keep only if data
-  says so, with an updated comment.
-- [ ] **P2.4 — Provider resilience**: second provider behind `gander.llm`;
-  populate `MODEL_PRICES` then (OpenRouter path already uses
-  provider-reported cost). Avoid `:free` model variants for CV content —
-  data-use policies conflict with the privacy posture.
+- [x] **P2.1 — Accessibility**: light-mode disabled-button contrast (1.69:1 →
+  ≈6.5:1, `#7c2d12` on `#fed7aa`); skipped-pill contrast (2.58:1 → ≈4.84:1,
+  `#667085`); `aria-live` moved off the tracker onto a single visually-hidden
+  polite region so one stage transition is announced per yield, not all pills.
+  Guarded by `tests/test_a11y_contrast.py` + tracker a11y tests. (branch
+  `dev/prod-readiness-p2`)
+- [x] **P2.2 — Salary context**: render canonical role · location caption above
+  the range (`_salary_context_line`), `canonical_role or detected_role`, both
+  `_html_inline`-escaped, degrades gracefully. Confirmed T43 did not add it.
+- [~] **P2.3 — Drop the rerun crutch**: deferred removal (no live budget to
+  measure a flake rate locally — needs key + network). Rewrote the ci.yml
+  comment to be honest: `--reruns 1` absorbs DDG/sampling variance on per-test
+  live assertions but does NOT rescue the growth-JSON truncation flaky
+  (StageFailure cached in the session fixture — `prod-readiness-p1-live-flaky`,
+  commit a418db3). Kept until a measured live flake rate justifies removal.
+- [x] **P2.4 — Provider resilience**: opt-in non-paid `local` provider (Ollama /
+  self-hosted) per slot via `GANDER_LLM_PROVIDER_<SLOT>=local`, default OFF;
+  vision stays OpenRouter-only (degrades back). `MODEL_PRICES` populated with
+  cited OpenRouter Gemini 3.x prices as the local cost-estimate fallback; local
+  calls estimate ~0. No `:free` hosted variants (data-use policy). Docs in
+  `.env.example`/README/CLAUDE.md; +7 tests.
 
 ## R — refactor & hygiene (from the bloat audit, 2026-06-12)
 
