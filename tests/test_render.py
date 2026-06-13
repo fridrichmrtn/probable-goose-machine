@@ -455,6 +455,57 @@ def test_render_body_band_with_newline_does_not_split_score_heading() -> None:
 
 
 @pytest.mark.fast
+def test_render_body_salary_caption_shows_canonical_role_and_location() -> None:
+    # The caption anchors the range to a specific role + market so the number
+    # never reads as a generic figure. Canonical role wins over detected_role.
+    profile = _profile().model_copy(
+        update={"canonical_role": "Software Engineer", "detected_location": "Prague"}
+    )
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">Software Engineer · Prague</p>' in out
+    # The caption sits above the range line.
+    assert out.index("gander-salary-context") < out.index("gander-salary-range")
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_falls_back_to_detected_role() -> None:
+    # _profile() leaves canonical_role None; the caption uses detected_role.
+    profile = _profile().model_copy(update={"detected_location": "Brno"})
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">engineer · Brno</p>' in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_omits_location_when_absent() -> None:
+    # _profile() has detected_location None — caption shows role only, no
+    # trailing separator.
+    profile = _profile().model_copy(update={"canonical_role": "Data Analyst"})
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">Data Analyst</p>' in out
+    assert "Data Analyst ·" not in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_omitted_when_role_empty() -> None:
+    # No role at all (canonical None, detected blank) ⇒ no caption element.
+    profile = _profile().model_copy(update={"detected_role": "", "canonical_role": None})
+    out = render_body(_make_report(profile=profile))
+    assert "gander-salary-context" not in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_escapes_injection_in_role() -> None:
+    # Role is LLM-derived → must be HTML-escaped and whitespace-collapsed so it
+    # cannot break out of the caption paragraph or inject markup.
+    profile = _profile().model_copy(
+        update={"canonical_role": "<script>alert(1)</script>", "detected_location": None}
+    )
+    out = render_body(_make_report(profile=profile))
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
+
+
+@pytest.mark.fast
 def test_render_body_escapes_html_in_user_content() -> None:
     malicious = '<script>alert("xss")</script>'
     bad_score = Score(
