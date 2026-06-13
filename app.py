@@ -15,6 +15,7 @@ Analyze CV (the handler's first yield calls `render_tracker(reading_report)`).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import tempfile
 from collections.abc import AsyncIterator
@@ -70,19 +71,40 @@ def _read_error_report(user_message: str) -> Report:
     )
 
 
-def _write_report_md(report: Report) -> str:
-    """Write the rendered report body to a temp .md file; return its path.
+# Best-effort handle to the previous run's download artifact. Each completed run
+# writes a temp .md that must outlive `_write_report_md` (Gradio streams it from
+# disk on the download click), so it can't be auto-deleted; without cleanup /tmp
+# would grow one file per run on a long-lived Space. We unlink the PRIOR path
+# when writing a new one — the file for the run that just finished is always
+# intact. This is process-wide state: on the rare concurrent-session path a
+# second run can unlink a file the first user hasn't downloaded yet, which is
+# acceptable for a no-persistence prototype.
+_last_report_path: str | None = None
 
-    Gradio's DownloadButton serves a file from disk, so the completed report is
-    materialized once per run. delete=False because the file must outlive this
-    function for Gradio to stream it; the OS temp dir is the accepted lifecycle
-    for a no-persistence prototype.
+
+def _write_report_md(body: str) -> str:
+    """Materialize the already-rendered report `body` to a temp .md file.
+
+    Takes the body the streaming loop already rendered rather than re-rendering
+    from the `Report`, so a completed run renders its markdown exactly once.
+    `delete=False` because Gradio's DownloadButton streams the file from disk
+    after this returns. May raise OSError (disk full, read-only temp dir); the
+    caller degrades to no-download rather than letting it break completion.
     """
+    global _last_report_path
+    previous = _last_report_path
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".md", prefix="gander-report-", delete=False, encoding="utf-8"
     ) as handle:
-        handle.write(render_body(report))
-        return handle.name
+        handle.write(body)
+        path = handle.name
+    _last_report_path = path
+    if previous is not None:
+        # Best-effort reap of the prior run's temp file — already gone / a
+        # read-only temp dir is not worth failing the new download over.
+        with contextlib.suppress(OSError):
+            os.unlink(previous)
+    return path
 
 
 _HERO_CSS = """<style>
@@ -202,12 +224,11 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             gr.update(visible=False),
         )
 
-    file_in.change(
-        _on_file_change,
-        inputs=[file_in],
-        outputs=[run_btn, tracker_html, report_md, download_btn, cancel_btn],
-        show_progress="hidden",
-    )
+    # NOTE: the `file_in.change(...)` wiring is registered *after* `run_event`
+    # below so it can pass `cancels=[run_event]` — choosing a new file mid-run
+    # must abort the in-flight pipeline (A2 then propagates the cancel into its
+    # child tasks), not just clear the UI while the old run keeps streaming the
+    # previous CV's report into the download button.
 
     # Yield order matches the run_btn.click outputs list below:
     # (tracker_html, report_md, download_btn, cancel_btn).
@@ -278,10 +299,18 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
 
         # Offer the download only for a report that actually rendered a body
         # (profile resolved to a real Profile, not a top-level failure callout).
+        # `body` here is the final loop iteration's render — when last_report's
+        # profile is a real Profile, that branch took `body = render_body(report)`,
+        # so it equals the finished report's markdown (no re-render needed).
         # Tracker and body keep their last values; only reveal the download and
         # hide Cancel now that the run is done.
         if last_report is not None and isinstance(last_report.profile, Profile):
-            download = gr.update(visible=True, value=_write_report_md(last_report))
+            try:
+                download = gr.update(visible=True, value=_write_report_md(body))
+            except OSError:
+                # A disk failure writing the artifact must not break graceful
+                # completion — degrade to no-download, report stays on screen.
+                download = _DOWNLOAD_IDLE
         else:
             download = _DOWNLOAD_IDLE
         yield (gr.update(), gr.update(), download, _CANCEL_HIDDEN)
@@ -312,6 +341,18 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         _on_cancel,
         inputs=None,
         outputs=[tracker_html, report_md, download_btn, cancel_btn, run_btn],
+        cancels=[run_event],
+    )
+
+    # Registered last so it can cancel `run_event`: a new upload mid-run aborts
+    # the in-flight pipeline before clearing the UI, otherwise the old generator
+    # keeps streaming and would repopulate the download with the prior CV's
+    # report. Mirrors how `cancel_btn.click` cancels the same event above.
+    file_in.change(
+        _on_file_change,
+        inputs=[file_in],
+        outputs=[run_btn, tracker_html, report_md, download_btn, cancel_btn],
+        show_progress="hidden",
         cancels=[run_event],
     )
 

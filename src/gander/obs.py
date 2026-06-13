@@ -41,8 +41,15 @@ _logger = structlog.get_logger("gander")
 
 def emit(stage: str | None, event: str, **kv: Any) -> None:
     run_id = current_run_id.get()
-    record: dict[str, Any] = {"stage": stage, "event": event, "run_id": run_id, **kv}
-    _logger.info(event, stage=stage, run_id=run_id, **kv)
+    # `event` is structlog's positional message, so it must NOT also appear in
+    # the spread kwargs (that raises "multiple values for 'event'"). Spreading
+    # one `fields` dict — instead of explicit stage=/run_id= kwargs alongside
+    # **kv — also means a caller that forwards a record via **kv (which already
+    # carries stage/run_id) can't trigger a duplicate-keyword TypeError: the
+    # later key just wins. The subscriber record adds `event` back for callers.
+    fields: dict[str, Any] = {"stage": stage, "run_id": run_id, **kv}
+    record: dict[str, Any] = {"event": event, **fields}
+    _logger.info(event, **fields)
     for callback in _subscribers.get():
         try:
             callback(record)
@@ -68,7 +75,17 @@ def run_scope(run_id: str) -> Iterator[None]:
     try:
         yield
     finally:
-        current_run_id.reset(token)
+        try:
+            current_run_id.reset(token)
+        except ValueError:
+            # The generator was GC-finalized in a *different* asyncio Context
+            # (browser disconnect / server timeout), so `token` belongs to a
+            # foreign Context and reset() raises. Clear to the default in
+            # whatever Context the finalizer runs in, instead of letting the
+            # ValueError escape and leak `run_id` into a later run that reuses
+            # this task. The clean cancel path (CancelledError) resets in-context
+            # and never hits this branch. See test_run_scope_resets_on_gc_*.
+            current_run_id.set(None)
 
 
 @contextmanager
@@ -77,4 +94,10 @@ def subscribe(callback: Callable[[dict[str, Any]], None]) -> Iterator[None]:
     try:
         yield
     finally:
-        _subscribers.reset(token)
+        try:
+            _subscribers.reset(token)
+        except ValueError:
+            # Same foreign-Context GC guard as run_scope: rather than leak a
+            # zombie subscriber (which would double-count a later run's cost),
+            # drop subscribers to the empty default in the finalizer's Context.
+            _subscribers.set(())

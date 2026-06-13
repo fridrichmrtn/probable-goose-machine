@@ -802,10 +802,22 @@ async def test_configured_slugs_present_in_catalog() -> None:
         configured.update(route.fallbacks)
 
     key = os.environ["OPENROUTER_API_KEY"]
+    # Mirror the production request shape (gander.llm._make_client): OpenRouter
+    # ranks and, on some plans, gates requests by the HTTP-Referer / X-Title
+    # attribution headers, so probing without them can resolve differently than
+    # the app's real calls — a CI-only catalog mismatch. Same env keys/defaults.
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "HTTP-Referer": os.environ.get(
+            "OPENROUTER_HTTP_REFERER",
+            "https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine",
+        ),
+        "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Gander"),
+    }
     async with httpx.AsyncClient(timeout=30.0) as http:
         resp = await http.get(
             "https://openrouter.ai/api/v1/models",
-            headers={"Authorization": f"Bearer {key}"},
+            headers=headers,
         )
         resp.raise_for_status()
         catalog = {entry["id"] for entry in resp.json()["data"]}

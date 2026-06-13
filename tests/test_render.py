@@ -384,6 +384,17 @@ def test_render_body_score_heading_omits_band_when_absent() -> None:
 
 
 @pytest.mark.fast
+def test_render_body_band_with_newline_does_not_split_score_heading() -> None:
+    # D3: a band value carrying a newline + `##` must not break out of the
+    # `## Score` heading line and inject a sibling heading. Whitespace is
+    # collapsed so the band stays inline within the parentheses.
+    report = _make_report(profile=_profile_with_band("senior\n## Injected"))
+    out = render_body(report)
+    assert "## Score: 69/100 (senior ## Injected)" in out
+    assert "\n## Injected" not in out
+
+
+@pytest.mark.fast
 def test_render_body_escapes_html_in_user_content() -> None:
     malicious = '<script>alert("xss")</script>'
     bad_score = Score(

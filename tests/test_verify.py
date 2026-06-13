@@ -8,7 +8,12 @@ from pydantic import BaseModel
 
 from gander.obs import subscribe
 from gander.schemas import Anchor
-from gander.verify import claim_supports_quote, drop_unverified, verify_quote
+from gander.verify import (
+    claim_supports_quote,
+    drop_unverified,
+    drop_unverified_compat,
+    verify_quote,
+)
 
 pytestmark = pytest.mark.fast
 
@@ -439,3 +444,219 @@ def test_drop_unverified_emits_claim_mismatch_without_cv_text() -> None:
     serialized = " ".join(str(v) for v in record.values())
     assert "revenue" not in serialized
     assert "recommendation" not in serialized
+
+
+# ---------- drop_unverified_compat (P1.5 cross-language LLM adjudication) ----------
+#
+# The lexical gate compares an English `item.text` against a verbatim CV quote
+# that is often Czech/German → near-zero overlap → it would false-drop valid
+# evidence. The compat gate holds those sub-threshold *suspects* and adjudicates
+# them in ONE batched cheap-slot judge call, failing OPEN so a grader failure
+# never deletes data. The judge is injected (verify.py stays provider-free).
+
+# A real Czech experience quote (verbatim in SOURCE_CZ) summarized in English —
+# the exact cross-language pair the old lexical gate dropped (jaccard 0.0).
+_CZ_QUOTE = "Vedl tým šesti inženýrů na migraci platformy z monolitu na mikroslužby"
+_EN_SUMMARY = "Led the platform migration from monolith to microservices with a team of six"
+
+
+def _recording_judge(
+    verdicts: list[bool] | None = None,
+    *,
+    raises: bool = False,
+) -> tuple[Any, list[list[tuple[str, str]]]]:
+    """Build a stub judge plus a log of the pair-batches it was called with.
+
+    `verdicts` is returned verbatim (use a wrong length to exercise fail-open);
+    when None, every pair is judged supportive. `raises=True` makes the judge
+    blow up so the fail-open path can be tested without a network call.
+    """
+    calls: list[list[tuple[str, str]]] = []
+
+    async def judge(pairs: list[tuple[str, str]]) -> list[bool]:
+        calls.append(list(pairs))
+        if raises:
+            raise RuntimeError("judge exploded")
+        return verdicts if verdicts is not None else [True] * len(pairs)
+
+    return judge, calls
+
+
+async def test_compat_keeps_cross_language_suspect_when_judge_supports() -> None:
+    # The headline regression: a CZ quote with an EN summary that the lexical
+    # gate drops (asserted) survives the compat gate when the judge confirms it.
+    item = _ClaimItem(
+        text=_EN_SUMMARY,
+        anchor=Anchor(quote=_CZ_QUOTE, section="Pracovní zkušenosti"),
+    )
+    # Lexical-only path drops it — proves the LLM layer is what rescues it.
+    lex_kept, lex_dropped = drop_unverified([item], SOURCE_CZ, claim_attr="text")
+    assert lex_kept == [] and lex_dropped == 1
+
+    judge, calls = _recording_judge([True])
+    kept, dropped = await drop_unverified_compat(
+        {"experience": [item]}, SOURCE_CZ, claim_attr="text", judge=judge
+    )
+    assert kept["experience"] == [item]
+    assert dropped == 0
+    assert calls == [[(_EN_SUMMARY, _CZ_QUOTE)]]  # one batched call, one pair
+
+
+async def test_compat_drops_topical_mismatch_when_judge_rejects() -> None:
+    quote = "Built a recommendation system that reduced churn by 18% over six months"
+    item = _ClaimItem(
+        text="Increased advertising revenue by forty percent",
+        anchor=Anchor(quote=quote, section="experience"),
+    )
+    judge, calls = _recording_judge([False])
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        kept, dropped = await drop_unverified_compat(
+            {"experience": [item]}, SOURCE, claim_attr="text", judge=judge
+        )
+    assert kept["experience"] == []
+    assert dropped == 1
+    assert len(calls) == 1
+    mismatch = [e for e in events if e["event"] == "verify_claim_mismatch"]
+    assert len(mismatch) == 1
+    serialized = " ".join(str(v) for v in mismatch[0].values())
+    assert "revenue" not in serialized and "recommendation" not in serialized
+
+
+async def test_compat_fails_open_when_judge_raises() -> None:
+    item = _ClaimItem(
+        text=_EN_SUMMARY,
+        anchor=Anchor(quote=_CZ_QUOTE, section="Pracovní zkušenosti"),
+    )
+    judge, _ = _recording_judge(raises=True)
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        kept, dropped = await drop_unverified_compat(
+            {"experience": [item]}, SOURCE_CZ, claim_attr="text", judge=judge
+        )
+    assert kept["experience"] == [item]  # suspect kept on grader failure
+    assert dropped == 0
+    assert any(e["event"] == "verify_compat_judge_error" for e in events)
+
+
+async def test_compat_fails_open_on_malformed_judge_length() -> None:
+    item = _ClaimItem(
+        text=_EN_SUMMARY,
+        anchor=Anchor(quote=_CZ_QUOTE, section="Pracovní zkušenosti"),
+    )
+    # Returns two verdicts for one pair → length mismatch → keep all.
+    judge, _ = _recording_judge([True, False])
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        kept, dropped = await drop_unverified_compat(
+            {"experience": [item]}, SOURCE_CZ, claim_attr="text", judge=judge
+        )
+    assert kept["experience"] == [item]
+    assert dropped == 0
+    assert any(e["event"] == "verify_compat_judge_malformed" for e in events)
+
+
+async def test_compat_makes_no_judge_call_when_no_suspects() -> None:
+    # A claim that restates its quote passes the lexical gate, so the judge must
+    # never be awaited — most CVs spend zero LLM calls on this gate.
+    item = _ClaimItem(
+        text="Built a recommendation system that reduced churn",
+        anchor=Anchor(
+            quote="Built a recommendation system that reduced churn by 18% over six months",
+            section="experience",
+        ),
+    )
+    judge, calls = _recording_judge(raises=True)  # would explode if ever called
+    kept, dropped = await drop_unverified_compat(
+        {"experience": [item]}, SOURCE, claim_attr="text", judge=judge
+    )
+    assert kept["experience"] == [item]
+    assert dropped == 0
+    assert calls == []
+
+
+async def test_compat_batches_suspects_across_fields_into_one_call() -> None:
+    # Two suspects in two different fields, both verbatim in SOURCE under
+    # Experience, both jaccard 0.0 vs their (unrelated) claims.
+    exp = _ClaimItem(
+        text="Increased advertising revenue by forty percent",
+        anchor=Anchor(
+            quote="Built a recommendation system that reduced churn by 18% over six months",
+            section="experience",
+        ),
+    )
+    skill = _ClaimItem(
+        text="Designed the company security architecture",
+        anchor=Anchor(
+            quote="Led migration from monolith to microservices across three quarters",
+            section="experience",
+        ),
+    )
+    judge, calls = _recording_judge([True, False])  # keep exp, drop skill
+    kept, dropped = await drop_unverified_compat(
+        {"experience": [exp], "skills": [skill]},
+        SOURCE,
+        claim_attr="text",
+        judge=judge,
+    )
+    assert len(calls) == 1  # batched: ONE call for both fields' suspects
+    assert len(calls[0]) == 2
+    assert kept["experience"] == [exp]  # judged supportive
+    assert kept["skills"] == []  # judged unsupported
+    assert dropped == 1
+
+
+async def test_compat_preserves_field_order_around_a_dropped_suspect() -> None:
+    keep_a = _ClaimItem(
+        text="Led migration from monolith to microservices",
+        anchor=Anchor(
+            quote="Led migration from monolith to microservices across three quarters",
+            section="experience",
+        ),
+    )
+    suspect = _ClaimItem(
+        text="Increased advertising revenue by forty percent",
+        anchor=Anchor(
+            quote="Built a recommendation system that reduced churn by 18% over six months",
+            section="experience",
+        ),
+    )
+    keep_b = _ClaimItem(
+        text="Python and PyTorch and async pipelines and vector databases and distributed",
+        anchor=Anchor(
+            quote="Python, PyTorch, async pipelines, vector databases, distributed systems",
+            section="skills",
+        ),
+    )
+    judge, _ = _recording_judge([False])  # drop the single suspect
+    kept, dropped = await drop_unverified_compat(
+        {"experience": [keep_a, suspect, keep_b]},
+        SOURCE,
+        claim_attr="text",
+        judge=judge,
+    )
+    assert kept["experience"] == [keep_a, keep_b]  # order preserved, suspect gone
+    assert dropped == 1
+
+
+async def test_compat_emits_warning_and_keeps_when_claim_attr_missing() -> None:
+    # `_Item` has no `text` attr; the compat gate can't grade it, so it degrades
+    # to existence-only and surfaces the misconfiguration (count only, no text).
+    item = _Item(
+        anchor=Anchor(
+            quote="Built a recommendation system that reduced churn by 18% over six months",
+            section="experience",
+        )
+    )
+    judge, calls = _recording_judge(raises=True)  # must not be called
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        kept, dropped = await drop_unverified_compat(
+            {"experience": [item]}, SOURCE, claim_attr="text", judge=judge
+        )
+    assert kept["experience"] == [item]
+    assert dropped == 0
+    assert calls == []
+    warn = [e for e in events if e["event"] == "verify_claim_attr_missing"]
+    assert len(warn) == 1
+    assert warn[0]["count"] == 1

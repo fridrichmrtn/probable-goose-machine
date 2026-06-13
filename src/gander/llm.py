@@ -711,5 +711,12 @@ class LLMClient:
 
 @functools.lru_cache(maxsize=1)
 def get_client() -> LLMClient:
-    """Process-wide shared client; tests isolate via get_client.cache_clear()."""
+    """Process-wide shared client; tests isolate via get_client.cache_clear().
+
+    Boot-checks the environment on first construction (`check_env`) so a caller
+    that bypasses app.py's startup gate fails with an actionable message instead
+    of an opaque 401 from sending the `missing-openrouter-key` sentinel. Direct
+    `LLMClient()` construction stays key-free for tests that stub the LLM methods.
+    """
+    check_env()
     return LLMClient()

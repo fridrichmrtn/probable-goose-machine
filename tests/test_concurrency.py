@@ -11,20 +11,35 @@ import pytest
 from gander import ingest
 from gander.llm import LLMClient, get_client
 
-# No OPENROUTER_API_KEY stub: LLMClient construction is cheap and these tests
-# either patch the LLM methods or never construct over HTTP (T47 / P1.3).
+# Direct `LLMClient()` construction stays cheap and key-free (T47): the PDF/DOCX
+# offload tests below patch the LLM methods or never construct over HTTP. The
+# `get_client()` cache tests set a stub key because `get_client()` now boot-
+# checks the env on first construction (P1.3 / D1) — caching identity is what
+# they assert, so the key value is irrelevant.
 
 
 @pytest.mark.fast
-def test_get_client_returns_same_instance() -> None:
+def test_get_client_returns_same_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     assert get_client() is get_client()
 
 
 @pytest.mark.fast
-def test_get_client_cache_clear_produces_new_instance() -> None:
+def test_get_client_cache_clear_produces_new_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     a = get_client()
     get_client.cache_clear()
     assert a is not get_client()
+
+
+@pytest.mark.fast
+def test_get_client_fast_fails_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # D1: a caller that bypasses app.py's boot gate gets an actionable error at
+    # client acquisition, not an opaque 401 on the first network call.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    get_client.cache_clear()
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        get_client()
 
 
 @pytest.mark.fast
@@ -61,6 +76,11 @@ async def test_pdf_text_extraction_runs_in_thread(monkeypatch: pytest.MonkeyPatc
 
 @pytest.mark.fast
 async def test_pdf_vision_render_runs_in_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The vision path obtains its client via `get_client()`, which now boot-
+    # checks the env (P1.3 / D1); stub the key so construction succeeds and the
+    # patched `complete_vision_text` below is what actually runs (rather than the
+    # path fast-failing to a text-mode fallback).
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-stub")
     reportlab_canvas = pytest.importorskip("reportlab.pdfgen.canvas")
     buf = BytesIO()
     c = reportlab_canvas.Canvas(buf)

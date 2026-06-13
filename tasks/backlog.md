@@ -469,3 +469,22 @@ Report: tasks/prod-readiness-p1_dev-report.md (in dev/prod-readiness-p1)
 - [qa-engineer] src/gander/llm.py:211 — no test verifies that a 401 from the HTTP layer (the missing-key path) becomes a user-facing `StageFailure`; the behavior is asserted only by comment.
 - [qa-engineer] src/gander/obs.py:61 — `run_scope`'s finally-on-`aclose()` semantics (holds even under `asyncio.CancelledError`) deserve a one-line in-code note; currently implicit.
 
+
+## prod-readiness-p1-review-fixes — 2026-06-13
+
+PR #43 review-comment fix pass (Groups A–D from the approved plan). Confirmed bugs,
+the verify-gate redesign (B), the tempfile cluster (C), and the ops/robustness
+should-fixes (D1–D4) were fixed on-branch. The items below were deferred per the
+agreed scope (pure nits + one pre-existing bug).
+
+### Recommended next fix (pre-existing bug)
+- [self-review] src/gander/llm.py:309-310,360-366 — phantom `llm_call` telemetry. `_remaining_timeout_s(deadline)` (raises `TimeoutError` at :177) runs at :309 *before* `attempted_models.append` at :310, so a deadline already blown on loop entry leaves `attempted_models` empty; the `finally` still emits `llm_call` with `models_attempted=[]` but `model=resolved_models[0]` and zero tokens — an event for a call that never reached the network. Same shape in the text and vision paths (~:447/:506, ~:542). Low severity, but A2–A4 now make per-`run_id` cost accounting load-bearing, so the inconsistency is worth closing: append to `attempted_models` only after the network call is entered, or skip the emit when it's empty.
+
+### Nits (deferred)
+- [self-review] tests/{test_pipeline_fast,test_pipeline_smoke,test_failures,test_degradation_synthetic,test_partial_failure_streaming}.py — `_docx_bytes_from_text` (and the `_collect` stream-drain helper) are duplicated across 5/4 test modules; hoist into `tests/conftest.py`.
+- [self-review] src/gander/report.py:338-339 — `_about_banner()` is a trivial wrapper over the `_ABOUT_BANNER` constant; inline it in `render_body` (also raised in the prior block).
+- [self-review] app.py:168 — `GANDER_SKIP_ENV_CHECK` (the boot-gate escape hatch) is undocumented; add it to `.env.example` and the README env section so its existence and intended use are discoverable.
+
+### Investigated and dropped (not a bug)
+- [self-review] .dockerignore:22-23 — the reviewer's claim that `*.md` excludes the runtime prompts under `src/gander/prompts/` is FALSE. `*.md` is anchored and does not cross `/` (moby/patternmatcher semantics), so the nested prompts already reach the build context — verified by an actual `docker build` that listed 9 prompt files in the image. No no-op fix was shipped; an honestly-commented `!src/gander/prompts/*.md` guard was added only to harden against a future broader rule (e.g. `**/*.md`). The plan's `git check-ignore` verification step does not even read `.dockerignore`, so it could not have caught this either way.
+

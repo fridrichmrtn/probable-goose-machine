@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import importlib
 from typing import Any
 
@@ -57,8 +58,18 @@ def test_current_stage_round_trip() -> None:
 
 
 def test_idempotent_configure_does_not_crash_on_reload() -> None:
-    importlib.reload(obs)
-    obs.emit("s", "e")
+    # `importlib.reload` rebinds obs's module-level ContextVars to fresh objects.
+    # Other test modules (test_llm) import `current_stage`/`current_run_id` by
+    # name and set them; if this reload runs first, their writes land on the old
+    # ContextVar while obs.emit reads the new one — emitting `stage: null` and
+    # failing a reordered run. Save and restore the originals so the reload is
+    # observable here but invisible to the rest of the suite (order-independent).
+    saved = (obs.current_stage, obs.current_run_id, obs._subscribers)
+    try:
+        importlib.reload(obs)
+        obs.emit("s", "e")
+    finally:
+        obs.current_stage, obs.current_run_id, obs._subscribers = saved
 
 
 def test_subscriber_exception_is_swallowed_not_propagated() -> None:
@@ -121,3 +132,43 @@ async def test_run_id_isolated_across_gather_siblings() -> None:
 
     assert all(e["run_id"] == "run-a" for e in a_events)
     assert all(e["run_id"] == "run-b" for e in b_events)
+
+
+def test_emit_tolerates_run_id_in_kwargs() -> None:
+    # A subscriber that forwards a received record back through emit() (or any
+    # caller that puts `run_id` in **kv) used to collide with the explicit
+    # `run_id=` kwarg -> "got multiple values for keyword argument 'run_id'",
+    # which escaped emit and killed the stage. The kv key must just win.
+    events: list[dict[str, Any]] = []
+    with obs.run_scope("scope-run"), subscribe(events.append):
+        emit("stage_a", "forwarded", run_id="incoming", extra=1)
+    assert events[0]["event"] == "forwarded"
+    assert events[0]["run_id"] == "incoming"
+    assert events[0]["extra"] == 1
+
+
+def test_run_scope_reset_in_foreign_context_does_not_raise() -> None:
+    # Simulate the GC-finalize hazard: the run_scope CM is *entered* inside a
+    # copied Context (so its reset token belongs to that Context), then *exited*
+    # in the current Context — exactly what happens when an abandoned async
+    # generator is GC-finalized off-task. ContextVar.reset(token) then raises
+    # ValueError; the guard must swallow it and clear to the default instead.
+    assert obs.current_run_id.get() is None
+    cm = obs.run_scope("foreign")
+    ctx = contextvars.copy_context()
+    ctx.run(cm.__enter__)
+    cm.__exit__(None, None, None)  # must not raise
+    assert obs.current_run_id.get() is None
+
+
+def test_subscribe_reset_in_foreign_context_does_not_raise() -> None:
+    # Symmetric guard for the subscriber stack: a subscriber leaked across a
+    # foreign Context would double-count a later run's cost. The reset ValueError
+    # must be swallowed and the stack cleared to the empty default.
+    sink: list[dict[str, Any]] = []
+    assert obs._subscribers.get() == ()
+    cm = subscribe(sink.append)
+    ctx = contextvars.copy_context()
+    ctx.run(cm.__enter__)
+    cm.__exit__(None, None, None)  # must not raise
+    assert obs._subscribers.get() == ()

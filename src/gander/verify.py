@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
 
 from gander import obs
@@ -220,7 +221,12 @@ _STOPWORDS = frozenset(
         "us",
     )
 )
-_WORD_RE = re.compile(r"[0-9a-z]+", re.ASCII)
+# Unicode-aware (letters + digits, no underscore). The old `re.ASCII` form
+# fragmented diacritic words — "inženýrů" tokenized as "in","en","r" — so a
+# same-script accented quote lost the very content nouns the gate measures. We
+# fold diacritics first (`_fold`), so this regex sees base letters; the Unicode
+# class is the backstop for scripts that don't fold to ASCII (e.g. Cyrillic).
+_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 # What this gate catches and what it does NOT (measured, not assumed):
 #   - It catches TOPICAL mismatch — a claim and quote about different things
 #     share almost no content tokens (jaccard ~0): "increased revenue" anchored
@@ -237,8 +243,25 @@ _WORD_RE = re.compile(r"[0-9a-z]+", re.ASCII)
 _COMPAT_THRESHOLD = 0.1
 
 
+def _fold(text: str) -> str:
+    """Diacritic-insensitive fold for the lexical-overlap path ONLY.
+
+    NFD-decompose, drop combining marks, lowercase, collapse whitespace. This
+    makes same-script accented Latin (Czech/German/…) compare on its base
+    letters, so an English claim summary and a diacritic CV quote overlap on the
+    content nouns they actually share (names, tech, employers). Deliberately
+    SEPARATE from `_normalize` (NFC): `verify_quote`'s hardened existence check
+    relies on the literal-substring floor that defends §4.5, and folding there
+    would weaken it. On plain ASCII this is a no-op, so the lexical gate's
+    measured thresholds (see below) are unchanged.
+    """
+    decomposed = unicodedata.normalize("NFD", text)
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return _WS.sub(" ", stripped.strip().lower())
+
+
 def _content_tokens(text: str) -> frozenset[str]:
-    return frozenset(_WORD_RE.findall(_normalize(text))) - _STOPWORDS
+    return frozenset(_WORD_RE.findall(_fold(text))) - _STOPWORDS
 
 
 def claim_quote_jaccard(claim: str, quote: str) -> float | None:
@@ -286,6 +309,7 @@ def drop_unverified(
     by design (growth actions).
     """
     kept: list[T] = []
+    missing_claim = 0
     for item in items:
         anchor = getattr(item, anchor_attr)
         if not verify_quote(anchor.quote, source, section=anchor.section):
@@ -294,19 +318,27 @@ def drop_unverified(
             # Tolerate a missing claim attr: skip the compat gate rather than
             # raise an AttributeError that stage_boundary would turn into an
             # opaque generic StageFailure. A wrong `claim_attr` then degrades to
-            # the pre-gate (existence-only) behaviour instead of crashing.
+            # the pre-gate (existence-only) behaviour instead of crashing — but
+            # we surface it (count only) so a misconfiguration is visible.
             claim = getattr(item, claim_attr, None)
-            if claim is not None and not claim_supports_quote(claim, anchor.quote):
-                _emit_claim_mismatch(claim, anchor.quote)
-                continue
+            if claim is None:
+                missing_claim += 1
+            else:
+                # Compute the jaccard once and reuse it for the emit, rather than
+                # routing through `claim_supports_quote` and recomputing on drop.
+                jaccard = claim_quote_jaccard(claim, anchor.quote)
+                if jaccard is not None and jaccard < _COMPAT_THRESHOLD:
+                    _emit_claim_mismatch(claim, anchor.quote, jaccard)
+                    continue
         kept.append(item)
+    if missing_claim:
+        _emit_claim_attr_missing(claim_attr, missing_claim)
     return kept, len(items) - len(kept)
 
 
-def _emit_claim_mismatch(claim: str, quote: str) -> None:
+def _emit_claim_mismatch(claim: str, quote: str, jaccard: float | None) -> None:
     """Emit `verify_claim_mismatch` for a dropped claim (token counts + jaccard,
-    never CV text)."""
-    jaccard = claim_quote_jaccard(claim, quote)
+    never CV text). The caller passes the already-computed jaccard."""
     obs.emit(
         obs.current_stage.get(),
         "verify_claim_mismatch",
@@ -314,3 +346,145 @@ def _emit_claim_mismatch(claim: str, quote: str) -> None:
         quote_word_count=len(quote.split()),
         jaccard=round(jaccard, 3) if jaccard is not None else None,
     )
+
+
+def _emit_claim_attr_missing(claim_attr: str | None, count: int) -> None:
+    """Warn that `count` items lacked the requested `claim_attr` (count only).
+
+    A silent skip hides a wrong `claim_attr` wiring; this makes the degradation
+    to existence-only verification observable without leaking any CV text.
+    """
+    obs.emit(
+        obs.current_stage.get(),
+        "verify_claim_attr_missing",
+        claim_attr=claim_attr,
+        count=count,
+    )
+
+
+# A judge adjudicates (claim, quote) pairs the lexical gate flagged as suspect:
+# it takes the pairs and returns one bool per pair (True = supportive = keep).
+# Injected by the caller (extract.py wires the cheap LLM slot) so verify.py
+# stays provider-free and the grader is a separate call from the generator
+# (CLAUDE.md §9: separate generation from grading).
+CompatJudge = Callable[[list[tuple[str, str]]], Awaitable[Sequence[bool]]]
+
+
+async def _adjudicate(judge: CompatJudge, pairs: list[tuple[str, str]]) -> list[bool]:
+    """Run `judge` over suspect pairs and FAIL OPEN.
+
+    Returns one bool per pair (True = keep). On ANY failure mode — the judge
+    raises, returns the wrong length, or returns non-bools — keep every suspect
+    (all True). A grader failure must never false-drop valid evidence
+    (CLAUDE.md §9: model output is untrusted; a failed grader degrades to the
+    existence+lexical result, it does not delete data).
+    """
+    if not pairs:
+        return []
+    try:
+        raw = await judge(pairs)
+    except Exception as err:
+        obs.emit(
+            obs.current_stage.get(),
+            "verify_compat_judge_error",
+            suspects=len(pairs),
+            error=type(err).__name__,
+        )
+        return [True] * len(pairs)
+    verdicts = list(raw)
+    if len(verdicts) != len(pairs) or not all(isinstance(v, bool) for v in verdicts):
+        obs.emit(
+            obs.current_stage.get(),
+            "verify_compat_judge_malformed",
+            suspects=len(pairs),
+            returned=len(verdicts),
+        )
+        return [True] * len(pairs)
+    return verdicts
+
+
+async def drop_unverified_compat(
+    fields: dict[str, list[T]],
+    source: str,
+    *,
+    anchor_attr: str = "anchor",
+    claim_attr: str,
+    judge: CompatJudge,
+) -> tuple[dict[str, list[T]], int]:
+    """Two-phase claim–quote gate across all `fields`, with ONE batched judge call.
+
+    Phase 1 (sync, free): for every item, existence-verify the anchor quote
+    against `source` (drop on failure), then classify the (claim, quote) pair by
+    lexical Jaccard — `None` or `>= _COMPAT_THRESHOLD` keeps it outright; below
+    threshold marks it a *suspect* (held, not dropped).
+
+    Phase 2 (async): all suspects across all fields are adjudicated in a single
+    `judge` call (≤1 LLM call per CV, not per anchor). The judge resolves the
+    cross-language blind spot the lexical path cannot: `item.text` is the
+    extractor's English summary while the anchor quote is verbatim CV text, often
+    Czech/German — near-zero token overlap on a perfectly valid pair. Suspects
+    the judge calls supportive are kept; the rest are dropped. The judge fails
+    OPEN (see `_adjudicate`).
+
+    Returns `(kept_by_field, total_dropped)` preserving per-field input order.
+    Obs: aggregate counts only — never claim/quote text (both are CV-derived).
+    """
+    # Each slot is (item, suspect_index | None). None = decided-keep in phase 1.
+    field_slots: dict[str, list[tuple[T, int | None]]] = {}
+    pairs: list[tuple[str, str]] = []  # suspect (claim, quote) in judge order
+    suspect_meta: list[tuple[str, str, float | None]] = []  # (claim, quote, jaccard)
+    total_in = 0
+    existence_dropped = 0
+    lexical_pass = 0
+    missing_claim = 0
+
+    for field, items in fields.items():
+        slots: list[tuple[T, int | None]] = []
+        for item in items:
+            total_in += 1
+            anchor = getattr(item, anchor_attr)
+            if not verify_quote(anchor.quote, source, section=anchor.section):
+                existence_dropped += 1
+                continue
+            claim = getattr(item, claim_attr, None)
+            if claim is None:
+                missing_claim += 1
+                slots.append((item, None))
+                continue
+            jaccard = claim_quote_jaccard(claim, anchor.quote)
+            if jaccard is None or jaccard >= _COMPAT_THRESHOLD:
+                lexical_pass += 1
+                slots.append((item, None))
+            else:
+                slots.append((item, len(pairs)))
+                pairs.append((claim, anchor.quote))
+                suspect_meta.append((claim, anchor.quote, jaccard))
+        field_slots[field] = slots
+
+    verdicts = await _adjudicate(judge, pairs)
+
+    kept_lists: dict[str, list[T]] = {}
+    llm_dropped = 0
+    for field, slots in field_slots.items():
+        kept: list[T] = []
+        for item, suspect_idx in slots:
+            if suspect_idx is None or verdicts[suspect_idx]:
+                kept.append(item)
+            else:
+                claim, quote, jaccard = suspect_meta[suspect_idx]
+                _emit_claim_mismatch(claim, quote, jaccard)
+                llm_dropped += 1
+        kept_lists[field] = kept
+
+    if missing_claim:
+        _emit_claim_attr_missing(claim_attr, missing_claim)
+    obs.emit(
+        obs.current_stage.get(),
+        "verify_compat",
+        lexical_pass=lexical_pass,
+        llm_checked=len(pairs),
+        llm_dropped=llm_dropped,
+        existence_dropped=existence_dropped,
+    )
+    total_kept = sum(len(kept) for kept in kept_lists.values())
+    return kept_lists, total_in - total_kept

@@ -786,3 +786,96 @@ async def test_final_report_has_no_running_statuses(
     reports = await _collect(pipeline.run(b"x", "cv.pdf"))
     final = reports[-1]
     assert all(v != "running" for v in final.statuses.values())
+
+
+@pytest.mark.fast
+async def test_cancel_propagates_into_inflight_l4_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A2 regression: Gradio's `cancels=[run_event]` aborts the pipeline by
+    # raising GeneratorExit at the suspended `yield`. That alone does NOT cancel
+    # the L4a/L4b stage tasks spawned via asyncio.create_task — they would keep
+    # spending LLM budget headless. The loop's `finally` must cancel the sibling
+    # that is still in flight.
+    _patch_happy_path(monkeypatch)
+    score_started = asyncio.Event()
+    score_cancelled = False
+
+    async def _hanging_score(redacted: RedactedCV, profile: Profile) -> Score:
+        nonlocal score_cancelled
+        score_started.set()
+        try:
+            await asyncio.Event().wait()  # never resolves; only cancellation ends it
+        except asyncio.CancelledError:
+            score_cancelled = True
+            raise
+        return _score()  # unreachable
+
+    async def _fast_salary(profile: Profile) -> SalaryEstimate:
+        return _salary()
+
+    monkeypatch.setattr(pipeline, "score_profile", _hanging_score)
+    monkeypatch.setattr(pipeline, "estimate_salary", _fast_salary)
+
+    gen = pipeline.run(b"x", "cv.pdf")
+    # Drive until salary has completed but score is still hanging — the generator
+    # is now suspended at the post-salary `yield`, score_task still pending.
+    async for report in gen:
+        if report.statuses["salary"] == "done" and report.statuses["score"] == "running":
+            break
+    assert score_started.is_set()
+
+    # Simulate the UI cancel. A clean aclose() (no RuntimeError) also proves the
+    # generator does not try to `yield` while handling GeneratorExit.
+    await gen.aclose()
+    assert score_cancelled
+
+
+@pytest.mark.fast
+async def test_cancel_propagates_into_inflight_final_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Same A2 guarantee for the L4c/L5 (confidence/growth) fan-out.
+    _patch_happy_path(monkeypatch)
+    judge_started = asyncio.Event()
+    judge_cancelled = False
+
+    async def _hanging_judge(
+        sources: list[Source],
+        low: int,
+        high: int,
+        currency: str,
+        period: str,
+        *,
+        cv_quality: CVQualitySignals,
+    ) -> Confidence:
+        nonlocal judge_cancelled
+        judge_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            judge_cancelled = True
+            raise
+        return _confidence()  # unreachable
+
+    async def _fast_growth(
+        redacted: RedactedCV,
+        profile: Profile,
+        score: Score,
+        salary_midpoint: int,
+        currency: str,
+        market_name: str | None = None,
+    ) -> list[GrowthAction]:
+        return _growth()
+
+    monkeypatch.setattr(pipeline, "judge", _hanging_judge)
+    monkeypatch.setattr(pipeline, "plan_growth", _fast_growth)
+
+    gen = pipeline.run(b"x", "cv.pdf")
+    async for report in gen:
+        if report.statuses["growth"] == "done" and report.statuses["confidence"] == "running":
+            break
+    assert judge_started.is_set()
+
+    await gen.aclose()
+    assert judge_cancelled
