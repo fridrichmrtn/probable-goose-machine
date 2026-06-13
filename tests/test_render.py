@@ -53,6 +53,11 @@ def _profile() -> Profile:
     )
 
 
+def _profile_with_band(band: str) -> Profile:
+    base = _profile()
+    return base.model_copy(update={"seniority_band": band})
+
+
 def _score() -> Score:
     return Score(
         components=[
@@ -269,12 +274,14 @@ def test_render_body_populated_contains_expected_content() -> None:
     assert "[platy.cz]" in out
     assert "https://platy.cz" not in out
     # Components render as always-visible tiles, not a table+accordion stack.
+    # (The one `<details open>` in the body is the honest-AI banner, asserted
+    # separately in test_render_body_includes_about_banner_on_success_path.)
     assert '<div class="gander-components-grid" role="list">' in out
     assert out.count('class="gander-component"') == 4
     assert 'role="listitem"' in out
     assert '<h3 id="gander-score-skills" class="gander-component-head">' in out
     assert '<blockquote class="gander-component-quote" title=' in out
-    assert "<details open>" not in out
+    assert out.count("<details open>") == 1
     # Plan / growth list renders as structured HTML with horizon chips.
     assert '<ol class="gander-plan">' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
@@ -334,6 +341,57 @@ def test_render_body_with_profile_failure_short_circuits() -> None:
     assert "Skills" not in out
     assert "Plan" not in out
     assert "## Score" not in out
+    # The honest-AI banner is part of the report we stand behind; it must not
+    # render when the whole report is a single failure callout.
+    assert "About this report" not in out
+
+
+@pytest.mark.fast
+def test_render_body_includes_about_banner_on_success_path() -> None:
+    out = render_body(_make_report())
+    assert "About this report" in out
+    # Grounded framing, not invented claims.
+    assert "candidate hypotheses to validate" in out
+    assert "not validated for fairness across protected groups" in out
+
+
+@pytest.mark.fast
+def test_render_body_score_heading_is_outside_about_banner_details() -> None:
+    # The banner is an HTML <details> block; render_body joins sections with
+    # "\n\n", so the `## Score:` heading must sit AFTER `</details>` with a blank
+    # line between them — otherwise Gradio's markdown swallows the heading into
+    # the details element and it stops rendering as a heading.
+    out = render_body(_make_report())
+    assert "</details>\n\n## Score:" in out
+    score_idx = out.index("## Score:")
+    assert out.index("</details>") < score_idx, "score heading must follow the closed banner"
+
+
+@pytest.mark.fast
+def test_render_body_shows_seniority_band_in_score_heading() -> None:
+    report = _make_report(profile=_profile_with_band("senior"))
+    out = render_body(report)
+    assert "## Score: 69/100 (senior)" in out
+
+
+@pytest.mark.fast
+def test_render_body_score_heading_omits_band_when_absent() -> None:
+    # _profile() leaves seniority_band None; heading must stay clean (no empty
+    # parens) rather than render "## Score: 69/100 ()".
+    out = render_body(_make_report())
+    assert "## Score: 69/100\n" in out
+    assert "## Score: 69/100 (" not in out
+
+
+@pytest.mark.fast
+def test_render_body_band_with_newline_does_not_split_score_heading() -> None:
+    # D3: a band value carrying a newline + `##` must not break out of the
+    # `## Score` heading line and inject a sibling heading. Whitespace is
+    # collapsed so the band stays inline within the parentheses.
+    report = _make_report(profile=_profile_with_band("senior\n## Injected"))
+    out = render_body(report)
+    assert "## Score: 69/100 (senior ## Injected)" in out
+    assert "\n## Injected" not in out
 
 
 @pytest.mark.fast

@@ -1,0 +1,31 @@
+# Keep the build context to runtime code only. Excluding test data and LFS-
+# tracked fixtures stops the image from shipping LFS pointer files / CV samples.
+.git/
+.github/
+.worktrees/
+tests/
+tasks/
+reports/
+scripts/
+assets/
+docs/
+
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+*.md
+!README.md
+# Runtime guard: src/gander/prompts/*.md are loaded at request time, not docs.
+# Today's `*.md` is anchored and does NOT cross `/`, so it already leaves the
+# nested prompts in the context (verified by building and listing them). This
+# explicit re-include documents that they are load-bearing and keeps them in
+# the image even if a broader rule (e.g. `**/*.md`) is added here later.
+!src/gander/prompts/*.md
+.env
+.env.*

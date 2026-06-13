@@ -15,6 +15,9 @@ Analyze CV (the handler's first yield calls `render_tracker(reading_report)`).
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -22,6 +25,7 @@ from typing import Any
 import gradio as gr
 
 from gander.errors import StageFailure
+from gander.llm import check_env
 from gander.pipeline import run as pipeline_run
 from gander.report import render_body, render_tracker
 from gander.schemas import Profile, Report
@@ -65,6 +69,42 @@ def _read_error_report(user_message: str) -> Report:
             "growth": "skipped",
         },
     )
+
+
+# Best-effort handle to the previous run's download artifact. Each completed run
+# writes a temp .md that must outlive `_write_report_md` (Gradio streams it from
+# disk on the download click), so it can't be auto-deleted; without cleanup /tmp
+# would grow one file per run on a long-lived Space. We unlink the PRIOR path
+# when writing a new one — the file for the run that just finished is always
+# intact. This is process-wide state: on the rare concurrent-session path a
+# second run can unlink a file the first user hasn't downloaded yet, which is
+# acceptable for a no-persistence prototype.
+_last_report_path: str | None = None
+
+
+def _write_report_md(body: str) -> str:
+    """Materialize the already-rendered report `body` to a temp .md file.
+
+    Takes the body the streaming loop already rendered rather than re-rendering
+    from the `Report`, so a completed run renders its markdown exactly once.
+    `delete=False` because Gradio's DownloadButton streams the file from disk
+    after this returns. May raise OSError (disk full, read-only temp dir); the
+    caller degrades to no-download rather than letting it break completion.
+    """
+    global _last_report_path
+    previous = _last_report_path
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", prefix="gander-report-", delete=False, encoding="utf-8"
+    ) as handle:
+        handle.write(body)
+        path = handle.name
+    _last_report_path = path
+    if previous is not None:
+        # Best-effort reap of the prior run's temp file — already gone / a
+        # read-only temp dir is not worth failing the new download over.
+        with contextlib.suppress(OSError):
+            os.unlink(previous)
+    return path
 
 
 _HERO_CSS = """<style>
@@ -139,6 +179,18 @@ _HERO_HTML = """
 """
 
 
+# Fail fast at MODULE scope, not in __main__: the README front-matter is
+# `sdk: gradio` / `app_file: app.py`, so the HF Spaces runtime IMPORTS this
+# module and serves the module-level `demo` itself — `python app.py` (and so
+# `__main__`) never runs on the real deploy path. A missing OPENROUTER_API_KEY
+# must surface here, before the UI is built, instead of as a confusing 401 on
+# the first request. `GANDER_SKIP_ENV_CHECK=1` lets keyless tooling import the
+# module (e.g. `python -c "import app"` smoke checks); unit tests never import
+# `app`, and constructing LLMClient stays cheap and key-free.
+if os.environ.get("GANDER_SKIP_ENV_CHECK") != "1":
+    check_env()
+
+
 with gr.Blocks(title="Gander · CV analysis") as demo:
     with gr.Column(elem_id="gander-app"):
         gr.HTML(_HERO_CSS + _HERO_HTML)
@@ -149,25 +201,51 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             "locally. Salary data is fetched via DuckDuckGo search. "
             "Uploads are not retained by Gander.</p>"
         )
-        run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
+        with gr.Row():
+            run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
+            cancel_btn = gr.Button("Cancel", variant="secondary", visible=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
         report_md = gr.Markdown(value="", visible=False, elem_classes=["gander-output"])
+        download_btn = gr.DownloadButton(
+            "Download report (.md)", visible=False, elem_classes=["gander-output"]
+        )
 
-    file_in.change(
-        lambda f: gr.Button(interactive=f is not None),
-        inputs=[file_in],
-        outputs=[run_btn],
-        show_progress="hidden",
-    )
+    def _on_file_change(
+        file_path: str | None,
+    ) -> tuple[Any, Any, Any, Any, Any]:
+        # Toggle the run button and clear any prior run's output so a stale
+        # report can't sit under a freshly chosen file. Also hide a dangling
+        # Cancel button if the user picks a new file mid-run.
+        return (
+            gr.Button(interactive=file_path is not None),
+            gr.update(value="", visible=False),
+            gr.update(value="", visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(visible=False),
+        )
+
+    # NOTE: the `file_in.change(...)` wiring is registered *after* `run_event`
+    # below so it can pass `cancels=[run_event]` — choosing a new file mid-run
+    # must abort the in-flight pipeline (A2 then propagates the cancel into its
+    # child tasks), not just clear the UI while the old run keeps streaming the
+    # previous CV's report into the download button.
+
+    # Yield order matches the run_btn.click outputs list below:
+    # (tracker_html, report_md, download_btn, cancel_btn).
+    _DOWNLOAD_IDLE = gr.update(visible=False)
+    _CANCEL_SHOWN = gr.update(visible=True)
+    _CANCEL_HIDDEN = gr.update(visible=False)
 
     async def handle(
         file_path: str | None,
-    ) -> AsyncIterator[tuple[dict[str, Any], dict[str, Any]]]:
+    ) -> AsyncIterator[tuple[Any, Any, Any, Any]]:
         if file_path is None:
             failed = _read_error_report("Select a CV first.")
             yield (
                 gr.update(visible=True, value=render_tracker(failed)),
                 gr.update(visible=True, value=render_body(failed)),
+                _DOWNLOAD_IDLE,
+                _CANCEL_HIDDEN,
             )
             return
         try:
@@ -179,12 +257,14 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             yield (
                 gr.update(visible=True, value=render_tracker(failed)),
                 gr.update(visible=True, value=render_body(failed)),
+                _DOWNLOAD_IDLE,
+                _CANCEL_HIDDEN,
             )
             return
         filename = Path(file_path).name
 
         # Acknowledge the click before pipeline_run yields its first state — cold-start
-        # silence reads as breakage (PRD §8).
+        # silence reads as breakage (PRD §8). Show Cancel for the duration of the run.
         reading_report = _initial_report()
         reading_report.statuses["profile"] = "running"
         reading_copy = (
@@ -193,9 +273,13 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         yield (
             gr.update(visible=True, value=render_tracker(reading_report)),
             gr.update(visible=True, value=reading_copy),
+            _DOWNLOAD_IDLE,
+            _CANCEL_SHOWN,
         )
 
+        last_report: Report | None = None
         async for report in pipeline_run(file_bytes, filename):
+            last_report = report
             # render_body short-circuits to a failure callout when profile is still a
             # StageFailure placeholder; hold neutral copy until profile is a real Profile.
             if isinstance(report.profile, Profile):
@@ -209,17 +293,72 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             yield (
                 gr.update(visible=True, value=render_tracker(report)),
                 gr.update(visible=True, value=body),
+                _DOWNLOAD_IDLE,
+                _CANCEL_SHOWN,
             )
 
-    run_btn.click(
+        # Offer the download only for a report that actually rendered a body
+        # (profile resolved to a real Profile, not a top-level failure callout).
+        # `body` here is the final loop iteration's render — when last_report's
+        # profile is a real Profile, that branch took `body = render_body(report)`,
+        # so it equals the finished report's markdown (no re-render needed).
+        # Tracker and body keep their last values; only reveal the download and
+        # hide Cancel now that the run is done.
+        if last_report is not None and isinstance(last_report.profile, Profile):
+            try:
+                download = gr.update(visible=True, value=_write_report_md(body))
+            except OSError:
+                # A disk failure writing the artifact must not break graceful
+                # completion — degrade to no-download, report stays on screen.
+                download = _DOWNLOAD_IDLE
+        else:
+            download = _DOWNLOAD_IDLE
+        yield (gr.update(), gr.update(), download, _CANCEL_HIDDEN)
+
+    run_event = run_btn.click(
         handle,
         inputs=[file_in],
-        outputs=[tracker_html, report_md],
+        outputs=[tracker_html, report_md, download_btn, cancel_btn],
         show_progress="hidden",
+    )
+
+    def _on_cancel() -> tuple[Any, Any, Any, Any, Any]:
+        # `cancels=[run_event]` kills the generator before its final yield, so
+        # the tracker/report freeze mid-run with the Cancel button dangling and
+        # no "cancelled" signal. Settle the UI explicitly: clear the stale
+        # tracker, replace the partial body with a clear cancelled message, hide
+        # the (never-populated) download and Cancel buttons, and re-enable Run.
+        # Outputs order: tracker_html, report_md, download_btn, cancel_btn, run_btn.
+        return (
+            gr.update(value="", visible=False),
+            gr.update(value="_Run cancelled. The partial output was discarded._", visible=True),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.Button(interactive=True),
+        )
+
+    cancel_btn.click(
+        _on_cancel,
+        inputs=None,
+        outputs=[tracker_html, report_md, download_btn, cancel_btn, run_btn],
+        cancels=[run_event],
+    )
+
+    # Registered last so it can cancel `run_event`: a new upload mid-run aborts
+    # the in-flight pipeline before clearing the UI, otherwise the old generator
+    # keeps streaming and would repopulate the download with the prior CV's
+    # report. Mirrors how `cancel_btn.click` cancels the same event above.
+    file_in.change(
+        _on_file_change,
+        inputs=[file_in],
+        outputs=[run_btn, tracker_html, report_md, download_btn, cancel_btn],
+        show_progress="hidden",
+        cancels=[run_event],
     )
 
 
 if __name__ == "__main__":
+    # check_env() already ran at module scope above (the import path HF uses).
     # Free HF Space: 2 concurrent pipeline runs, 4 queued — caps LLM-budget
     # blast radius from simultaneous users rather than CPU.
     demo.queue(max_size=4, default_concurrency_limit=2).launch(max_file_size="10mb")

@@ -1,0 +1,35 @@
+Markéta Procházková
+Aspiring Data Analyst — former Registered Nurse
+marketa.prochazkova@example.cz · +420 731 444 980 · linkedin.com/in/marketapro-fixture
+Životopis — synthetic fixture, not a real person
+
+Profil
+Registered nurse of nine years transitioning into healthcare data analysis.
+Completed a part-time data analytics bootcamp in 2025 and now looking for a
+junior analyst role where clinical domain knowledge is an asset.
+
+Vzdělání a rekvalifikace
+
+Data Analytics Bootcamp — Czechitas, Praha (part-time)
+Leden 2025 – Červen 2025.
+Capstone: built a dashboard tracking ward occupancy from anonymized admission
+exports using Python pandas and Tableau.
+
+Bc. in General Nursing — 2. lékařská fakulta, Univerzita Karlova, Praha
+2011 – 2014.
+
+Pracovní zkušenosti
+
+Staniční sestra (Ward Nurse) — Nemocnice Pod Lipami, Praha
+Srpen 2014 – present
+Coordinates shift scheduling for a 28-bed internal medicine ward and owns the
+weekly handover reporting; introduced a spreadsheet-based medication audit that
+cut documentation errors across the team.
+Mentoruje nové sestry a vede zácvik na nemocniční informační systém.
+
+Dovednosti
+Python (pandas, beginner), SQL (beginner), Tableau, Excel, clinical data entry,
+shift coordination, patient documentation, stakeholder communication.
+
+Jazyky
+Čeština rodilá, angličtina B2.

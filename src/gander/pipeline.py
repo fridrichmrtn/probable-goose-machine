@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -164,6 +165,30 @@ def _make_accumulator(run: _Run) -> Any:
     return _accumulate
 
 
+async def _cancel_pending(tasks: list[asyncio.Task[Any]]) -> None:
+    """Cancel any still-running sibling tasks and await their teardown.
+
+    The L4/L5 fan-outs spawn their stages with `asyncio.create_task`, then
+    consume them through an `asyncio.as_completed` loop that `yield`s between
+    results. When the Gradio UI cancels a run (`cancels=[run_event]`), a
+    `GeneratorExit` is raised at the suspended `yield` — but that only unwinds
+    the generator; the orphaned child tasks keep running and keep burning LLM
+    budget. Calling this from the loop's `finally` cancels whatever is still
+    in-flight and waits for it to settle, bounding the blast radius.
+
+    On the normal completion path every task is already `done()`, so this is a
+    no-op. `return_exceptions=True` ensures a child's `CancelledError` (or any
+    teardown error) can't mask the `GeneratorExit`/exception that is unwinding
+    the `finally`.
+    """
+    pending = [t for t in tasks if not t.done()]
+    if not pending:
+        return
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+
+
 async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
     """Run the full L1→L5 pipeline, yielding a `Report` after every state change.
 
@@ -178,16 +203,20 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
     accumulator to this run only.
     """
     state = _Run()
-    # Emit only the suffix, never the raw filename: CV filenames embed candidate
-    # names ("Jane Smith CV.pdf"), which would defeat the no-PII-in-obs posture.
-    obs.emit(
-        None,
-        "pipeline_start",
-        filename_suffix=Path(filename).suffix.lower(),
-        bytes=len(file_bytes),
-    )
+    # One uuid4 per run correlates every obs event from this pipeline. A uuid
+    # carries no CV content, so it is safe to log (see test_privacy_obs).
+    run_id = str(uuid.uuid4())
+    with obs.run_scope(run_id), obs.subscribe(_make_accumulator(state)):
+        # Emit only the suffix, never the raw filename: CV filenames embed
+        # candidate names ("Jane Smith CV.pdf"), which would defeat the
+        # no-PII-in-obs posture.
+        obs.emit(
+            None,
+            "pipeline_start",
+            filename_suffix=Path(filename).suffix.lower(),
+            bytes=len(file_bytes),
+        )
 
-    with obs.subscribe(_make_accumulator(state)):
         # Initial yield: tracker says pending, body is empty (renderer
         # short-circuits on profile=None).
         yield state.snapshot()
@@ -253,34 +282,40 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
 
         score_task = asyncio.create_task(score_profile(redacted, profile))
         salary_task = asyncio.create_task(estimate_salary(profile))
-        for completed in asyncio.as_completed([score_task, salary_task]):
-            result = await completed
-            # Route by result type rather than task identity. score_profile
-            # returns Score|StageFailure; estimate_salary returns
-            # SalaryEstimate|StageFailure. The two real types are disjoint,
-            # so isinstance routing is unambiguous. For StageFailure we
-            # disambiguate via `result.stage` (each stage sets its own).
-            if isinstance(result, Score):
-                state.score = result
-                state.statuses["score"] = "done"
-            elif isinstance(result, SalaryEstimate):
-                state.salary = result
-                state.statuses["salary"] = "done"
-            elif isinstance(result, StageFailure):
-                if result.stage == "score":
+        l4_tasks = [score_task, salary_task]
+        try:
+            for completed in asyncio.as_completed(l4_tasks):
+                result = await completed
+                # Route by result type rather than task identity. score_profile
+                # returns Score|StageFailure; estimate_salary returns
+                # SalaryEstimate|StageFailure. The two real types are disjoint,
+                # so isinstance routing is unambiguous. For StageFailure we
+                # disambiguate via `result.stage` (each stage sets its own).
+                if isinstance(result, Score):
                     state.score = result
-                    state.statuses["score"] = "failed"
-                elif result.stage == "salary":
+                    state.statuses["score"] = "done"
+                elif isinstance(result, SalaryEstimate):
                     state.salary = result
-                    state.statuses["salary"] = "failed"
-                else:
-                    obs.emit(
-                        None,
-                        "pipeline_warn",
-                        reason="unknown_stagefailure",
-                        result_stage=result.stage,
-                    )
-            yield state.snapshot()
+                    state.statuses["salary"] = "done"
+                elif isinstance(result, StageFailure):
+                    if result.stage == "score":
+                        state.score = result
+                        state.statuses["score"] = "failed"
+                    elif result.stage == "salary":
+                        state.salary = result
+                        state.statuses["salary"] = "failed"
+                    else:
+                        obs.emit(
+                            None,
+                            "pipeline_warn",
+                            reason="unknown_stagefailure",
+                            result_stage=result.stage,
+                        )
+                yield state.snapshot()
+        finally:
+            # If the run is cancelled at the `yield` above, cancel the sibling
+            # stage that hasn't completed yet so it stops spending LLM budget.
+            await _cancel_pending(l4_tasks)
 
         # === L4c confidence + L5 growth (conditional, concurrent) ===
         async def _run_confidence() -> tuple[StageName, object]:
@@ -344,27 +379,34 @@ async def run(file_bytes: bytes, filename: str) -> AsyncIterator[Report]:
             asyncio.create_task(_run_confidence()),
             asyncio.create_task(_run_growth()),
         ]
-        for i, final_completed in enumerate(asyncio.as_completed(final_tasks)):
-            final_stage, final_result = await final_completed
-            if final_stage == "confidence":
-                conf_result = cast(Confidence | StageFailure, final_result)
-                state.confidence = conf_result
-                state.statuses["confidence"] = (
-                    "done" if isinstance(conf_result, Confidence) else "failed"
-                )
-            elif final_stage == "growth":
-                growth_result = cast(list[GrowthAction] | StageFailure, final_result)
-                state.growth = growth_result
-                state.statuses["growth"] = "done" if isinstance(growth_result, list) else "failed"
-            else:
-                obs.emit(
-                    None,
-                    "pipeline_warn",
-                    reason="unknown_final_stage",
-                    final_stage=final_stage,
-                )
-            if i < len(final_tasks) - 1:
-                yield state.snapshot()
+        try:
+            for i, final_completed in enumerate(asyncio.as_completed(final_tasks)):
+                final_stage, final_result = await final_completed
+                if final_stage == "confidence":
+                    conf_result = cast(Confidence | StageFailure, final_result)
+                    state.confidence = conf_result
+                    state.statuses["confidence"] = (
+                        "done" if isinstance(conf_result, Confidence) else "failed"
+                    )
+                elif final_stage == "growth":
+                    growth_result = cast(list[GrowthAction] | StageFailure, final_result)
+                    state.growth = growth_result
+                    state.statuses["growth"] = (
+                        "done" if isinstance(growth_result, list) else "failed"
+                    )
+                else:
+                    obs.emit(
+                        None,
+                        "pipeline_warn",
+                        reason="unknown_final_stage",
+                        final_stage=final_stage,
+                    )
+                if i < len(final_tasks) - 1:
+                    yield state.snapshot()
+        finally:
+            # Same cancellation guard as the L4a/L4b fan-out: a cancel at the
+            # `yield` must not leave confidence/growth running headless.
+            await _cancel_pending(final_tasks)
 
         obs.emit(None, "pipeline_done", outcome="ok")
         yield state.snapshot()

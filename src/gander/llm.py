@@ -105,23 +105,36 @@ class _OpenRouterRoute:
 # `reasoning` is the growth-stage slot; Flash-Lite hit its capability boundary on
 # adversarial CZ fixtures (PRD §4.4 anchor-verified actions), so this slot keeps
 # full Flash as primary. The cheap/extract/vision slots default to Flash-Lite.
+#
+# Slug pinning (P1.4 → re-pinned 2026-06-12): OpenRouter publishes no dated
+# snapshot for the Gemini flash family (no `...-MM-YYYY` id), so the bare slug is
+# the only id the API accepts. The 2.5 family was DELISTED from the live catalog
+# (verified against https://openrouter.ai/api/v1/models): both 2.5 ids 404, so
+# the prior routes had primary AND fallback failing together. Re-pinned to the
+# current generation — `google/gemini-3.5-flash` (reasoning) / `-3.1-flash-lite`
+# (cheap/extract/vision), each falling back to its sibling tier. We pin explicit
+# generation ids (not the `~google/gemini-flash-latest` auto-track alias) to keep
+# the eval baseline reproducible — a silently-rotating model would drift scores
+# and cost under us. The `live`-marked test_configured_slugs_present_in_catalog
+# guard fails CI if any configured primary stops resolving, so this can't rot
+# silently again.
 _OPENROUTER_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract", "vision")
 _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
     "reasoning": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash",
-        fallbacks=("google/gemini-2.5-flash-lite",),
+        primary="google/gemini-3.5-flash",
+        fallbacks=("google/gemini-3.1-flash-lite",),
     ),
     "cheap": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash-lite",
-        fallbacks=("google/gemini-2.5-flash",),
+        primary="google/gemini-3.1-flash-lite",
+        fallbacks=("google/gemini-3.5-flash",),
     ),
     "extract": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash-lite",
-        fallbacks=("google/gemini-2.5-flash",),
+        primary="google/gemini-3.1-flash-lite",
+        fallbacks=("google/gemini-3.5-flash",),
     ),
     "vision": _OpenRouterRoute(
-        primary="google/gemini-2.5-flash-lite",
-        fallbacks=("google/gemini-2.5-flash",),
+        primary="google/gemini-3.1-flash-lite",
+        fallbacks=("google/gemini-3.5-flash",),
     ),
 }
 
@@ -130,6 +143,20 @@ _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
 MODEL_PRICES: dict[str, tuple[float, float]] = {}
 _DEFAULT_LLM_TIMEOUT_S = 60.0
 _DEFAULT_VISION_TIMEOUT_S = 120.0
+
+_MISSING_KEY_MESSAGE = "OPENROUTER_API_KEY not set — add it to .env or export it"
+
+
+def check_env() -> None:
+    """Fail fast at boot if required runtime env is missing.
+
+    Called once at app startup (app.py) so the process dies with a clear
+    message instead of a confusing auth error on the first real LLM call.
+    `LLMClient` construction itself stays cheap and does not raise, so tests
+    that stub LLM methods need no fake key.
+    """
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        raise RuntimeError(_MISSING_KEY_MESSAGE)
 
 
 def _llm_timeout_s() -> float:
@@ -178,9 +205,12 @@ class LLMClient:
         raise RuntimeError(f"Unknown {env_name}={raw!r}; expected 'openrouter'")
 
     def _build_client(self, provider: ProviderName) -> AsyncOpenAI:
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY not set — add it to .env or export it")
+        # Construction stays cheap and never raises on a missing key — boot-time
+        # check_env() is the early-fail gate (app.py). The OpenAI SDK rejects an
+        # empty api_key at construction, so fall back to a placeholder when the
+        # key is absent; a real missing-key run surfaces as a 401 on the first
+        # call, which stage_boundary converts to a user-facing StageFailure.
+        api_key = os.environ.get("OPENROUTER_API_KEY") or "missing-openrouter-key"
         return AsyncOpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
@@ -681,5 +711,12 @@ class LLMClient:
 
 @functools.lru_cache(maxsize=1)
 def get_client() -> LLMClient:
-    """Process-wide shared client; tests isolate via get_client.cache_clear()."""
+    """Process-wide shared client; tests isolate via get_client.cache_clear().
+
+    Boot-checks the environment on first construction (`check_env`) so a caller
+    that bypasses app.py's startup gate fails with an actionable message instead
+    of an opaque 401 from sending the `missing-openrouter-key` sentinel. Direct
+    `LLMClient()` construction stays key-free for tests that stub the LLM methods.
+    """
+    check_env()
     return LLMClient()

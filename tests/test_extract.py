@@ -856,7 +856,9 @@ async def test_low_evidence_gate_passes_with_one_verified_experience(
         skills=[],
         experience=[
             ProfileItem(
-                text="experience owner",
+                # Claim restates the quote (real extractor output does too), so the
+                # claim-quote compatibility gate keeps it; see test_verify.py.
+                text="Owned the weekly executive readout for sales and operations",
                 anchor=Anchor(quote=_UNIQUE_EXP_QUOTE, section=None),
             ),
         ],
@@ -986,10 +988,20 @@ async def test_extract_profile_on_fixtures(
     verify_events = [e for e in events if e["event"] == "verify" and e["stage"] == "extract"]
     assert len(verify_events) == 1
     ve = verify_events[0]
-    returned_total = ve["kept"] + ve["dropped"]
+    # Existence-survival (hallucination guard, PRD §4.6): of every item the model
+    # returned, the fraction whose anchor quote actually EXISTS in the CV. The
+    # claim/quote *compatibility* gate (`compat_dropped`) is an orthogonal axis —
+    # a quote can exist verbatim yet not support its claim — so it is deliberately
+    # NOT folded into this denominator; conflating it would let a stricter compat
+    # gate fail a hallucination test. Compat-gate coverage lives in the
+    # mocked-judge unit tests in test_verify.py. Returned = kept + existence-drops
+    # + compat-drops.
+    returned_total = ve["kept"] + ve["dropped"] + ve["compat_dropped"]
     assert returned_total > 0, f"model returned zero items on {fixture_path.name}"
-    survival_rate = ve["kept"] / returned_total
-    assert survival_rate >= 0.80, (
-        f"{fixture_path.name}: anchor survival rate "
-        f"{ve['kept']}/{returned_total} = {survival_rate:.0%} below 80% gate"
+    existence_survivors = returned_total - ve["dropped"]
+    existence_survival = existence_survivors / returned_total
+    assert existence_survival >= 0.80, (
+        f"{fixture_path.name}: anchor existence-survival "
+        f"{existence_survivors}/{returned_total} = {existence_survival:.0%} "
+        f"below 80% gate (hallucinated anchors; compat_dropped={ve['compat_dropped']})"
     )

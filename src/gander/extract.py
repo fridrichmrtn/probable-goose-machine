@@ -7,18 +7,22 @@ anchor does not survive `verify_quote` (PRD §4.6 hallucination guard).
 
 from __future__ import annotations
 
+import json
 import re
 import time
 import unicodedata
+from collections.abc import Sequence
 from pathlib import Path
+
+from pydantic import BaseModel
 
 from gander import obs
 from gander.errors import StageFailure, stage_boundary
 from gander.ingest import LOW_EVIDENCE_MSG
-from gander.llm import get_client
+from gander.llm import LLMClient, get_client
 from gander.normalize import normalize_role_with_llm_fallback
 from gander.schemas import Anchor, Profile, ProfileItem, RedactedCV
-from gander.verify import drop_unverified, verify_quote
+from gander.verify import CompatJudge, drop_unverified_compat, verify_quote
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _LIST_FIELDS: tuple[str, ...] = ("skills", "experience", "education", "soft_signals")
@@ -231,6 +235,46 @@ def load_prompt(name: str) -> str:
     return (_PROMPTS_DIR / name).read_text(encoding="utf-8")
 
 
+class _CompatVerdicts(BaseModel):
+    """Judge response: one bool per input (claim, quote) pair, in order."""
+
+    verdicts: list[bool]
+
+
+def _make_compat_judge(client: LLMClient) -> CompatJudge:
+    """Wire the cheap LLM slot as the claim–quote compatibility judge.
+
+    The judge is a SEPARATE call from the extractor that produced the anchors
+    (CLAUDE.md §9: separate generation from grading). It resolves the suspects
+    the lexical gate cannot — an English `item.text` against a verbatim CV quote
+    in another language scores near-zero on token overlap but is valid evidence.
+    The cheap slot shares the Flash-Lite model with extract: this is call-level
+    (not model-level) separation, acceptable for a prototype; move the judge to
+    the `reasoning` slot if stronger separation is wanted. The judge may raise
+    or return a malformed/wrong-length result — `verify.drop_unverified_compat`
+    fails open on all of those, so a grader failure never false-drops evidence.
+    """
+
+    async def judge(pairs: list[tuple[str, str]]) -> Sequence[bool]:
+        payload = json.dumps(
+            {"pairs": [{"claim": claim, "quote": quote} for claim, quote in pairs]},
+            ensure_ascii=False,
+        )
+        raw = await client.complete_json(
+            system=load_prompt("verify_compat.md"),
+            user=payload,
+            schema=_CompatVerdicts,
+            model="cheap",
+            temperature=0.0,
+            max_tokens=512,
+        )
+        if not isinstance(raw, _CompatVerdicts):
+            raise TypeError(f"compat judge returned {type(raw).__name__}, expected _CompatVerdicts")
+        return raw.verdicts
+
+    return judge
+
+
 async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
     """Run L3 profile extraction. Returns Profile on success, StageFailure on stage error.
 
@@ -258,15 +302,20 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
             raise TypeError(f"complete_json returned {type(raw).__name__}, expected Profile")
         profile = raw
 
-        total_dropped = 0
-        total_kept = 0
-        kept_lists: dict[str, list[ProfileItem]] = {}
-        for field in _LIST_FIELDS:
-            items: list[ProfileItem] = getattr(profile, field)
-            kept, dropped = drop_unverified(items, redacted.text)
-            kept_lists[field] = kept
-            total_kept += len(kept)
-            total_dropped += dropped
+        # Per-claim anchor verification (existence) + claim–quote compatibility.
+        # The compat gate runs across all four list fields in ONE batched judge
+        # call (≤1 cheap-slot LLM call per CV, only for sub-threshold suspects);
+        # most CVs have no suspects and make zero judge calls.
+        fields: dict[str, list[ProfileItem]] = {
+            field: getattr(profile, field) for field in _LIST_FIELDS
+        }
+        kept_lists, existence_dropped, compat_dropped = await drop_unverified_compat(
+            fields,
+            redacted.text,
+            claim_attr="text",
+            judge=_make_compat_judge(client),
+        )
+        total_kept = sum(len(kept_lists[field]) for field in _LIST_FIELDS)
 
         total_kept += _salvage_missing_profile_evidence(kept_lists, redacted.text)
 
@@ -291,7 +340,8 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
                 user_message=LOW_EVIDENCE_MSG,
                 debug_detail=(
                     f"composite={composite} threshold={MIN_CV_SCORE} "
-                    f"kept={counts} dropped={total_dropped}"
+                    f"kept={counts} existence_dropped={existence_dropped} "
+                    f"compat_dropped={compat_dropped}"
                 ),
             )
 
@@ -341,7 +391,18 @@ async def extract_profile(redacted: RedactedCV) -> Profile | StageFailure:
         update["role_normalization_source"] = normalized.source
 
         verified = profile.model_copy(update=update)
-        obs.emit("extract", "verify", dropped=total_dropped, kept=total_kept)
+        # `dropped` carries hallucination-guard drops ONLY (anchor quote absent
+        # from the CV); `compat_dropped` is the orthogonal claim/quote-support
+        # axis. Keeping them distinct is what lets the live anchor-survival gate
+        # measure existence-survival without the compat gate polluting it (a
+        # stricter compat gate must never fail a hallucination test).
+        obs.emit(
+            "extract",
+            "verify",
+            dropped=existence_dropped,
+            compat_dropped=compat_dropped,
+            kept=total_kept,
+        )
         obs.emit("extract", "done", duration_ms=_ms(), kept=total_kept)
         return verified
 
