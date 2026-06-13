@@ -312,20 +312,31 @@ def _tracker_announcement(report: Report) -> str:
 
     The visual `.tracker` re-renders every pipeline yield; putting `aria-live` on
     the whole pill row makes a screen reader re-announce all six pills each time.
-    Instead this returns a single string describing the *current* state — the
-    running stage, else the first failure, else completion. A polite live region
-    only fires when its text changes, so as the running stage advances
-    (Profile → Score → …) the reader hears exactly one transition per stage.
+    Instead this returns a single string describing the *current* state. A polite
+    live region only fires when its text changes, so as the run advances
+    (Profile → Score → …) the reader hears one transition per stage.
+
+    Priority: the running stage, else the first failure, else — while stages are
+    still pending (the initial all-pending yield, and the gap after profile
+    finishes before score/salary start) — the next waiting stage. "Analysis
+    complete" is reserved for when every stage is terminal (done/failed/skipped),
+    so a screen reader is never told the run finished while pills still show
+    pending work.
     """
     failed_label: str | None = None
+    pending_label: str | None = None
     for stage in REPORT_STAGE_NAMES:
         status = report.statuses[stage]
         if status == "running":
             return f"{_label_for_stage(report, stage)}: in progress"
         if status == "failed" and failed_label is None:
             failed_label = _label_for_stage(report, stage)
+        if status == "pending" and pending_label is None:
+            pending_label = _label_for_stage(report, stage)
     if failed_label is not None:
         return f"{failed_label}: failed"
+    if pending_label is not None:
+        return f"{pending_label}: waiting"
     return "Analysis complete"
 
 
@@ -576,7 +587,10 @@ def render_body(report: Report) -> str:
     if isinstance(report.profile, StageFailure):
         return _failure_callout_html(report.profile)
 
-    salary_role = report.profile.canonical_role or report.profile.detected_role
+    # A whitespace-only canonical_role is falsy for caption purposes — strip
+    # before the fallback so a blank LLM value yields detected_role, not a
+    # caption suppressed by `_salary_context_line`'s own empty-after-strip check.
+    salary_role = (report.profile.canonical_role or "").strip() or report.profile.detected_role
     sections = [
         _about_banner(),
         _score_section(report.score, report.profile.seniority_band),

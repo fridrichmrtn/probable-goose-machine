@@ -313,6 +313,44 @@ def test_render_tracker_announces_completion_when_all_terminal() -> None:
     assert ">Analysis complete</p>" in out
 
 
+@pytest.mark.fast
+def test_render_tracker_announces_waiting_not_complete_when_all_pending() -> None:
+    # The pipeline's initial yield sets every stage pending. A polite live region
+    # must not announce "Analysis complete" before anything has run — it says the
+    # first waiting stage instead.
+    report = _make_report(
+        statuses=_statuses(
+            profile="pending",
+            score="pending",
+            salary="pending",
+            confidence="pending",
+            growth="pending",
+        )
+    )
+    out = render_tracker(report)
+    assert ">Profile: waiting</p>" in out
+    assert "Analysis complete" not in out
+
+
+@pytest.mark.fast
+def test_render_tracker_announces_next_waiting_stage_in_gap() -> None:
+    # After profile finishes but before score/salary start (a real intermediate
+    # yield) nothing is running and nothing failed — announce the next waiting
+    # stage, not completion.
+    report = _make_report(
+        statuses=_statuses(
+            profile="done",
+            score="pending",
+            salary="pending",
+            confidence="pending",
+            growth="pending",
+        )
+    )
+    out = render_tracker(report)
+    assert ">Score: waiting</p>" in out
+    assert "Analysis complete" not in out
+
+
 # ---------- render_body — populated ----------
 
 
@@ -471,6 +509,15 @@ def test_render_body_salary_caption_shows_canonical_role_and_location() -> None:
 def test_render_body_salary_caption_falls_back_to_detected_role() -> None:
     # _profile() leaves canonical_role None; the caption uses detected_role.
     profile = _profile().model_copy(update={"detected_location": "Brno"})
+    out = render_body(_make_report(profile=profile))
+    assert '<p class="gander-salary-context">engineer · Brno</p>' in out
+
+
+@pytest.mark.fast
+def test_render_body_salary_caption_falls_back_when_canonical_role_blank() -> None:
+    # A whitespace-only canonical_role is not a usable role: it must fall back to
+    # detected_role, not suppress the caption (it is falsy after strip()).
+    profile = _profile().model_copy(update={"canonical_role": "   ", "detected_location": "Brno"})
     out = render_body(_make_report(profile=profile))
     assert '<p class="gander-salary-context">engineer · Brno</p>' in out
 

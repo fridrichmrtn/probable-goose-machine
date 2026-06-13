@@ -521,6 +521,34 @@ coverage; P2.3 (rerun crutch) was a comment-only honesty fix, removal deferred p
 the prototype budget. The items below are the review-burst leftovers — none block
 the branch.
 
+### Resolved in the PR #44 review pass (commit `fix(p2): PR #44 review pass`)
+- **`_tracker_announcement` premature "Analysis complete" (functional bug).** On the
+  pipeline's all-pending initial yield and the profile-done/downstream-pending gap,
+  no stage is running or failed, so the announcement fell through to "Analysis
+  complete" — telling a screen reader the run finished while pills still showed
+  pending work. Fixed: completion is now gated on every stage being terminal
+  (done/failed/skipped); otherwise the next waiting stage is announced
+  ("{Label}: waiting"). Regression tests in `test_render.py` cover both yields.
+- **`check_env` blocked the headline `local` provider (functional bug).** The boot
+  gate raised unconditionally without `OPENROUTER_API_KEY`, so a fully-local text-slot
+  config — the whole point of P2.4 — could not start. Fixed: the key is required only
+  when at least one text slot (reasoning/cheap/extract) routes to OpenRouter; vision is
+  excluded (it degrades back to OpenRouter). `_MISSING_KEY_MESSAGE` now names the
+  `GANDER_LLM_PROVIDER=local` opt-out. +3 `check_env` tests.
+- **Whitespace-only `canonical_role` suppressed the salary caption (render bug).** A
+  blank-but-truthy canonical role won `canonical_role or detected_role`, then
+  `_salary_context_line`'s own empty-after-strip check dropped the caption entirely.
+  Fixed upstream: strip before the fallback so a blank canonical yields detected_role.
+- **Loose contrast-test assertions (test quality).** `test_a11y_contrast.py` checked
+  the hex pairs with unscoped `in` substring matches that also matched other rules
+  reusing the same hexes (dark disabled inverts the pair; `#667085` recurs in
+  `.pill.pending`/`.gander-salary-context`/`.gander-component-score`). Tightened to
+  regex-scope each assertion to the specific `:disabled` / `.pill.skipped` rule block.
+- **Docs clarity (`README.md`, `.env.example`).** Clarified that `GANDER_LLM_PROVIDER=local`
+  switches every text slot at once (per-slot overrides layer on top), and that a
+  fully-local text config boots with no key — with the caveat that a PDF still needs the
+  key or `GANDER_PDF_INGEST_MODE=text` because vision stays OpenRouter.
+
 ### Should-fix (deferred)
 - [self-review] src/gander/llm.py `MODEL_PRICES` — the two Gemini 3.x entries
   (`google/gemini-3.5-flash`, `google/gemini-3.1-flash-lite`) are transcribed from

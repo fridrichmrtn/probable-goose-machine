@@ -217,6 +217,48 @@ def test_check_env_passes_with_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.fast
+def test_check_env_allows_keyless_global_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Headline P2.4 case: GANDER_LLM_PROVIDER=local routes every text slot to a
+    # self-hosted box, so the boot gate must not require an OpenRouter key.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for slot in ("REASONING", "CHEAP", "EXTRACT", "VISION"):
+        monkeypatch.delenv(f"GANDER_LLM_PROVIDER_{slot}", raising=False)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "local")
+    check_env()  # must not raise
+
+
+@pytest.mark.fast
+def test_check_env_allows_keyless_when_all_text_slots_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Per-slot opt-in for every text slot is equivalent to the global switch.
+    # Vision is excluded from the gate (it degrades back to OpenRouter), so an
+    # unset vision slot does not re-require the key.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("GANDER_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("GANDER_LLM_PROVIDER_VISION", raising=False)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_REASONING", "local")
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_CHEAP", "local")
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "local")
+    check_env()  # must not raise
+
+
+@pytest.mark.fast
+def test_check_env_raises_when_any_text_slot_uses_openrouter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Mixed config: global local but one text slot still on OpenRouter ⇒ the key
+    # is still required (a per-slot value overrides the global for that slot).
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for slot in ("REASONING", "CHEAP", "EXTRACT", "VISION"):
+        monkeypatch.delenv(f"GANDER_LLM_PROVIDER_{slot}", raising=False)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "local")
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "openrouter")
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        check_env()
+
+
+@pytest.mark.fast
 def test_llmclient_construction_is_cheap_without_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

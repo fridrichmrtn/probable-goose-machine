@@ -8,6 +8,7 @@ so changing the CSS colour without re-checking contrast fails here.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -48,9 +49,15 @@ def test_contrast_helper_matches_known_reference() -> None:
 def test_light_disabled_button_meets_aa() -> None:
     fg, bg = "#7c2d12", "#fed7aa"
     assert _contrast_ratio(fg, bg) >= _AA_NORMAL
-    # The pair is actually wired into the disabled-button rule.
-    assert f"color: {fg}" in _APP_CSS
-    assert f"background: {bg}" in _APP_CSS
+    # Scope to the *light* disabled-button rule block specifically. The dark
+    # rules reuse these same two hexes inverted (#7c2d12 background, #fed7aa
+    # text), so an unscoped substring check would pass on the wrong rule. The
+    # light block is the only `:disabled` selector anchored at column 0.
+    m = re.search(r"^button\.primary:disabled,.*?\{(.*?)\}", _APP_CSS, re.MULTILINE | re.DOTALL)
+    assert m is not None
+    block = m.group(1)
+    assert f"color: {fg}" in block
+    assert f"background: {bg}" in block
 
 
 @pytest.mark.fast
@@ -58,5 +65,11 @@ def test_skipped_pill_meets_aa() -> None:
     # Pill background is transparent; in light mode it composites over white.
     fg, bg = "#667085", "#ffffff"
     assert _contrast_ratio(fg, bg) >= _AA_NORMAL
-    assert ".pill.skipped" in _REPORT_PY
-    assert f"color: {fg}" in _REPORT_PY
+    # Scope to the `.pill.skipped` rule block. #667085 also appears in
+    # `.pill.pending`, `.gander-salary-context`, and `.gander-component-score`,
+    # so an unscoped substring check would stay green even if the skipped pill
+    # regressed. `re.search` returns the first (light-mode) block; the dark
+    # overrides use #71717a.
+    m = re.search(r"\.pill\.skipped\s*\{([^}]*)\}", _REPORT_PY)
+    assert m is not None
+    assert f"color: {fg}" in m.group(1)

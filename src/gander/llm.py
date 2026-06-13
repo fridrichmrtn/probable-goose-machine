@@ -171,7 +171,40 @@ MODEL_PRICES: dict[str, tuple[float, float]] = {
 _DEFAULT_LLM_TIMEOUT_S = 60.0
 _DEFAULT_VISION_TIMEOUT_S = 120.0
 
-_MISSING_KEY_MESSAGE = "OPENROUTER_API_KEY not set — add it to .env or export it"
+_MISSING_KEY_MESSAGE = (
+    "OPENROUTER_API_KEY not set — add it to .env or export it "
+    "(or set GANDER_LLM_PROVIDER=local to run text slots fully self-hosted)"
+)
+
+# Slots whose provider decides whether an OpenRouter key is required at boot.
+# Vision is deliberately excluded: it is pinned to OpenRouter but degrades to
+# the text-ingest fallback when the key is absent (GANDER_PDF_INGEST_MODE=text),
+# so it must not force the boot gate on its own.
+_TEXT_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract")
+
+
+def _slot_provider(logical: LogicalModel) -> str:
+    """Provider a slot resolves to from env, mirroring `_resolve_provider`.
+
+    Module-level (no `LLMClient` instance) so the boot gate can ask the
+    question before any client is built: per-slot `GANDER_LLM_PROVIDER_<SLOT>`
+    wins, else the global `GANDER_LLM_PROVIDER` (default `openrouter`).
+    """
+    raw = os.environ.get(f"GANDER_LLM_PROVIDER_{logical.upper()}")
+    if raw is None:
+        raw = os.environ.get("GANDER_LLM_PROVIDER", "openrouter")
+    return raw.strip().lower()
+
+
+def _openrouter_required() -> bool:
+    """True when any text slot still routes to OpenRouter.
+
+    A value other than `local` (including a typo) is treated as needing the
+    key — conservative, and the actual provider validation surfaces when
+    `LLMClient` is built. When every text slot is opted into `local`, Gander
+    runs fully self-hosted and needs no OpenRouter key.
+    """
+    return any(_slot_provider(slot) != "local" for slot in _TEXT_SLOTS)
 
 
 def check_env() -> None:
@@ -181,8 +214,12 @@ def check_env() -> None:
     message instead of a confusing auth error on the first real LLM call.
     `LLMClient` construction itself stays cheap and does not raise, so tests
     that stub LLM methods need no fake key.
+
+    The OpenRouter key is required only when at least one text slot routes to
+    OpenRouter; an all-`local` text config boots keyless (vision still needs
+    the key or `GANDER_PDF_INGEST_MODE=text` for PDFs — see `_TEXT_SLOTS`).
     """
-    if not os.environ.get("OPENROUTER_API_KEY"):
+    if _openrouter_required() and not os.environ.get("OPENROUTER_API_KEY"):
         raise RuntimeError(_MISSING_KEY_MESSAGE)
 
 

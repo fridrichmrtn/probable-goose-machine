@@ -50,6 +50,29 @@ The `live` / `openrouter-live` lanes were **not** run — they need an `OPENROUT
 
 Full review-burst leftovers (4 should-fix, 2 nits) are appended to `tasks/backlog.md` under the `prod-readiness-p2` block.
 
+## PR #44 review pass (commit `fix(p2): PR #44 review pass`)
+A review burst on PR #44 surfaced two genuine functional bugs (both filed by the
+author), one render bug, one test-quality issue, and a docs-clarity gap. All five
+fixed on this branch; details in `tasks/backlog.md` (`prod-readiness-p2` block,
+"Resolved in the PR #44 review pass"):
+- **A — `_tracker_announcement`** announced "Analysis complete" on the all-pending
+  initial yield and the profile-done/downstream-pending gap (no stage running/failed
+  → fell through to completion). Now gated on all-terminal; otherwise announces the
+  next waiting stage. +2 regression tests.
+- **B — `check_env`** raised without `OPENROUTER_API_KEY` even when every text slot
+  was `local`, blocking the P2.4 headline feature from booting. Now provider-aware
+  (key required only if a text slot routes to OpenRouter; vision excluded). +3 tests.
+- **C — salary caption** suppressed when `canonical_role` was whitespace-only; strip
+  before the `or detected_role` fallback. +1 test.
+- **E — `test_a11y_contrast.py`** assertions scoped to the specific CSS rule blocks
+  (were unscoped substring matches that other rules' reused hexes could satisfy).
+- **D — docs** (`README.md`, `.env.example`): global `GANDER_LLM_PROVIDER=local`
+  switches all text slots at once; keyless boot caveat for PDF vision ingest.
+
+Gate after the pass: `ruff format --check` / `ruff check` / `mypy src/` clean;
+`pytest -m fast --strict-markers` → **742 passed, 97 deselected** (+6 from the
+736 above). `live`/`openrouter-live` still not run locally (no key/network).
+
 ## Cleanup
 When you're done with this work:
 ```
