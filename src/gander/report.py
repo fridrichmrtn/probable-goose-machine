@@ -111,23 +111,12 @@ STYLE = """<style>
   --g-radius-md:   8px;
   --g-radius-pill: 999px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --g-fg: #f4f4f5;
-    --g-fg-muted: #d4d4d8;
-    --g-fg-subtle: #a1a1aa;
-    --g-border: #3f3f46;
-    --g-border-strong: #52525b;
-    --g-surface: #18181b;
-    --g-surface-2: #27272a;
-    --g-accent: #fdba74;
-    --g-ok: #22c55e;
-    --g-warn: #f59e0b;
-    --g-err: #ef4444;
-    --g-err-bg: #450a0a;
-    --g-err-fg: #fecaca;
-  }
-}
+/* Dark theme is driven solely by `body.dark` (Gradio's rendered-theme class) — the
+   single source of truth. A prior OS-keyed `prefers-color-scheme: dark` copy of these
+   tokens desynced from Gradio: a dark-OS viewer of a LIGHT Gradio page got near-white
+   tokens on a light background. report.STYLE only ever renders inside Gradio (the
+   download artifact is markdown), so no no-JS consumer needs the OS query. Do not
+   reintroduce an OS media query here — it re-splits the theme into two signals. */
 body.dark {
   --g-fg: #f4f4f5;
   --g-fg-muted: #d4d4d8;

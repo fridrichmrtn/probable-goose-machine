@@ -153,15 +153,10 @@ button.primary:disabled,
   background: #fed7aa !important; border-color: #fed7aa !important;
   color: #7c2d12 !important; cursor: not-allowed; opacity: 1;
 }
-/* Hero text colors are token-driven (above), so they need no per-theme overrides
-   here — only the brand-colored disabled button does. */
-@media (prefers-color-scheme: dark) {
-  button.primary:disabled,
-  .gradio-container button.primary:disabled {
-    background: #7c2d12 !important; border-color: #7c2d12 !important;
-    color: #fed7aa !important; opacity: 0.7;
-  }
-}
+/* Theme is single-source on `body.dark` (see report.STYLE): hero text is token-driven
+   and the brand-colored disabled button overrides via `body.dark` alone. A prior
+   OS-keyed `prefers-color-scheme: dark` copy restyled the button on a dark OS even when
+   Gradio rendered the light page — the same desync the report tokens had. */
 body.dark button.primary:disabled,
 body.dark .gradio-container button.primary:disabled {
   background: #7c2d12 !important; border-color: #7c2d12 !important;
