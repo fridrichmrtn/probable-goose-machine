@@ -675,8 +675,11 @@ async def test_extract_role_recovery_preserves_cv_order_over_peak_seniority(
     result = await extract_profile(redacted)
 
     assert isinstance(result, Profile)
+    # Canonical role and management flag preserve the current IC role over the
+    # peak Head title; the band floor lifts the 8y IC-with-management-history to
+    # staff (top IC band) so the salary anchor reflects the prior leadership.
     assert result.canonical_role == "data scientist"
-    assert result.seniority_band == "mid"
+    assert result.seniority_band == "staff"
     assert result.is_management is False
     assert result.role_normalization_source == "market_token"
 

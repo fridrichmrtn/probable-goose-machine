@@ -90,6 +90,7 @@ _BAND_RANK: Final[dict[SeniorityBand, int]] = {
     "head": 4,
     "director": 5,
 }
+_RANK_TO_BAND: Final[dict[int, SeniorityBand]] = {rank: band for band, rank in _BAND_RANK.items()}
 
 _SORTED_SENIORITY_TOKENS: Final = sorted(_SENIORITY_TOKENS.items(), key=lambda kv: -len(kv[0]))
 _ROLE_TOKEN_RE: Final = re.compile(rf"\b(?:{'|'.join(_ROLE_TOKENS)})\b")
@@ -213,6 +214,55 @@ def _recover_current_title(titles: list[str]) -> tuple[str, SeniorityBand, bool]
     return None
 
 
+def _has_management_evidence(experience_titles: list[str]) -> bool:
+    """True when any prior title classifies as a management role.
+
+    Loose by design — this scans the raw strings via `_classify` and does NOT
+    require `_is_title_shaped_candidate`. So prose like "Senior Manager AI and
+    Data Science led two analytics squads" still counts as leadership evidence
+    for the band floor, even though the canonical-role recovery deliberately
+    rejects that same sentence-shaped string. Level should reflect demonstrated
+    management history; the canonical title stays the conservative current role.
+    """
+    for title in experience_titles:
+        classified = _classify(title)
+        if classified is not None and classified[1]:  # (band, is_management)
+            return True
+    return False
+
+
+def _tenure_floor_rank(years: int) -> int:
+    """Gentle tenure floor: a long career is at least senior (IC).
+
+    Never reaches staff on years alone — the staff lift requires demonstrated
+    management history (see `_apply_seniority_floor`).
+    """
+    if years >= 8:
+        return _BAND_RANK["senior"]
+    if years >= 4:
+        return _BAND_RANK["mid"]
+    return _BAND_RANK["junior"]
+
+
+def _apply_seniority_floor(
+    role: NormalizedRole, years: int, experience_titles: list[str]
+) -> NormalizedRole:
+    """Floor `seniority_band` by tenure + leadership history. Raise only.
+
+    Never lowers the band and never touches `canonical_role` or `is_management`.
+    A long-tenured IC (years>=8) with management history in the CV is lifted to
+    the top IC band (`staff`) — capped there, so demonstrated leadership benches
+    an IC at staff rather than claiming a current head/director title. Management
+    current-roles are untouched; their band already reflects their seniority.
+    """
+    rank = max(_BAND_RANK[role.seniority_band], _tenure_floor_rank(years))
+    if not role.is_management and years >= 8 and _has_management_evidence(experience_titles):
+        rank = max(rank, _BAND_RANK["staff"])
+    if rank == _BAND_RANK[role.seniority_band]:
+        return role
+    return role.model_copy(update={"seniority_band": _RANK_TO_BAND[rank]})
+
+
 def _emit_normalized(detected: str, result: NormalizedRole) -> None:
     if result.canonical_role.strip() != detected.lower().strip():
         obs.emit(
@@ -225,9 +275,25 @@ def _emit_normalized(detected: str, result: NormalizedRole) -> None:
         )
 
 
+def _finalize(
+    detected_role: str,
+    result: NormalizedRole,
+    years: int,
+    experience_titles: list[str],
+) -> NormalizedRole:
+    """Floor the seniority band, emit the normalization signal, return.
+
+    Single exit for every recognized path so the emitted `seniority` always
+    reflects the tenure/leadership floor (see `_apply_seniority_floor`).
+    """
+    floored = _apply_seniority_floor(result, years, experience_titles)
+    _emit_normalized(detected_role, floored)
+    return floored
+
+
 def normalize_role(
     detected_role: str,
-    years: int,  # noqa: ARG001 — reserved for future band-floor logic
+    years: int,
     experience_titles: list[str],
 ) -> NormalizedRole:
     """Normalize `detected_role` to canonical market vocabulary.
@@ -235,6 +301,9 @@ def normalize_role(
     Synchronous, deterministic-only. Returns `source="unrecognized"` when no
     deterministic path resolves; callers wanting an LLM fallback should use
     `normalize_role_with_llm_fallback`.
+
+    Every recognized path exits through `_finalize`, which floors the seniority
+    band by tenure + leadership history before emitting.
     """
     detected = detected_role.strip()
     denylisted = _is_named_denylist(detected)
@@ -254,16 +323,14 @@ def normalize_role(
                     is_management=recovered_mgmt,
                     source="experience_recovery",
                 )
-                _emit_normalized(detected_role, result)
-                return result
+                return _finalize(detected_role, result, years, experience_titles)
         result = NormalizedRole(
             canonical_role=detected.lower(),
             seniority_band=band,
             is_management=mgmt,
             source="market_token",
         )
-        _emit_normalized(detected_role, result)
-        return result
+        return _finalize(detected_role, result, years, experience_titles)
 
     if denylisted or tagline:
         recovered = _recover_from_titles(experience_titles)
@@ -276,8 +343,7 @@ def normalize_role(
                 is_management=mgmt,
                 source=source,
             )
-            _emit_normalized(detected_role, result)
-            return result
+            return _finalize(detected_role, result, years, experience_titles)
 
     result = NormalizedRole(
         canonical_role=(detected.lower() or "unknown"),
@@ -285,8 +351,9 @@ def normalize_role(
         is_management=False,
         source="unrecognized",
     )
+    floored = _apply_seniority_floor(result, years, experience_titles)
     obs.emit("extract", "role_unrecognized", detected=detected_role, fallback="mid_default")
-    return result
+    return floored
 
 
 class _LLMCanonicalRole(BaseModel):
@@ -297,7 +364,7 @@ class _LLMCanonicalRole(BaseModel):
 
 
 _LLM_CANONICALIZE_PROMPT = """\
-You normalize a candidate's headline to canonical Czech labor-market vocabulary.
+You normalize a candidate's headline to canonical labor-market vocabulary.
 
 Inputs (JSON):
 - `detected_role`: the verbatim headline.
@@ -374,6 +441,9 @@ async def normalize_role_with_llm_fallback(
     llm_result = await _llm_canonicalize_role(detected_role, experience_titles, years)
     if llm_result is None:
         return sync_result
+    # Floor the LLM band by the same tenure/leadership rule as the deterministic
+    # paths, so the emitted seniority is consistent regardless of band source.
+    llm_result = _apply_seniority_floor(llm_result, years, experience_titles)
     obs.emit(
         "extract",
         "role_normalized",
