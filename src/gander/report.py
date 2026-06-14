@@ -99,24 +99,24 @@ STYLE = """<style>
   --g-err: #f04438;
   --g-err-bg: #fef3f2;
   --g-err-fg: #7a271a;
+  /* Type scale — 6 steps; theme-independent */
+  --g-text-xs:   0.8rem;
+  --g-text-sm:   0.9rem;
+  --g-text-base: 1rem;
+  --g-text-lg:   1.25rem;
+  --g-text-xl:   1.75rem;
+  --g-text-2xl:  3rem;
+  /* Corner radius — 3 steps; theme-independent */
+  --g-radius-sm:   4px;
+  --g-radius-md:   8px;
+  --g-radius-pill: 999px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --g-fg: #f4f4f5;
-    --g-fg-muted: #d4d4d8;
-    --g-fg-subtle: #a1a1aa;
-    --g-border: #3f3f46;
-    --g-border-strong: #52525b;
-    --g-surface: #18181b;
-    --g-surface-2: #27272a;
-    --g-accent: #fdba74;
-    --g-ok: #22c55e;
-    --g-warn: #f59e0b;
-    --g-err: #ef4444;
-    --g-err-bg: #450a0a;
-    --g-err-fg: #fecaca;
-  }
-}
+/* Dark theme is driven solely by `body.dark` (Gradio's rendered-theme class) — the
+   single source of truth. A prior OS-keyed `prefers-color-scheme: dark` copy of these
+   tokens desynced from Gradio: a dark-OS viewer of a LIGHT Gradio page got near-white
+   tokens on a light background. report.STYLE only ever renders inside Gradio (the
+   download artifact is markdown), so no no-JS consumer needs the OS query. Do not
+   reintroduce an OS media query here — it re-splits the theme into two signals. */
 body.dark {
   --g-fg: #f4f4f5;
   --g-fg-muted: #d4d4d8;
@@ -148,11 +148,11 @@ body.dark {
 .pill {
   display: inline-flex; align-items: center; gap: 0.4rem;
   padding: 0.2rem 0.65rem 0.2rem 0.55rem;
-  border-radius: 999px;
+  border-radius: var(--g-radius-pill);
   border: 1px solid var(--g-border);
   border-left: 3px solid var(--g-border-strong);
   background: transparent; color: var(--g-fg-subtle);
-  font-size: 0.8125rem; line-height: 1.25;
+  font-size: var(--g-text-xs); line-height: 1.25;
   transition: border-color 120ms ease, color 120ms ease;
 }
 .pill::before { content: attr(data-glyph); font-weight: 700; opacity: 0.95; }
@@ -178,10 +178,10 @@ body.dark {
 .gander-status {
   display: flex; align-items: center; gap: 0.55rem;
   font-family: system-ui, sans-serif; color: var(--g-fg-muted);
-  font-size: 0.95rem; margin: 0.5rem 0;
+  font-size: var(--g-text-sm); margin: 0.5rem 0;
 }
 .gander-status-dot {
-  width: 0.6rem; height: 0.6rem; border-radius: 999px;
+  width: 0.6rem; height: 0.6rem; border-radius: var(--g-radius-pill);
   background: var(--g-warn); flex-shrink: 0;
   animation: ganderPulse 1.2s ease-in-out infinite;
 }
@@ -194,10 +194,10 @@ body.dark {
 .gander-h2 {
   margin: 2rem 0 0.75rem; padding-top: 1.25rem;
   border-top: 1px solid var(--g-border);
-  font-size: 1.25rem; font-weight: 600; color: var(--g-fg);
+  font-size: var(--g-text-lg); font-weight: 600; color: var(--g-fg);
 }
 .gander-h3 {
-  margin: 1.25rem 0 0.5rem; font-size: 0.95rem;
+  margin: 1.25rem 0 0.5rem; font-size: var(--g-text-sm);
   font-weight: 600; color: var(--g-fg-muted);
 }
 
@@ -205,24 +205,26 @@ body.dark {
 .gander-score-section { margin: 0.25rem 0 0.5rem; }
 .gander-score-label {
   margin: 0; padding: 0; border: 0;
-  font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.04em;
+  font-size: var(--g-text-xs); font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--g-fg-subtle);
 }
 .gander-score {
   display: flex; align-items: baseline; gap: 0.5rem;
   margin: 0.15rem 0 0; flex-wrap: wrap;
 }
-.gander-score-num { font-size: 3rem; font-weight: 700; line-height: 1; color: var(--g-fg); }
-.gander-score-denom { font-size: 1.25rem; font-weight: 500; color: var(--g-fg-subtle); }
+.gander-score-num {
+  font-size: var(--g-text-2xl); font-weight: 700; line-height: 1; color: var(--g-fg);
+}
+.gander-score-denom { font-size: var(--g-text-lg); font-weight: 500; color: var(--g-fg-subtle); }
 .gander-tier-chip {
   align-self: center; margin-left: 0.25rem;
-  font-size: 0.8125rem; font-weight: 600;
-  padding: 0.2rem 0.6rem; border-radius: 999px;
+  font-size: var(--g-text-xs); font-weight: 600;
+  padding: 0.2rem 0.6rem; border-radius: var(--g-radius-pill); white-space: nowrap;
   background: var(--g-surface-2); border: 1px solid var(--g-border);
   color: var(--g-fg-muted);
 }
 .gander-score-note {
-  margin: 0.5rem 0 0; font-size: 0.85rem; font-style: italic; color: var(--g-fg-subtle);
+  margin: 0.5rem 0 0; font-size: var(--g-text-sm); font-style: italic; color: var(--g-fg-subtle);
 }
 .gander-visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -231,33 +233,37 @@ body.dark {
 
 /* ---- Component grid ---- */
 .gander-components-grid {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
   gap: 1rem; align-items: stretch; margin: 1rem 0;
 }
 .gander-component {
   display: flex; flex-direction: column;
-  border: 1px solid var(--g-border); border-radius: 8px;
+  border: 1px solid var(--g-border); border-radius: var(--g-radius-md);
   padding: 0.9rem 1rem; background: var(--g-surface-2);
 }
 .gander-component-head {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 0.5rem; margin-bottom: 0.4rem;
 }
-.gander-component-name { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--g-fg); }
-.gander-component-score {
-  font-size: 1.1rem; font-weight: 700; color: var(--g-fg); white-space: nowrap;
+.gander-component-name {
+  margin: 0; font-size: var(--g-text-sm); font-weight: 600; color: var(--g-fg);
 }
-.gander-component-score-max { font-size: 0.8rem; font-weight: 500; color: var(--g-fg-subtle); }
+.gander-component-score {
+  font-size: var(--g-text-base); font-weight: 700; color: var(--g-fg); white-space: nowrap;
+}
+.gander-component-score-max {
+  font-size: var(--g-text-xs); font-weight: 500; color: var(--g-fg-subtle);
+}
 .gander-component-just {
-  margin: 0 0 0.5rem; font-size: 0.9rem; line-height: 1.5; color: var(--g-fg-muted);
+  margin: 0 0 0.5rem; font-size: var(--g-text-sm); line-height: 1.5; color: var(--g-fg-muted);
 }
 .gander-component-quote {
   display: block; margin: 0; padding-left: 0.7rem;
   border-left: 3px solid var(--g-border-strong);
-  color: var(--g-fg-muted); font-size: 0.875rem; line-height: 1.5;
+  color: var(--g-fg-muted); font-size: var(--g-text-sm); line-height: 1.5;
 }
 .gander-component-cite {
-  display: block; margin-top: 0.3rem; font-size: 0.8rem;
+  display: block; margin-top: 0.3rem; font-size: var(--g-text-xs);
   font-style: normal; color: var(--g-fg-subtle);
 }
 /* Long-quote disclosure: clamp the preview to a few lines and reveal the rest
@@ -269,12 +275,12 @@ body.dark {
 .gander-evidence-summary::-webkit-details-marker { display: none; }
 .gander-evidence-summary::after {
   content: "Show full evidence"; display: inline-block; margin-top: 0.4rem;
-  font-size: 0.8rem; font-weight: 600; color: var(--g-accent);
+  font-size: var(--g-text-xs); font-weight: 600; color: var(--g-accent);
 }
 .gander-evidence[open] .gander-evidence-summary::after { content: "Show less"; }
 .gander-evidence-summary:hover::after { text-decoration: underline; }
 .gander-evidence-summary:focus-visible {
-  outline: 2px solid var(--g-accent); outline-offset: 2px; border-radius: 4px;
+  outline: 2px solid var(--g-accent); outline-offset: 2px; border-radius: var(--g-radius-sm);
 }
 .gander-evidence:not([open]) .gander-component-quote {
   display: -webkit-box; -webkit-box-orient: vertical;
@@ -283,35 +289,47 @@ body.dark {
 
 /* ---- Salary ---- */
 .gander-salary-context {
-  font-size: 0.875rem; color: var(--g-fg-subtle); margin: 0 0 0.1rem;
+  font-size: var(--g-text-sm); color: var(--g-fg-subtle); margin: 0 0 0.1rem; line-height: 1.4;
 }
 .gander-salary-range {
-  font-size: 1.75rem; font-weight: 700; margin: 0.25rem 0 0.5rem; color: var(--g-fg);
+  font-size: var(--g-text-xl); font-weight: 700; margin: 0.25rem 0 0.5rem; color: var(--g-fg);
+  line-height: 1.2; overflow-wrap: break-word;
 }
-.gander-salary-unit { font-size: 0.9rem; font-weight: 500; color: var(--g-fg-subtle); }
-.gander-salary-reasoning { margin: 0.5rem 0; line-height: 1.6; color: var(--g-fg-muted); }
+.gander-salary-unit {
+  font-size: var(--g-text-sm); font-weight: 500; color: var(--g-fg-subtle); white-space: nowrap;
+}
+.gander-salary-reasoning {
+  margin: 0.5rem 0; line-height: 1.6; color: var(--g-fg-muted); max-width: 68ch;
+}
 .gander-sources { margin: 0.25rem 0; padding-left: 1.1rem; }
-.gander-sources li { margin: 0.3rem 0; font-size: 0.875rem; color: var(--g-fg-muted); }
+.gander-sources li { margin: 0.3rem 0; font-size: var(--g-text-sm); color: var(--g-fg-muted); }
 .gander-source-domain { font-weight: 600; color: var(--g-fg); }
 
 /* ---- Chips ---- */
 .gander-chip {
-  display: inline-block; font-size: 0.75rem; font-weight: 600;
-  padding: 0.15rem 0.6rem; border-radius: 999px;
+  display: inline-block; font-size: var(--g-text-xs); font-weight: 600;
+  padding: 0.15rem 0.6rem; border-radius: var(--g-radius-pill);
   border: 1px solid var(--g-border); background: var(--g-surface-2);
   color: var(--g-fg-muted); margin-bottom: 0.35rem;
 }
 
+/* ---- Confidence ---- */
+.gander-confidence-rationale { max-width: 68ch; }
+
 /* ---- Plan ---- */
-.gander-plan { list-style: decimal; padding-left: 1.3rem; margin: 0.5rem 0; }
+/* Each <li> leads with the action title so the <ol> marker numbers the action,
+   not the leading time-horizon chip; the chip is demoted to a trailing meta line
+   (see _growth_section_html). */
+.gander-plan { list-style: decimal; padding-left: 1.3rem; margin: 0.5rem 0; max-width: 68ch; }
 .gander-plan li + li { margin-top: 1.1rem; }
-.gander-plan-title { margin: 0.15rem 0 0.3rem; font-weight: 600; color: var(--g-fg); }
-.gander-plan-mech { margin: 0; line-height: 1.55; color: var(--g-fg-muted); }
+.gander-plan-title { margin: 0 0 0.3rem; font-weight: 600; color: var(--g-fg); }
+.gander-plan-mech { margin: 0; line-height: 1.55; color: var(--g-fg-muted); max-width: 68ch; }
+.gander-plan .gander-chip { margin: 0.5rem 0 0; }
 
 /* ---- Failure callout ---- */
 .gander-callout {
   border-left: 4px solid var(--g-err); background: var(--g-err-bg); color: var(--g-err-fg);
-  padding: 0.6rem 0.8rem; margin: 0.6rem 0; border-radius: 6px; line-height: 1.5;
+  padding: 0.6rem 0.8rem; margin: 0.6rem 0; border-radius: var(--g-radius-md); line-height: 1.5;
 }
 .gander-callout::before { content: "⚠"; margin-right: 0.45rem; }
 
@@ -319,27 +337,29 @@ body.dark {
 .gander-about, .gander-howscored { margin: 1.25rem 0 0; }
 .gander-about > summary, .gander-howscored > summary {
   cursor: pointer; font-weight: 600; color: var(--g-fg-muted);
-  padding: 0.3rem 0; list-style-position: inside;
+  padding: 0.6rem 0; list-style-position: inside;
+  min-height: 2.75rem; box-sizing: border-box;
 }
 .gander-about > summary:hover, .gander-howscored > summary:hover { color: var(--g-fg); }
 .gander-about > summary:focus-visible, .gander-howscored > summary:focus-visible {
-  outline: 2px solid var(--g-accent); outline-offset: 2px; border-radius: 4px;
+  outline: 2px solid var(--g-accent); outline-offset: 2px; border-radius: var(--g-radius-sm);
 }
 .gander-about p, .gander-about li,
 .gander-howscored p, .gander-howscored li {
-  font-size: 0.875rem; line-height: 1.55; color: var(--g-fg-muted);
+  font-size: var(--g-text-sm); line-height: 1.55; color: var(--g-fg-muted);
 }
 .gander-about strong { color: var(--g-fg); }
-.gander-totals { font-size: 0.85rem; color: var(--g-fg-subtle); }
-.gander-totals-note { font-size: 0.8rem; font-style: italic; color: var(--g-fg-subtle); }
+.gander-totals { font-size: var(--g-text-sm); color: var(--g-fg-subtle); }
+.gander-totals-note { font-size: var(--g-text-xs); font-style: italic; color: var(--g-fg-subtle); }
 .gander-report-notice {
-  font-size: 0.875rem; color: var(--g-fg-muted);
+  font-size: var(--g-text-sm); color: var(--g-fg-muted);
   border-left: 3px solid var(--g-warn); padding-left: 0.6rem; margin: 0.5rem 0;
 }
 .gander-empty { color: var(--g-fg-subtle); font-style: italic; }
 
 @media (max-width: 32rem) {
-  .gander-components-grid { grid-template-columns: 1fr; }
+  /* The grid collapses to one column on its own (auto-fit + min(22rem, 100%)); only
+     the score numeral needs a hand-tuned shrink at phone widths. */
   .gander-score-num { font-size: 2.5rem; }
 }
 </style>"""
@@ -755,12 +775,15 @@ def _growth_section_html(growth: list[GrowthAction] | StageFailure | None) -> st
         return _h2("Plan") + '<p class="gander-empty">No actions.</p>'
     items: list[str] = []
     for action in growth:
+        # Title first so the <ol> marker numbers the action; the time-horizon chip
+        # trails as a meta line (styled by `.gander-plan .gander-chip`). The chip
+        # markup is unchanged — only its position in the <li> moved.
         items.append(
             "<li>"
-            f'<span class="gander-chip" aria-label="Time horizon: {action.time_horizon_months} '
-            f'months">{action.time_horizon_months} months</span>'
             f'<p class="gander-plan-title">{_html_inline(action.what)}</p>'
             f'<p class="gander-plan-mech">{_html_inline(action.mechanism)}</p>'
+            f'<span class="gander-chip" aria-label="Time horizon: {action.time_horizon_months} '
+            f'months">{action.time_horizon_months} months</span>'
             "</li>"
         )
     return _h2("Plan") + '<ol class="gander-plan">' + "".join(items) + "</ol>"

@@ -41,8 +41,8 @@ def _resolve_light_token(css: str, name: str) -> str:
     """Resolve a CSS custom property from the light `:root` block.
 
     The light `:root { … }` is the first one in the stylesheet; dark overrides
-    live in later `@media (prefers-color-scheme: dark)` / `body.dark` blocks, so
-    the first match is the light value the math composites over white.
+    live in the later `body.dark` block (the single dark-theme source), so the
+    first match is the light value the math composites over white.
     """
     root = re.search(r":root\s*\{([^}]*)\}", css)
     assert root is not None, "no :root block found"
@@ -89,3 +89,57 @@ def test_skipped_pill_meets_aa() -> None:
     m = re.search(r"\.pill\.skipped\s*\{([^}]*)\}", _REPORT_PY)
     assert m is not None
     assert "color: var(--g-fg-subtle)" in m.group(1)
+
+
+def _fg_on_light_page_under_os_dark(css: str) -> str:
+    """`--g-fg` as it computes on a LIGHT Gradio page while the OS prefers dark.
+
+    `report.STYLE` only ever renders inside Gradio, whose rendered theme is the
+    `body.dark` class. A light page has no `body.dark`, so the text colour must
+    resolve to the light `:root` value even under a dark OS. If a second,
+    OS-keyed `@media (prefers-color-scheme: dark) :root` override exists it wins
+    on a light page (equal `:root` specificity, later in source) and washes the
+    text out. So: return that override if present, else the light value.
+    """
+    light = _resolve_light_token(css, "--g-fg")
+    media = re.search(r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]*)\}", css)
+    if media:
+        inner = re.search(r"--g-fg:\s*(#[0-9a-fA-F]{6})", media.group(1))
+        if inner:
+            return inner.group(1)
+    return light
+
+
+@pytest.mark.fast
+def test_hero_text_readable_on_light_page_under_os_dark() -> None:
+    """Dark-OS viewer of a LIGHT Gradio page still gets dark-on-light text.
+
+    Regression for PR #46: the hero/report consumed `--g-fg`, but an OS-keyed
+    `@media (prefers-color-scheme: dark)` copy of the tokens flipped `--g-fg` to
+    near-white whenever the OS preferred dark — even while Gradio rendered the
+    light page — leaving washed-out text on a light background. The fix makes
+    `body.dark` the single dark-theme source; this guards the mismatched quadrant.
+    """
+    fg = _fg_on_light_page_under_os_dark(_REPORT_PY)
+    surface = _resolve_light_token(_REPORT_PY, "--g-surface")  # light page background
+    assert _contrast_ratio(fg, surface) >= _AA_NORMAL, (
+        f"--g-fg resolves to {fg} on a light page under OS-dark — unreadable over {surface}"
+    )
+
+
+@pytest.mark.fast
+def test_report_dark_theme_is_single_source() -> None:
+    """The report's dark tokens live only under `body.dark`, never an OS media query.
+
+    A second, OS-keyed signal (`@media (prefers-color-scheme: dark)`) desyncs from
+    Gradio's rendered theme on the light-page/dark-OS quadrant. Lock the single
+    source in so the dual-signal model cannot silently return.
+    """
+    assert "@media (prefers-color-scheme: dark)" not in _REPORT_PY, (
+        "report.STYLE must not redefine --g-* tokens via prefers-color-scheme; "
+        "body.dark is the single dark-theme source"
+    )
+    body_dark = re.search(r"body\.dark\s*\{([^}]*)\}", _REPORT_PY)
+    assert body_dark is not None and "--g-fg: #f4f4f5" in body_dark.group(1), (
+        "body.dark must carry the dark --g-fg token (the one remaining dark source)"
+    )

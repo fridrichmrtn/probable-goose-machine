@@ -111,20 +111,29 @@ def _write_report_md(body: str) -> str:
 
 
 _HERO_CSS = """<style>
-#gander-app { max-width: 72ch; margin-inline: auto; }
+#gander-app { max-width: 60rem; margin-inline: auto; }
 .gander-hero {
   margin: 0.75rem 0 1.5rem; font-family: system-ui, sans-serif;
   display: flex; flex-wrap: wrap; align-items: center; gap: 1rem;
 }
-.gander-hero .mascot { width: 48px; height: 48px; flex-shrink: 0; color: #344054; }
+.gander-hero .mascot { width: 48px; height: 48px; flex-shrink: 0; color: var(--g-fg-muted); }
 .gander-hero .text { display: flex; flex-direction: column; gap: 0.25rem; }
+/* Hero colors consume the report's --g-* tokens (defined in report.STYLE, injected
+   globally) so the wordmark follows the SAME theme as the rest of the page. The
+   old hard-coded #475467 + a private prefers-color-scheme block desynced from the
+   token theme: a dark-OS viewer of the light theme got white-on-white text. */
 .gander-hero h1 {
-  margin: 0; font-size: 1.75rem; line-height: 1.2;
-  font-weight: 600; letter-spacing: -0.01em;
+  margin: 0; font-size: var(--g-text-xl); line-height: 1.2;
+  font-weight: 600; letter-spacing: -0.01em; color: var(--g-fg);
 }
-.gander-hero p  { margin: 0; color: #475467; font-size: 1rem; line-height: 1.5; }
-.gander-caption { color: #475467; font-size: 0.9rem; line-height: 1.55; margin: 0.5rem 0 1.25rem; }
-.gander-caption .privacy { display: block; margin-top: 0.35rem; color: #667085; }
+.gander-hero p {
+  margin: 0; color: var(--g-fg-muted); font-size: var(--g-text-base); line-height: 1.5;
+}
+.gander-caption {
+  color: var(--g-fg-muted); font-size: var(--g-text-sm);
+  line-height: 1.55; margin: 0.5rem 0 1.25rem;
+}
+.gander-caption .privacy { display: block; margin-top: 0.35rem; color: var(--g-fg-subtle); }
 /* Space the action row below the caption (not the primary button alone, which
    left Cancel 8px misaligned beside Analyze); center both buttons vertically. */
 #gander-app .gander-actions { margin-top: 0.5rem; align-items: center; }
@@ -144,25 +153,19 @@ button.primary:disabled,
   background: #fed7aa !important; border-color: #fed7aa !important;
   color: #7c2d12 !important; cursor: not-allowed; opacity: 1;
 }
-@media (prefers-color-scheme: dark) {
-  .gander-hero h1 { color: #f4f4f5; }
-  .gander-hero p { color: #d4d4d8; }
-  .gander-hero .mascot { color: #d4d4d8; }
-  .gander-caption { color: #a1a1aa; }
-  button.primary:disabled,
-  .gradio-container button.primary:disabled {
-    background: #7c2d12 !important; border-color: #7c2d12 !important;
-    color: #fed7aa !important; opacity: 0.7;
-  }
-}
-body.dark .gander-hero h1 { color: #f4f4f5; }
-body.dark .gander-hero p { color: #d4d4d8; }
-body.dark .gander-hero .mascot { color: #d4d4d8; }
-body.dark .gander-caption { color: #a1a1aa; }
+/* Theme is single-source on `body.dark` (see report.STYLE): hero text is token-driven
+   and the brand-colored disabled button overrides via `body.dark` alone. A prior
+   OS-keyed `prefers-color-scheme: dark` copy restyled the button on a dark OS even when
+   Gradio rendered the light page — the same desync the report tokens had. */
 body.dark button.primary:disabled,
 body.dark .gradio-container button.primary:disabled {
   background: #7c2d12 !important; border-color: #7c2d12 !important;
   color: #fed7aa !important; opacity: 0.7;
+}
+@media (max-width: 40rem) {
+  /* #gander-app has no padding of its own; on phones the host gutter can be ~0,
+     leaving cards against the viewport edge. Guarantee a 1rem inset. */
+  #gander-app { padding-inline: 1rem; }
 }
 </style>"""
 
