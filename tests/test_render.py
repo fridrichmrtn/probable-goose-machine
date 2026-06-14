@@ -399,6 +399,11 @@ def test_render_html_populated_contains_expected_content() -> None:
     assert '<ol class="gander-plan">' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
     assert '<span class="gander-chip" aria-label="Time horizon: 6 months">6 months</span>' in out
+    # The action title precedes its time-horizon chip in the <li> so the <ol> marker
+    # numbers the action, not the chip (UX fix: list number aligns to the title).
+    assert out.index('<p class="gander-plan-title">learn rust</p>') < out.index(
+        '<span class="gander-chip" aria-label="Time horizon: 6 months">6 months</span>'
+    )
     assert "**learn rust**" not in out
     # Confidence badge is visually separated from the rationale.
     assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
