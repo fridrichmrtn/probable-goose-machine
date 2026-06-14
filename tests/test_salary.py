@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from datetime import date
@@ -878,6 +879,61 @@ def test_salary_prompt_3shot_present() -> None:
     assert "anchor" in lower, "seniority anchoring instruction must be present"
     assert "geography_note" in body
     assert "market-blind USD reference" in body
+
+
+@pytest.mark.fast
+def test_salary_prompt_market_neutral_general_rules() -> None:
+    """De-Czeching guard: the general rules (everything before the few-shots) must
+    carry no absolute CZK constants or CZ board names. CZ may appear only inside
+    the few-shot examples (Example 1 is the deliberate CZK/month case)."""
+    prompt_path = (
+        Path(__file__).resolve().parent.parent / "src" / "gander" / "prompts" / "salary.md"
+    )
+    body = prompt_path.read_text(encoding="utf-8")
+    rules = body.split("## 3-shot examples", 1)[0]
+    for banned in ("230000", "230 000", "90000", "platy.cz", "profesia.cz", "CZ data leadership"):
+        assert banned not in rules, f"market-specific token leaked into general rules: {banned!r}"
+    assert "senior-IC top" in rules, "relative anchoring reference point must be defined"
+
+
+@pytest.mark.fast
+def test_salary_prompt_fewshots_obey_hard_rules() -> None:
+    """Every shipped few-shot must model the HARD RULES it teaches: each output
+    `sources[i]` cites a verbatim input URL, its snippet is a contiguous substring
+    of that input snippet, and `low < high` as integers. Guards against an edited
+    example silently demonstrating a rule violation to the model."""
+    prompt_path = (
+        Path(__file__).resolve().parent.parent / "src" / "gander" / "prompts" / "salary.md"
+    )
+    body = prompt_path.read_text(encoding="utf-8")
+    examples = re.split(r"^### Example", body, flags=re.M)[1:]
+    assert len(examples) == 3, "expected exactly three few-shot examples"
+
+    for i, ex in enumerate(examples, start=1):
+        blocks = re.findall(r"```(?:json)?\n(.*?)```", ex, flags=re.S)
+        results: list[dict[str, Any]] | None = None
+        output: dict[str, Any] | None = None
+        for block in blocks:
+            try:
+                parsed = json.loads(block.strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, list):
+                results = parsed
+            elif isinstance(parsed, dict) and "sources" in parsed:
+                output = parsed
+        assert results is not None, f"Example {i}: input results block not parseable"
+        assert output is not None, f"Example {i}: output block not parseable"
+
+        snippet_by_url = {r["url"]: r["snippet"] for r in results}
+        assert isinstance(output["low"], int) and isinstance(output["high"], int)
+        assert output["low"] < output["high"], f"Example {i}: low must be < high"
+        assert output["sources"], f"Example {i}: sources must be non-empty"
+        for src in output["sources"]:
+            assert src["url"] in snippet_by_url, f"Example {i}: url not verbatim in results"
+            assert src["snippet"] in snippet_by_url[src["url"]], (
+                f"Example {i}: snippet is not a contiguous substring of its input"
+            )
 
 
 def _country_profile(
