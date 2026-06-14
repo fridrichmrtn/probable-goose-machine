@@ -133,7 +133,7 @@ async def test_out_of_corpus_cv_every_yield_renders(
 ) -> None:
     """Every intermediate yield round-trips through the renderer without
     raising — the Gradio re-render loop must never stall on these shapes."""
-    from gander.report import render_body
+    from gander.report import render_html
 
     async def _fake_complete_json(self: LLMClient, **_kw: Any) -> Any:
         return _hallucinated_profile()
@@ -145,5 +145,5 @@ async def test_out_of_corpus_cv_every_yield_renders(
 
     assert len(reports) >= 2
     for i, report in enumerate(reports):
-        out = render_body(report)
-        assert isinstance(out, str), f"render_body returned non-str on yield #{i}"
+        out = render_html(report)
+        assert isinstance(out, str), f"render_html returned non-str on yield #{i}"

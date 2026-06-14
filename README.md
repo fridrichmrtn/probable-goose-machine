@@ -210,6 +210,14 @@ Live tests are marked `live` and require provider keys plus network:
 GANDER_LLM_PROVIDER=openrouter OPENROUTER_API_KEY=... uv run pytest -m live -v
 ```
 
+Browser end-to-end tests are marked `e2e` and run locally only (not in CI). They
+launch the Gradio app in-process with the LLM pipeline stubbed — no API keys, no
+network — and drive it with Chromium via Playwright:
+
+```bash
+uv sync && uv run playwright install chromium && uv run pytest -m e2e
+```
+
 Corpus regeneration:
 
 ```bash

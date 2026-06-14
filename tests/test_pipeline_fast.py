@@ -15,7 +15,7 @@ from ddgs.exceptions import RatelimitException
 
 from gander import obs, pipeline, salary
 from gander.errors import StageFailure
-from gander.report import render_body
+from gander.report import render_html
 from gander.schemas import (
     Anchor,
     Component,
@@ -389,11 +389,11 @@ async def test_salary_ratelimit_degrades_only_salary_block(
     assert final.statuses["salary"] == "failed"
     assert final.statuses["score"] == "done"
 
-    body = render_body(final)
+    body = render_html(final)
     assert "temporarily rate-limited" in body
-    assert "## Score: " in body
-    assert "## Confidence" in body
-    assert "## Plan" in body
+    assert "Overall score" in body
+    assert "Confidence" in body
+    assert "Plan" in body
     assert "Cannot generate growth plan without salary baseline" in body
 
 
