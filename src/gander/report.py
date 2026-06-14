@@ -370,13 +370,26 @@ body.dark {
    same two-class specificity; our <style> is later in document order than Gradio's
    head CSS, so the tie resolves in our favour. Verified against the live Gradio DOM
    by the e2e computed-style guard (test_report_typography_uses_design_tokens). This
-   is the typography analogue of the plan-item wrapper that dodges `.prose li > p`. */
-.gander-output h2.gander-h2 { font-size: var(--g-text-lg); }
-.gander-output h3.gander-h3,
-.gander-output h3.gander-component-name { font-size: var(--g-text-sm); }
+   is the typography analogue of the plan-item wrapper that dodges `.prose li > p`.
+
+   Layout matters too: `.prose h2`/`.prose h3` also set margins (16px/8px), which
+   defeat the base single-class margin/padding/border declarations. So these rules
+   MIRROR the layout values from the base rules above (`.gander-h2` margins, the
+   `.gander-score-label` margin/padding/border reset, `.gander-component-name`
+   margin) at two-class specificity. The duplicated values are guarded by the e2e
+   margin assertions in test_report_typography_uses_design_tokens — if a base value
+   and its mirror here drift apart, that browser test fails. */
+.gander-output h2.gander-h2 {
+  font-size: var(--g-text-lg);
+  margin: 2rem 0 0.75rem; padding-top: 1.25rem;
+  border-top: 1px solid var(--g-border);
+}
+.gander-output h3.gander-h3 { font-size: var(--g-text-sm); margin: 1.25rem 0 0.5rem; }
+.gander-output h3.gander-component-name { font-size: var(--g-text-sm); margin: 0; }
 .gander-output h2.gander-score-label {
   font-size: var(--g-text-xs); font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--g-fg-subtle);
+  margin: 0; padding: 0; border: 0;
 }
 /* `.prose blockquote` ALSO rewrites border-left (5px), padding-left (8px) and the
    block margin — only on the short-quote <blockquote>, not the long-quote <span>,
