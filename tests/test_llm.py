@@ -9,7 +9,15 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from gander.llm import _OPENROUTER_ROUTES, LLMClient, LogicalModel, _strip_think, check_env
+from gander.llm import (
+    _LOCAL_ROUTES,
+    _OPENROUTER_ROUTES,
+    MODEL_PRICES,
+    LLMClient,
+    LogicalModel,
+    _strip_think,
+    check_env,
+)
 from gander.obs import current_stage, subscribe
 
 
@@ -63,7 +71,7 @@ class _RetryingLLMClient(LLMClient):
         self._provider = "openrouter"
         self.calls = 0
 
-    def _resolve_model(self, logical: str) -> str:
+    def _resolve_model(self, logical: str, provider: str = "openrouter") -> str:
         return f"fake-{logical}"
 
     def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -131,7 +139,7 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     assert captured["default_headers"]["X-Title"] == "Gander"
     for logical in _LOGICAL_MODELS:
         expected_primary, expected_models = _EXPECTED_DEFAULT_ROUTE[logical]
-        assert client._resolve_model(logical) == expected_primary
+        assert client._resolve_model(logical, "openrouter") == expected_primary
         assert client._resolve_models(logical) == expected_models
 
     monkeypatch.setenv("OPENROUTER_MODEL_REASONING", "anthropic/claude-sonnet-4.5")
@@ -140,10 +148,10 @@ def test_openrouter_constructs_with_defaults_and_model_overrides(
     monkeypatch.setenv("OPENROUTER_MODEL_VISION", "qwen/qwen2.5-vl-72b-instruct")
     monkeypatch.setenv("OPENROUTER_MODEL_EXTRACT_FALLBACK", "google/gemini-3.1-flash-lite")
     monkeypatch.setenv("OPENROUTER_MODEL_VISION_FALLBACK", "google/gemini-3.5-flash")
-    assert client._resolve_model("reasoning") == "anthropic/claude-sonnet-4.5"
-    assert client._resolve_model("cheap") == "anthropic/claude-haiku-4.5"
-    assert client._resolve_model("extract") == "anthropic/claude-opus-4.5"
-    assert client._resolve_model("vision") == "qwen/qwen2.5-vl-72b-instruct"
+    assert client._resolve_model("reasoning", "openrouter") == "anthropic/claude-sonnet-4.5"
+    assert client._resolve_model("cheap", "openrouter") == "anthropic/claude-haiku-4.5"
+    assert client._resolve_model("extract", "openrouter") == "anthropic/claude-opus-4.5"
+    assert client._resolve_model("vision", "openrouter") == "qwen/qwen2.5-vl-72b-instruct"
     assert client._resolve_models("extract") == (
         "anthropic/claude-opus-4.5",
         "google/gemini-3.1-flash-lite",
@@ -165,7 +173,7 @@ def test_openrouter_default_route_for_each_slot(
     client._provider = "openrouter"
 
     expected_primary, expected_models = _EXPECTED_DEFAULT_ROUTE[logical]
-    assert client._resolve_model(logical) == expected_primary
+    assert client._resolve_model(logical, "openrouter") == expected_primary
     assert client._resolve_models(logical) == expected_models
 
 
@@ -185,7 +193,7 @@ def test_openrouter_route_env_override_and_duplicate_fallback_removal(
     client = object.__new__(LLMClient)
     client._provider = "openrouter"
 
-    assert client._resolve_model(logical) == "custom/primary"
+    assert client._resolve_model(logical, "openrouter") == "custom/primary"
     assert client._resolve_models(logical) == (
         "custom/primary",
         "custom/fallback-a",
@@ -206,6 +214,48 @@ def test_check_env_raises_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_check_env_passes_with_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
     check_env()  # must not raise
+
+
+@pytest.mark.fast
+def test_check_env_allows_keyless_global_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Headline P2.4 case: GANDER_LLM_PROVIDER=local routes every text slot to a
+    # self-hosted box, so the boot gate must not require an OpenRouter key.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for slot in ("REASONING", "CHEAP", "EXTRACT", "VISION"):
+        monkeypatch.delenv(f"GANDER_LLM_PROVIDER_{slot}", raising=False)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "local")
+    check_env()  # must not raise
+
+
+@pytest.mark.fast
+def test_check_env_allows_keyless_when_all_text_slots_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Per-slot opt-in for every text slot is equivalent to the global switch.
+    # Vision is excluded from the gate (it degrades back to OpenRouter), so an
+    # unset vision slot does not re-require the key.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("GANDER_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("GANDER_LLM_PROVIDER_VISION", raising=False)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_REASONING", "local")
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_CHEAP", "local")
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "local")
+    check_env()  # must not raise
+
+
+@pytest.mark.fast
+def test_check_env_raises_when_any_text_slot_uses_openrouter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Mixed config: global local but one text slot still on OpenRouter ⇒ the key
+    # is still required (a per-slot value overrides the global for that slot).
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    for slot in ("REASONING", "CHEAP", "EXTRACT", "VISION"):
+        monkeypatch.delenv(f"GANDER_LLM_PROVIDER_{slot}", raising=False)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "local")
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "openrouter")
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        check_env()
 
 
 @pytest.mark.fast
@@ -284,7 +334,7 @@ def _client_with_fake_chat(provider: str) -> tuple[LLMClient, _FakeChatCompletio
 
 
 @pytest.mark.fast
-def test_provider_overrides_accept_only_openrouter(
+def test_provider_overrides_validate_known_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "openrouter")
@@ -294,9 +344,137 @@ def test_provider_overrides_accept_only_openrouter(
     assert client._resolve_provider("cheap") == "openrouter"
     assert client._resolve_provider("extract") == "openrouter"
 
+    # `local` is a valid per-slot override (opt-in, default OFF).
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "local")
+    assert client._resolve_provider("extract") == "local"
+
     monkeypatch.setenv("GANDER_LLM_PROVIDER_EXTRACT", "legacy")
-    with pytest.raises(RuntimeError, match="'openrouter'"):
+    with pytest.raises(RuntimeError, match="expected 'openrouter' or 'local'"):
         client._resolve_provider("extract")
+
+
+@pytest.mark.fast
+def test_local_provider_builds_client_against_default_local_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr("gander.llm.AsyncOpenAI", _FakeAsyncOpenAI)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "local")
+    monkeypatch.delenv("GANDER_LOCAL_BASE_URL", raising=False)
+    monkeypatch.delenv("GANDER_LOCAL_API_KEY", raising=False)
+
+    client = LLMClient()
+
+    assert client._provider == "local"
+    assert str(captured["base_url"]) == "http://localhost:11434/v1"
+    assert captured["api_key"] == "local"
+    # The OpenRouter referer/title headers don't apply to a local endpoint.
+    assert "default_headers" not in captured
+
+
+@pytest.mark.fast
+def test_local_provider_honours_base_url_and_key_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr("gander.llm.AsyncOpenAI", _FakeAsyncOpenAI)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER", "local")
+    monkeypatch.setenv("GANDER_LOCAL_BASE_URL", "http://gpu-box:8000/v1")
+    monkeypatch.setenv("GANDER_LOCAL_API_KEY", "secret-token")
+
+    LLMClient()
+
+    assert str(captured["base_url"]) == "http://gpu-box:8000/v1"
+    assert captured["api_key"] == "secret-token"
+
+
+@pytest.mark.fast
+def test_local_per_slot_override_resolves_local_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_openrouter_model_env(monkeypatch)
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_CHEAP", "local")
+    client = object.__new__(LLMClient)
+    client._provider = "openrouter"
+
+    assert client._resolve_provider("cheap") == "local"
+    # The local cheap slot resolves from _LOCAL_ROUTES, not the OpenRouter table.
+    assert client._resolve_models("cheap") == (
+        _LOCAL_ROUTES["cheap"].primary,
+        *_LOCAL_ROUTES["cheap"].fallbacks,
+    )
+    # A slot without an override still resolves OpenRouter (default unchanged).
+    assert client._resolve_provider("extract") == "openrouter"
+    assert client._resolve_models("extract")[0] == _OPENROUTER_ROUTES["extract"].primary
+
+
+@pytest.mark.fast
+def test_cost_usd_falls_back_to_model_prices_when_provider_cost_absent() -> None:
+    client = object.__new__(LLMClient)
+    client._provider = "openrouter"
+    prompt_price, completion_price = MODEL_PRICES["google/gemini-3.5-flash"]
+    # 1M prompt + 1M completion tokens ⇒ exactly (prompt_price + completion_price).
+    cost = client._cost_usd("google/gemini-3.5-flash", 1_000_000, 1_000_000, None, "openrouter")
+    assert cost == pytest.approx(prompt_price + completion_price)
+
+
+@pytest.mark.fast
+def test_cost_usd_prefers_provider_reported_cost() -> None:
+    client = object.__new__(LLMClient)
+    client._provider = "openrouter"
+    # Provider-reported cost wins over the local estimate when present.
+    cost = client._cost_usd("google/gemini-3.5-flash", 1_000, 2_000, 0.0042, "openrouter")
+    assert cost == 0.0042
+
+
+@pytest.mark.fast
+def test_cost_usd_local_provider_estimates_zero() -> None:
+    client = object.__new__(LLMClient)
+    client._provider = "openrouter"
+    # A self-hosted model isn't in MODEL_PRICES, so even large token counts
+    # estimate to 0 — local inference is free.
+    cost = client._cost_usd("llama3.2", 5_000_000, 5_000_000, None, "local")
+    assert cost == 0.0
+
+
+@pytest.mark.fast
+async def test_vision_ignores_local_override_and_uses_openrouter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL_VISION_FALLBACK", raising=False)
+    monkeypatch.delenv("OPENROUTER_REASONING", raising=False)
+    # A local override on the vision slot must degrade back to OpenRouter rather
+    # than route to a (often vision-less) local model.
+    monkeypatch.setenv("GANDER_LLM_PROVIDER_VISION", "local")
+    client, fake_completions = _client_with_fake_chat("openrouter")
+    fake_completions.content = "Transcript"
+    events: list[dict[str, Any]] = []
+
+    with subscribe(events.append):
+        text = await client.complete_vision_text(
+            image_bytes=b"\x89PNG\r\n\x1a\nfake",
+            prompt="Transcribe this page.",
+            timeout_s=5.0,
+        )
+
+    assert text == "Transcript"
+    assert fake_completions.kwargs is not None
+    # Routed through the OpenRouter vision model + its routing directive.
+    assert fake_completions.kwargs["model"] == _OPENROUTER_ROUTES["vision"].primary
+    assert fake_completions.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
+    llm_event = next(e for e in events if e["event"] == "llm_call")
+    assert llm_event["provider"] == "openrouter"
 
 
 @pytest.mark.fast

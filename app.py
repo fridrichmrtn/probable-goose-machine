@@ -137,8 +137,12 @@ button.primary:hover, .gradio-container button.primary:hover {
 button.primary:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
 button.primary:disabled,
 .gradio-container button.primary:disabled {
-  background: #fdba74 !important; border-color: #fdba74 !important;
-  color: #ffffff !important; cursor: not-allowed; opacity: 0.85;
+  /* Light disabled state: #7c2d12 on #fed7aa ~6.5:1 (was #fff on #fdba74 = 1.69:1,
+     WCAG 1.4.3 fail). opacity stays 1 so the rendered ratio matches the raw pair —
+     blending against the page would erode it. The lighter peach + not-allowed
+     cursor still reads as disabled. */
+  background: #fed7aa !important; border-color: #fed7aa !important;
+  color: #7c2d12 !important; cursor: not-allowed; opacity: 1;
 }
 @media (prefers-color-scheme: dark) {
   .gander-hero h1 { color: #f4f4f5; }

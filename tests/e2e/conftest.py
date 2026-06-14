@@ -13,13 +13,35 @@ from __future__ import annotations
 import os
 import socket
 
-# Must precede any import of app or gander.llm.
-os.environ["GANDER_SKIP_ENV_CHECK"] = "1"
+# Must precede any import of app or gander.llm. setdefault (not a hard set) so a
+# caller that deliberately exercises the real env check can override it — matches
+# tests/test_app_download.py.
+os.environ.setdefault("GANDER_SKIP_ENV_CHECK", "1")
 
 from pathlib import Path
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _require_chromium() -> None:
+    """Skip the whole e2e suite if Chromium isn't installed.
+
+    The `e2e` suite is local-only and opt-in (`-m e2e`). On a box that never ran
+    `playwright install chromium`, an explicit `-m e2e` should skip with a helpful
+    message, not crash inside pytest-playwright's browser launch. This is an
+    autouse *fixture* (not a collection hook) so it runs only when an e2e test
+    actually executes — a `-m fast` run never imports playwright here, preserving
+    the deferred-import contract above.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        pytest.skip("playwright not installed (run: uv sync --group dev)")
+    with sync_playwright() as p:
+        if not Path(p.chromium.executable_path).exists():
+            pytest.skip("Chromium not installed (run: uv run playwright install chromium)")
 
 
 def _find_free_port() -> int:

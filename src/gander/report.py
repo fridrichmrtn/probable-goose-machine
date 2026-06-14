@@ -138,6 +138,13 @@ body.dark {
   display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
   font-family: system-ui, sans-serif; margin: 0 0 1rem 0;
 }
+/* Visually hidden but exposed to assistive tech (standard clip pattern). Carries
+   the single live announcement so screen readers hear one stage transition per
+   yield instead of the whole pill row re-read. */
+.gander-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 .pill {
   display: inline-flex; align-items: center; gap: 0.4rem;
   padding: 0.2rem 0.65rem 0.2rem 0.55rem;
@@ -149,6 +156,11 @@ body.dark {
   transition: border-color 120ms ease, color 120ms ease;
 }
 .pill::before { content: attr(data-glyph); font-weight: 700; opacity: 0.95; }
+/* .pill.skipped/.pill.pending use var(--g-fg-subtle) = #667085 in light mode,
+   ~4.84:1 on the transparent (white) pill bg (was #98a2b3 = 2.58:1). line-through
+   + the em-dash glyph keep "skipped" legible without colour (WCAG 1.4.1). Token-
+   driven so dark mode inherits automatically; the resolved value is contrast-
+   guarded in tests/test_a11y_contrast.py. */
 .pill.pending { border-left-color: var(--g-border-strong); color: var(--g-fg-subtle); }
 .pill.running { border-left-color: var(--g-warn); color: var(--g-fg);
                 animation: ganderPulse 1.2s ease-in-out infinite; }
@@ -240,7 +252,8 @@ body.dark {
   margin: 0 0 0.5rem; font-size: 0.9rem; line-height: 1.5; color: var(--g-fg-muted);
 }
 .gander-component-quote {
-  margin: 0; padding-left: 0.7rem; border-left: 3px solid var(--g-border-strong);
+  display: block; margin: 0; padding-left: 0.7rem;
+  border-left: 3px solid var(--g-border-strong);
   color: var(--g-fg-muted); font-size: 0.875rem; line-height: 1.5;
 }
 .gander-component-cite {
@@ -248,7 +261,9 @@ body.dark {
   font-style: normal; color: var(--g-fg-subtle);
 }
 /* Long-quote disclosure: clamp the preview to a few lines and reveal the rest
-   on click. Full text is in the DOM, so screen readers always get it. */
+   on click. The quote lives inside <summary> (phrasing-only: a <span>, never a
+   block <blockquote>) so the clamped preview stays visible while collapsed; the
+   full text is always in the DOM, so screen readers always get it. */
 .gander-evidence { margin: 0; }
 .gander-evidence-summary { cursor: pointer; list-style: none; display: block; }
 .gander-evidence-summary::-webkit-details-marker { display: none; }
@@ -267,6 +282,9 @@ body.dark {
 }
 
 /* ---- Salary ---- */
+.gander-salary-context {
+  font-size: 0.875rem; color: var(--g-fg-subtle); margin: 0 0 0.1rem;
+}
 .gander-salary-range {
   font-size: 1.75rem; font-weight: 700; margin: 0.25rem 0 0.5rem; color: var(--g-fg);
 }
@@ -401,13 +419,49 @@ def _label_for_stage(report: Report, stage: StageName) -> str:
     return _LABEL_BY_STAGE[stage]
 
 
+def _tracker_announcement(report: Report) -> str:
+    """One concise status line for the screen-reader live region.
+
+    The visual `.tracker` re-renders every pipeline yield; putting `aria-live` on
+    the whole pill row makes a screen reader re-announce all six pills each time.
+    Instead this returns a single string describing the *current* state. A polite
+    live region only fires when its text changes, so as the run advances
+    (Profile → Score → …) the reader hears one transition per stage.
+
+    Priority: the running stage, else the first failure, else — while stages are
+    still pending (the initial all-pending yield, and the gap after profile
+    finishes before score/salary start) — the next waiting stage. "Analysis
+    complete" is reserved for when every stage is terminal (done/failed/skipped),
+    so a screen reader is never told the run finished while pills still show
+    pending work.
+    """
+    failed_label: str | None = None
+    pending_label: str | None = None
+    for stage in REPORT_STAGE_NAMES:
+        status = report.statuses[stage]
+        if status == "running":
+            return f"{_label_for_stage(report, stage)}: in progress"
+        if status == "failed" and failed_label is None:
+            failed_label = _label_for_stage(report, stage)
+        if status == "pending" and pending_label is None:
+            pending_label = _label_for_stage(report, stage)
+    if failed_label is not None:
+        return f"{failed_label}: failed"
+    if pending_label is not None:
+        return f"{pending_label}: waiting"
+    return "Analysis complete"
+
+
 def render_tracker(report: Report) -> str:
     """Render the 5-stage tracker as a single class-bearing `<div>` (no `<style>`).
 
-    Styling rides on the global `STYLE` block injected once by app.py. Reads
-    `report.statuses[stage]` for each schema stage in pipeline order. Failed
-    pills carry the originating `StageFailure.user_message` as a tooltip;
-    non-failed pills get no tooltip.
+    Styling rides on the global `STYLE` block injected once by app.py (no inline
+    `<style>`). Reads `report.statuses[stage]` for each schema stage in pipeline
+    order. Failed pills carry the originating `StageFailure.user_message` as a
+    tooltip; non-failed pills get no tooltip. The pill row is a labelled group
+    (not a live region) so the per-pill `aria-label`s stay navigable; a separate
+    visually-hidden polite region (`_tracker_announcement`) carries incremental
+    spoken updates.
     """
     pills: list[str] = []
     for stage in REPORT_STAGE_NAMES:
@@ -423,7 +477,12 @@ def render_tracker(report: Report) -> str:
                 # Surface the inconsistency rather than render a tooltip-less pill.
                 tooltip = "Stage marked failed but no failure message available."
         pills.append(_pill_html(_label_for_stage(report, stage), status, tooltip))
-    return f'<div class="tracker" role="status" aria-live="polite">{"".join(pills)}</div>'
+    announcement = _esc(_tracker_announcement(report))
+    return (
+        '<div class="tracker" role="group" aria-label="Pipeline progress">'
+        f"{''.join(pills)}</div>"
+        f'<p class="gander-sr-only" role="status" aria-live="polite">{announcement}</p>'
+    )
 
 
 def render_status(message: str, *, working: bool = True) -> str:
@@ -552,11 +611,13 @@ def _component_tile_html(name: str, comp: Component) -> str:
         # Long quote: clamp via CSS and wrap in <details> so the full text is one
         # keyboard- and screen-reader-accessible click away (the cite stays
         # visible above the toggle). The quote/cite live in the <summary> so the
-        # clamped preview itself is the disclosure target.
+        # clamped preview itself is the disclosure target. `<summary>` accepts
+        # phrasing content only, so the quote is a `<span>` (CSS `display: block`
+        # keeps the blockquote look) — a block `<blockquote>` here is invalid HTML.
         evidence = (
             '<details class="gander-evidence">'
             '<summary class="gander-evidence-summary">'
-            f'<blockquote class="gander-component-quote">"{quote}"</blockquote>'
+            f'<span class="gander-component-quote">"{quote}"</span>'
             f"{cite}"
             "</summary>"
             "</details>"
@@ -625,13 +686,35 @@ def _score_section_html(
     return out
 
 
-def _salary_section_html(salary: SalaryEstimate | StageFailure | None) -> str:
+def _salary_context_line(role: str | None, location: str | None) -> str:
+    """Caption naming the role + market the range is anchored to (P2.2).
+
+    The estimate is for a *canonical* role (gander.normalize) in a detected
+    market — surfacing it above the number stops the range reading as a generic
+    figure. Both values are LLM-derived → `_html_inline`. Degrades gracefully:
+    no role → no caption; role but no location → role only.
+    """
+    role_text = _html_inline(role) if role and role.strip() else ""
+    if not role_text:
+        return ""
+    location_text = _html_inline(location) if location and location.strip() else ""
+    body = f"{role_text} · {location_text}" if location_text else role_text
+    return f'<p class="gander-salary-context">{body}</p>'
+
+
+def _salary_section_html(
+    salary: SalaryEstimate | StageFailure | None,
+    role: str | None = None,
+    location: str | None = None,
+) -> str:
     if salary is None:
         return ""
     if isinstance(salary, StageFailure):
         return _h2("Salary") + _failure_callout_html(salary)
 
+    context_line = _salary_context_line(role, location)
     range_line = (
+        f"{context_line}"
         '<p class="gander-salary-range">'
         f"{_format_money(salary.low)}–{_format_money(salary.high)} "
         f'<span class="gander-salary-unit">{_esc(salary.currency)} / {salary.period}</span>'
@@ -727,9 +810,17 @@ def render_html(report: Report) -> str:
     if isinstance(report.profile, StageFailure):
         return _failure_callout_html(report.profile)
 
+    # A whitespace-only canonical_role is falsy for caption purposes — strip
+    # before the fallback so a blank LLM value yields detected_role, not a
+    # caption suppressed by `_salary_context_line`'s own empty-after-strip check.
+    salary_role = (report.profile.canonical_role or "").strip() or report.profile.detected_role
     sections = [
         _score_section_html(report.score, report.profile.seniority_band),
-        _salary_section_html(report.salary),
+        _salary_section_html(
+            report.salary,
+            role=salary_role,
+            location=report.profile.detected_location,
+        ),
         _confidence_section_html(report.confidence),
         _growth_section_html(report.growth),
         _ABOUT_BANNER_HTML,
@@ -773,18 +864,43 @@ def _score_section_md(score: Score | StageFailure | None, seniority_band: str | 
     return body
 
 
-def _salary_section_md(salary: SalaryEstimate | StageFailure | None) -> str:
+def _salary_context_line_md(role: str | None, location: str | None) -> str:
+    """Markdown analogue of `_salary_context_line` (P2.2 download parity).
+
+    Emits an italic `_role · market_` caption above the range so the portable
+    archive names the role/market the estimate is anchored to, matching the HTML
+    display. Both values are LLM-derived → `_md`. Degrades gracefully: no role →
+    no caption; role but no location → role only.
+    """
+    role_text = _md(role) if role and role.strip() else ""
+    if not role_text:
+        return ""
+    location_text = _md(location) if location and location.strip() else ""
+    body = f"{role_text} · {location_text}" if location_text else role_text
+    return f"_{body}_"
+
+
+def _salary_section_md(
+    salary: SalaryEstimate | StageFailure | None,
+    role: str | None = None,
+    location: str | None = None,
+) -> str:
     if salary is None:
         return ""
     if isinstance(salary, StageFailure):
         return "## Salary\n\n" + _failure_callout_md(salary)
 
+    context_line = _salary_context_line_md(role, location)
+    caption = f"{context_line}\n\n" if context_line else ""
     range_line = (
         f"**{_format_money(salary.low)} – {_format_money(salary.high)} "
         f"{_md(salary.currency)} / {salary.period}**"
     )
     sources_md = "\n".join(_source_line(s) for s in salary.sources) or "_(no sources)_"
-    return f"## Salary\n\n{range_line}\n\n{_md(salary.reasoning)}\n\n### Sources\n\n{sources_md}"
+    return (
+        f"## Salary\n\n{caption}{range_line}\n\n{_md(salary.reasoning)}\n\n"
+        f"### Sources\n\n{sources_md}"
+    )
 
 
 def _confidence_section_md(conf: Confidence | StageFailure | None) -> str:
@@ -845,9 +961,16 @@ def render_markdown(report: Report) -> str:
     if isinstance(report.profile, StageFailure):
         return _failure_callout_md(report.profile)
 
+    # Mirror render_html's caption anchor: blank canonical_role falls back to
+    # detected_role so the markdown salary caption matches the HTML display.
+    salary_role = (report.profile.canonical_role or "").strip() or report.profile.detected_role
     sections = [
         _score_section_md(report.score, report.profile.seniority_band),
-        _salary_section_md(report.salary),
+        _salary_section_md(
+            report.salary,
+            role=salary_role,
+            location=report.profile.detected_location,
+        ),
         _confidence_section_md(report.confidence),
         _growth_section_md(report.growth),
         _ABOUT_BANNER_MD,

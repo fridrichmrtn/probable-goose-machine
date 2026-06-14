@@ -511,3 +511,81 @@ The two assigned `openrouter-live` failures above are fixed and the lane went gr
 ### Should-fix (deferred)
 - [self-review] tests/test_acceptance.py:106-110 (`_require_growth`) + the session-scoped `triplet` fixture (:62-89) — a single transient truncated-JSON response from the growth stage on the densest fixture (`08_staff_ml_engineer_dvorak.pdf`, `gemini-3.5-flash` reasoning slot) degrades that stage to a `StageFailure` (correct, PRD §4.5/§4.6), but four tests (`test_no_verbatim_growth_plan_repeats`, `test_no_near_duplicate_growth_plans`, `test_no_cross_anchor_repeats`, `test_all_claims_substring_verified`) share one session fixture and each hard-asserts `isinstance(report.growth, list)`, so one truncation reds all four at once. `--reruns 1` cannot rescue it: the `StageFailure` is cached in the fixture, so the per-test rerun re-reads the same failed `Report`. Observed once in ~2 live runs (1 fail / 1 pass) — variance, not a deterministic regression (the JSON truncated at ~896 chars / 15 lines, well under the 1536-token `max_tokens` cap, so it is not a length-cap clip; `complete_json`'s in-call retry + reasoning→flash-lite fallback still produced unparseable JSON that round). Surfaced by the in-PR 2.5→3.x re-pin; `main`'s delisted 2.5 slugs gave no green live baseline to compare against. Durable fix options (either suffices): (a) tolerate a degraded growth stage in these four tests — `pytest.skip` the affected CV with a visible reason, since "no duplicate growth plans" is vacuous on zero plans — and add a guard test that still reds CI if growth degrades on >1 of the 3 triplet CVs, preserving the regression signal while killing the 4-for-1 amplification; or (b) salvage the partial JSON array before the unterminated string (or raise the growth `complete_json` `max_retries` from 1 to 2) so a transient truncation recovers in-run. Option (a) is lower-churn and matches the graceful-degradation design; (b) is more robust end-to-end but churns freshly-hardened `llm.py`/`growth.py` and spends extra live budget on the unhappy path.
 
+
+## prod-readiness-p2 — 2026-06-13
+Report: tasks/prod-readiness-p2_dev-report.md (in dev/prod-readiness-p2)
+
+P2.1 (a11y contrast + single SR live region), P2.2 (salary role·location caption),
+and P2.4 (opt-in non-paid `local` provider) landed with fast-test + contrast-guard
+coverage; P2.3 (rerun crutch) was a comment-only honesty fix, removal deferred per
+the prototype budget. The items below are the review-burst leftovers — none block
+the branch.
+
+### Resolved in the PR #44 review pass (commit `fix(p2): PR #44 review pass`)
+- **`_tracker_announcement` premature "Analysis complete" (functional bug).** On the
+  pipeline's all-pending initial yield and the profile-done/downstream-pending gap,
+  no stage is running or failed, so the announcement fell through to "Analysis
+  complete" — telling a screen reader the run finished while pills still showed
+  pending work. Fixed: completion is now gated on every stage being terminal
+  (done/failed/skipped); otherwise the next waiting stage is announced
+  ("{Label}: waiting"). Regression tests in `test_render.py` cover both yields.
+- **`check_env` blocked the headline `local` provider (functional bug).** The boot
+  gate raised unconditionally without `OPENROUTER_API_KEY`, so a fully-local text-slot
+  config — the whole point of P2.4 — could not start. Fixed: the key is required only
+  when at least one text slot (reasoning/cheap/extract) routes to OpenRouter; vision is
+  excluded (it degrades back to OpenRouter). `_MISSING_KEY_MESSAGE` now names the
+  `GANDER_LLM_PROVIDER=local` opt-out. +3 `check_env` tests.
+- **Whitespace-only `canonical_role` suppressed the salary caption (render bug).** A
+  blank-but-truthy canonical role won `canonical_role or detected_role`, then
+  `_salary_context_line`'s own empty-after-strip check dropped the caption entirely.
+  Fixed upstream: strip before the fallback so a blank canonical yields detected_role.
+- **Loose contrast-test assertions (test quality).** `test_a11y_contrast.py` checked
+  the hex pairs with unscoped `in` substring matches that also matched other rules
+  reusing the same hexes (dark disabled inverts the pair; `#667085` recurs in
+  `.pill.pending`/`.gander-salary-context`/`.gander-component-score`). Tightened to
+  regex-scope each assertion to the specific `:disabled` / `.pill.skipped` rule block.
+- **Docs clarity (`README.md`, `.env.example`).** Clarified that `GANDER_LLM_PROVIDER=local`
+  switches every text slot at once (per-slot overrides layer on top), and that a
+  fully-local text config boots with no key — with the caveat that a PDF still needs the
+  key or `GANDER_PDF_INGEST_MODE=text` because vision stays OpenRouter.
+
+### Should-fix (deferred)
+- [self-review] src/gander/llm.py `MODEL_PRICES` — the two Gemini 3.x entries
+  (`google/gemini-3.5-flash`, `google/gemini-3.1-flash-lite`) are transcribed from
+  the OpenRouter model pages by a fetch on 2026-06-13, not from an invoice; the exact
+  USD/1M figures are page-reported and unverified against a billing statement. Impact
+  is low because `_cost_usd` prefers OpenRouter's per-response `usage.cost` and only
+  falls through to `_estimate_cost`/`MODEL_PRICES` when that field is absent, which the
+  live path almost never is. Re-confirm the numbers (or wire a periodic check) before
+  any decision leans on the *estimated* cost rather than the provider-reported one.
+- [self-review] src/gander/llm.py `MODEL_PRICES` / `_estimate_cost` — the table only
+  carries the two currently-pinned slugs. If a slot is re-pinned to a different
+  OpenRouter slug (as happened in the 2.5→3.x move) and that response lacks
+  `usage.cost`, `_estimate_cost` silently returns 0 for the unknown slug instead of
+  flagging the gap. A one-line `obs` warning on a missing price entry would make the
+  estimate's blind spot observable rather than a silent zero.
+- [self-review] src/gander/llm.py — the `local` provider path has unit coverage only
+  (client build against the default/overridden base_url, per-slot route resolution,
+  cost-fallback, vision-degrades-to-openrouter), no live or integration test actually
+  issues a request to a running Ollama/self-hosted server. The OpenAI-compatible
+  contract is assumed; the first real local run may surface response-shape or
+  `response_format` differences the mocks don't model. Mark the local path
+  "implemented, not live-verified" until someone exercises it against a real box.
+- [self-review] src/gander/llm.py — `vision=local` degradation to OpenRouter is
+  intentional but silent (no obs event), so an operator who sets
+  `GANDER_LLM_PROVIDER_VISION=local` expecting their local box gets OpenRouter traffic
+  with no signal that the override was ignored. Emit a one-time notice (or a
+  `provider_override_ignored` event) when a vision=local override is dropped.
+
+### Nits
+- [self-review] tests/test_a11y_contrast.py — the WCAG relative-luminance helper is a
+  local re-implementation of the contrast formula; it guards the disabled-button and
+  skipped-pill hex pairs against regression but is not cross-checked against an
+  external WCAG calculator in CI. The pairs were also confirmed by hand once
+  (≈6.5:1 and ≈4.84:1); if the helper itself drifts, the guard drifts with it.
+- [self-review] src/gander/report.py `_tracker_announcement` — the announcement
+  copy ("{Label}: in progress" / "{Label}: failed" / "Score: in progress" seed /
+  "Analysis complete") is asserted by `test_render.py` but its screen-reader behavior
+  (one announcement per stage transition, no six-pill re-read) is verified only at the
+  HTML/attribute level, not with a real AT (VoiceOver/NVDA). Same browser-evidence gap
+  the `ui-polish-pass-2` block flagged for the prior live-region change.

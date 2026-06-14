@@ -100,9 +100,15 @@ jobs:
           # use OpenRouter text/JSON.
           GANDER_PDF_INGEST_MODE: vision
           GANDER_DOCX_INGEST_MODE: text
-        # --reruns 1 absorbs sampling + DDG variance at the anchor-survival gate;
-        # one retry drops the cross-fixture flake rate from ~50% to ~10%. Applies
-        # to live only — fast/slow suites must stay deterministic.
+        # --reruns 1 absorbs transient DDG-search + LLM-sampling variance on the
+        # per-test live assertions (salary search, anchor-survival), where a retry
+        # genuinely re-issues the flaky call (cross-fixture flake ~50% -> ~10%).
+        # It does NOT rescue the documented growth-JSON truncation flaky: that
+        # degrades the growth stage to a StageFailure cached in the session-scoped
+        # `triplet` fixture, so a per-test rerun re-reads the same failed Report
+        # (see tasks/backlog.md `prod-readiness-p1-live-flaky`, commit a418db3 —
+        # durable fix tracked there). Kept until a measured live flake rate
+        # justifies removal; live only — fast/slow suites stay deterministic.
         #
         # -n 4 --dist=loadgroup parallelizes the I/O-bound async tests
         # (LLM HTTPS dominates wall time). The DDG-touching salary test carries

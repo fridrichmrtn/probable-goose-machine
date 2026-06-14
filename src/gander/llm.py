@@ -17,7 +17,7 @@ from gander import obs
 from gander.config import env_float
 
 LogicalModel = Literal["reasoning", "cheap", "extract", "vision"]
-ProviderName = Literal["openrouter"]
+ProviderName = Literal["openrouter", "local"]
 
 # Some reasoning models prepend a <think>...</think> block to chat output and
 # can wrap JSON-mode payloads in ```json fences. Strip both before parsing.
@@ -138,13 +138,73 @@ _OPENROUTER_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
     ),
 }
 
-# USD per 1M tokens, (prompt, completion).
-# OpenRouter normally reports usage.cost; this table is only a local fallback.
-MODEL_PRICES: dict[str, tuple[float, float]] = {}
+# Opt-in local provider (Ollama / self-hosted, OpenAI-compatible). Default OFF —
+# enabled per slot via GANDER_LLM_PROVIDER_<SLOT>=local. No `:free` hosted variants
+# here: those are prohibited for CV content by the provider data-use policy. These
+# are sensible Ollama model tags; the operator pulls them (or overrides per slot via
+# OPENROUTER_MODEL_<SLOT>) on their own box. Vision never resolves here — it stays
+# OpenRouter-only (local models often lack vision) — but the slot is kept for table
+# totality.
+_LOCAL_ROUTES: dict[LogicalModel, _OpenRouterRoute] = {
+    "reasoning": _OpenRouterRoute(primary="qwen2.5", fallbacks=("llama3.1",)),
+    "cheap": _OpenRouterRoute(primary="llama3.2", fallbacks=("qwen2.5",)),
+    "extract": _OpenRouterRoute(primary="llama3.2", fallbacks=("qwen2.5",)),
+    "vision": _OpenRouterRoute(primary="llama3.2-vision", fallbacks=()),
+}
+
+_ROUTES_BY_PROVIDER: dict[ProviderName, dict[LogicalModel, _OpenRouterRoute]] = {
+    "openrouter": _OPENROUTER_ROUTES,
+    "local": _LOCAL_ROUTES,
+}
+
+# USD per 1M tokens, (prompt, completion). OpenRouter normally reports usage.cost;
+# this table is only the local fallback for _estimate_cost when usage.cost is absent.
+# Figures are OpenRouter's published per-model prices, read 2026-06-13 from the model
+# pages cited below (page-reported; a fallback estimate, not billing). Self-hosted
+# `local` models are free, so they intentionally have no entry and estimate to ~0.
+MODEL_PRICES: dict[str, tuple[float, float]] = {
+    # https://openrouter.ai/google/gemini-3.5-flash — $1.50 in / $9.00 out per 1M.
+    "google/gemini-3.5-flash": (1.50, 9.00),
+    # https://openrouter.ai/google/gemini-3.1-flash-lite — $0.25 in / $1.50 out per 1M.
+    "google/gemini-3.1-flash-lite": (0.25, 1.50),
+}
 _DEFAULT_LLM_TIMEOUT_S = 60.0
 _DEFAULT_VISION_TIMEOUT_S = 120.0
 
-_MISSING_KEY_MESSAGE = "OPENROUTER_API_KEY not set — add it to .env or export it"
+_MISSING_KEY_MESSAGE = (
+    "OPENROUTER_API_KEY not set — add it to .env or export it "
+    "(or set GANDER_LLM_PROVIDER=local to run text slots fully self-hosted)"
+)
+
+# Slots whose provider decides whether an OpenRouter key is required at boot.
+# Vision is deliberately excluded: it is pinned to OpenRouter but degrades to
+# the text-ingest fallback when the key is absent (GANDER_PDF_INGEST_MODE=text),
+# so it must not force the boot gate on its own.
+_TEXT_SLOTS: tuple[LogicalModel, ...] = ("reasoning", "cheap", "extract")
+
+
+def _slot_provider(logical: LogicalModel) -> str:
+    """Provider a slot resolves to from env, mirroring `_resolve_provider`.
+
+    Module-level (no `LLMClient` instance) so the boot gate can ask the
+    question before any client is built: per-slot `GANDER_LLM_PROVIDER_<SLOT>`
+    wins, else the global `GANDER_LLM_PROVIDER` (default `openrouter`).
+    """
+    raw = os.environ.get(f"GANDER_LLM_PROVIDER_{logical.upper()}")
+    if raw is None:
+        raw = os.environ.get("GANDER_LLM_PROVIDER", "openrouter")
+    return raw.strip().lower()
+
+
+def _openrouter_required() -> bool:
+    """True when any text slot still routes to OpenRouter.
+
+    A value other than `local` (including a typo) is treated as needing the
+    key — conservative, and the actual provider validation surfaces when
+    `LLMClient` is built. When every text slot is opted into `local`, Gander
+    runs fully self-hosted and needs no OpenRouter key.
+    """
+    return any(_slot_provider(slot) != "local" for slot in _TEXT_SLOTS)
 
 
 def check_env() -> None:
@@ -154,8 +214,12 @@ def check_env() -> None:
     message instead of a confusing auth error on the first real LLM call.
     `LLMClient` construction itself stays cheap and does not raise, so tests
     that stub LLM methods need no fake key.
+
+    The OpenRouter key is required only when at least one text slot routes to
+    OpenRouter; an all-`local` text config boots keyless (vision still needs
+    the key or `GANDER_PDF_INGEST_MODE=text` for PDFs — see `_TEXT_SLOTS`).
     """
-    if not os.environ.get("OPENROUTER_API_KEY"):
+    if _openrouter_required() and not os.environ.get("OPENROUTER_API_KEY"):
         raise RuntimeError(_MISSING_KEY_MESSAGE)
 
 
@@ -179,12 +243,15 @@ def _remaining_timeout_s(deadline: float) -> float:
 
 
 class LLMClient:
-    """Async chat client over OpenRouter.
+    """Async chat client over an OpenAI-compatible provider.
 
-    Provider selected via GANDER_LLM_PROVIDER env, which must be `openrouter`.
-    A logical model may still set GANDER_LLM_PROVIDER_<LOGICAL_MODEL>, but it
-    must also be `openrouter`; legacy providers fail at startup/call time.
-    Every call emits an `llm_call` telemetry event (success or failure).
+    Provider selected via GANDER_LLM_PROVIDER env (`openrouter`, the default, or
+    `local`). A logical model may override per slot via
+    GANDER_LLM_PROVIDER_<LOGICAL_MODEL>; an unknown value fails at startup/call
+    time. `local` targets a self-hosted OpenAI-compatible endpoint
+    (GANDER_LOCAL_BASE_URL, default Ollama) and is OFF unless explicitly opted in;
+    vision always uses OpenRouter regardless of the slot override. Every call
+    emits an `llm_call` telemetry event (success or failure).
     """
 
     def __init__(self) -> None:
@@ -200,9 +267,9 @@ class LLMClient:
     @staticmethod
     def _validate_provider(raw: str, env_name: str) -> ProviderName:
         provider = raw.strip().lower()
-        if provider == "openrouter":
-            return "openrouter"
-        raise RuntimeError(f"Unknown {env_name}={raw!r}; expected 'openrouter'")
+        if provider in ("openrouter", "local"):
+            return provider  # type: ignore[return-value]
+        raise RuntimeError(f"Unknown {env_name}={raw!r}; expected 'openrouter' or 'local'")
 
     def _build_client(self, provider: ProviderName) -> AsyncOpenAI:
         # Construction stays cheap and never raises on a missing key — boot-time
@@ -210,6 +277,13 @@ class LLMClient:
         # empty api_key at construction, so fall back to a placeholder when the
         # key is absent; a real missing-key run surfaces as a 401 on the first
         # call, which stage_boundary converts to a user-facing StageFailure.
+        if provider == "local":
+            # Opt-in self-hosted OpenAI-compatible endpoint (Ollama default port).
+            # Ollama ignores the api_key but the SDK requires a non-empty one.
+            return AsyncOpenAI(
+                api_key=os.environ.get("GANDER_LOCAL_API_KEY") or "local",
+                base_url=os.environ.get("GANDER_LOCAL_BASE_URL", "http://localhost:11434/v1"),
+            )
         api_key = os.environ.get("OPENROUTER_API_KEY") or "missing-openrouter-key"
         return AsyncOpenAI(
             api_key=api_key,
@@ -237,19 +311,21 @@ class LLMClient:
             return self._provider
         return self._validate_provider(raw, env_key)
 
-    def _resolve_model(self, logical: LogicalModel) -> str:
+    def _resolve_model(self, logical: LogicalModel, provider: ProviderName) -> str:
+        # The OPENROUTER_MODEL_<SLOT> override is the single per-slot model knob
+        # for both providers; the default falls to the provider's route table.
         env_key = f"OPENROUTER_MODEL_{logical.upper()}"
-        return os.environ.get(env_key, _OPENROUTER_ROUTES[logical].primary)
+        return os.environ.get(env_key, _ROUTES_BY_PROVIDER[provider][logical].primary)
 
     def _resolve_models(
         self, logical: LogicalModel, provider: ProviderName | None = None
     ) -> tuple[str, ...]:
         provider = provider or self._resolve_provider(logical)
-        primary = self._resolve_model(logical)
+        primary = self._resolve_model(logical, provider)
         env_key = f"OPENROUTER_MODEL_{logical.upper()}_FALLBACK"
         fallback_raw = os.environ.get(env_key)
         if fallback_raw is None:
-            fallbacks = _OPENROUTER_ROUTES[logical].fallbacks
+            fallbacks = _ROUTES_BY_PROVIDER[provider][logical].fallbacks
         else:
             fallbacks = tuple(model.strip() for model in fallback_raw.split(",") if model.strip())
         return (primary, *(model for model in fallbacks if model != primary))
@@ -472,7 +548,13 @@ class LLMClient:
         timeout_s: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
-        """Transcribe one rendered page through OpenRouter vision."""
+        """Transcribe one rendered page through OpenRouter vision.
+
+        Vision is pinned to OpenRouter: local models often lack a vision head, so a
+        `GANDER_LLM_PROVIDER_VISION=local` override intentionally degrades back to
+        OpenRouter rather than failing. The _resolve_provider call still validates
+        the env value (an unknown provider raises) before we discard it.
+        """
         self._resolve_provider("vision")
         resolved_timeout_s = _vision_timeout_s() if timeout_s is None else timeout_s
         return await self._complete_openrouter_vision_text(
@@ -570,6 +652,9 @@ class LLMClient:
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
         client_o: Any = self._client_for_provider(provider)
+        # `reasoning` is an OpenRouter routing directive; it means nothing to a
+        # local server, so only send extra_body on the openrouter path.
+        extra_body = _openrouter_extra_body() if provider == "openrouter" else {}
         openrouter_kwargs: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -578,7 +663,7 @@ class LLMClient:
             ],
             "response_format": {"type": "json_object"},
             "temperature": temperature,
-            "extra_body": _openrouter_extra_body(),
+            "extra_body": extra_body,
         }
         if max_tokens is not None:
             openrouter_kwargs["max_tokens"] = max_tokens
@@ -621,6 +706,8 @@ class LLMClient:
     ) -> tuple[str, int, int, str, float | None]:
         provider = provider or self._provider
         client_o: Any = self._client_for_provider(provider)
+        # See _chat_json: extra_body carries an OpenRouter-only routing directive.
+        extra_body = _openrouter_extra_body() if provider == "openrouter" else {}
         openrouter_kwargs: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -628,7 +715,7 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
             "temperature": temperature,
-            "extra_body": _openrouter_extra_body(),
+            "extra_body": extra_body,
         }
         if max_tokens is not None:
             openrouter_kwargs["max_tokens"] = max_tokens

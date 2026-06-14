@@ -45,6 +45,12 @@ files = ["src/gander"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Make the local-only browser e2e suite opt-in: a bare `pytest` deselects it so
+# it never tries to launch Chromium. CI and local gates pass an explicit `-m`
+# selector (`-m fast`, `-m live`, `-m e2e`, `-m "slow and not live"`), and
+# argparse last-`-m`-wins means those override this default — only a bare run is
+# affected.
+addopts = ["-m", "not e2e"]
 markers = [
   "fast: pure-function unit tests with no external IO (<1s each)",
   "slow: pipeline-level tests or anything >1s",
