@@ -102,9 +102,7 @@ def _fg_on_light_page_under_os_dark(css: str) -> str:
     text out. So: return that override if present, else the light value.
     """
     light = _resolve_light_token(css, "--g-fg")
-    media = re.search(
-        r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]*)\}", css
-    )
+    media = re.search(r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]*)\}", css)
     if media:
         inner = re.search(r"--g-fg:\s*(#[0-9a-fA-F]{6})", media.group(1))
         if inner:
