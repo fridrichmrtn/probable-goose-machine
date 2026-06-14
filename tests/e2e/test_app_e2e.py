@@ -130,6 +130,98 @@ def test_structure_regression(page: Page, live_app_url: str, cv_fixture_path: Pa
     )
 
 
+def test_plan_paragraphs_render_as_blocks(
+    page: Page, live_app_url: str, cv_fixture_path: Path
+) -> None:
+    """Plan action title and mechanism stack as separate lines, not one inline run.
+
+    Regression guard: Gradio's bundled prose CSS ships
+    `.prose li > p, .prose ul > p { display: inline }`. Because the report renders
+    inside that `.prose` container, plan paragraphs placed as direct `li > p`
+    children collapsed to a single inline run ("…inference.Transitioning…"). The
+    fix wraps each <li>'s content in a block <div> so the selector no longer
+    matches. This asserts the *computed* display, which only a browser can prove —
+    unit tests check the markup but not Gradio's cascade.
+    """
+    page.goto(live_app_url)
+    page.locator("input[type=file]").set_input_files(str(cv_fixture_path))
+    expect(page.get_by_role("button", name="Analyze CV")).to_be_enabled(timeout=5_000)
+    page.get_by_role("button", name="Analyze CV").click()
+
+    expect(page.locator(".gander-plan")).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    for selector in (".gander-plan-title", ".gander-plan-mech"):
+        display = page.eval_on_selector(selector, "el => getComputedStyle(el).display")
+        assert display == "block", (
+            f"{selector} computed display is {display!r} (expected 'block'); "
+            "Gradio's `.prose li > p` inline reset may be collapsing plan paragraphs"
+        )
+
+    # Title and mechanism must occupy different vertical positions (not the same line).
+    title_box = page.locator(".gander-plan-title").first.bounding_box()
+    mech_box = page.locator(".gander-plan-mech").first.bounding_box()
+    assert title_box is not None and mech_box is not None
+    assert mech_box["y"] >= title_box["y"] + title_box["height"] - 1.0, (
+        f"plan mechanism does not sit below its title: title={title_box}, mech={mech_box}"
+    )
+
+
+def test_report_typography_uses_design_tokens(
+    page: Page, live_app_url: str, cv_fixture_path: Path
+) -> None:
+    """The report's type tokens win over Gradio's `.prose` element typography.
+
+    The report renders inside Gradio's `.prose` container, whose `.prose h2`,
+    `.prose h3`, and `.prose blockquote` rules out-specify our single-class design
+    tokens. Symptoms this guards against:
+      - the "Overall score" eyebrow (an <h2 class="gander-score-label">) rendered at
+        ~22px instead of the intended 0.8rem (~12.8px) — the most visible break;
+      - section <h2>/<h3> ignored the type scale (22px / 16px vs 20px / 14.4px);
+      - the short-quote <blockquote> picked up prose's 5px border, 8px padding and a
+        `!important` 24px margin, so it looked nothing like the long-quote <span>.
+
+    These are computed-style facts only a browser proves — unit tests see the markup
+    but not Gradio's cascade.
+    """
+    page.goto(live_app_url)
+    page.locator("input[type=file]").set_input_files(str(cv_fixture_path))
+    expect(page.get_by_role("button", name="Analyze CV")).to_be_enabled(timeout=5_000)
+    page.get_by_role("button", name="Analyze CV").click()
+    expect(page.locator(".gander-score-num")).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    def font_px(selector: str) -> float:
+        raw: str = page.eval_on_selector(selector, "el => getComputedStyle(el).fontSize")
+        return float(raw.removesuffix("px"))
+
+    # Eyebrow label: token is 0.8rem (~12.8px). The regression rendered it at ~22px
+    # (prose h2). Assert it stays small — well under the score numeral and headings.
+    label_px = font_px(".gander-score-label")
+    assert label_px <= 14.0, (
+        f".gander-score-label is {label_px}px (expected ~12.8px); "
+        "Gradio's `.prose h2` font-size may be overriding the type token"
+    )
+
+    # Section heading token is 1.25rem (20px); the prose override pushed it to ~22px.
+    h2_px = font_px(".gander-h2")
+    assert h2_px <= 21.0, f".gander-h2 is {h2_px}px (expected ~20px); prose h2 override"
+
+    # Short-quote <blockquote> must match the long-quote <span>: 3px border, 0 margin.
+    # `.prose blockquote` sets a 5px border and a `!important` 24px margin.
+    bq = page.locator("blockquote.gander-component-quote").first
+    metrics = bq.evaluate(
+        "el => { const c = getComputedStyle(el); return {"
+        "mt: parseFloat(c.marginTop), border: parseFloat(c.borderLeftWidth)}; }"
+    )
+    assert metrics["mt"] <= 1.0, (
+        f"blockquote quote margin-top is {metrics['mt']}px (expected 0); "
+        "Gradio's `.prose blockquote` `!important` margin may be leaking through"
+    )
+    assert abs(metrics["border"] - 3.0) <= 0.5, (
+        f"blockquote quote border-left is {metrics['border']}px (expected 3px); "
+        "Gradio's `.prose blockquote` 5px border may be overriding the token"
+    )
+
+
 def test_action_buttons_aligned(page: Page, live_app_url: str, cv_fixture_path: Path) -> None:
     """Analyze CV and Cancel share the same baseline and height during a run.
 

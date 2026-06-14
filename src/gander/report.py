@@ -357,6 +357,39 @@ body.dark {
 }
 .gander-empty { color: var(--g-fg-subtle); font-style: italic; }
 
+/* ---- Gradio `.prose` neutralization ----
+   The report renders inside Gradio's `.prose` container (the `.gander-output`
+   element carries both classes). Gradio styles prose by element tag —
+   `.gradio-container-<v> .prose h2 { font-size }`, `.prose h3`, `.prose blockquote
+   { margin }` — at two-class specificity, which OUT-specifies our single-class
+   design-token rules (`.gander-h2`, `.gander-score-label`, …). Symptom: the
+   "Overall score" eyebrow (an <h2 class="gander-score-label"> meant to be a 0.8rem
+   uppercase label) rendered at ~22px, and section headings ignored the type scale.
+
+   Re-scoping our token rules as `.gander-output <tag>.<class>` lifts them to the
+   same two-class specificity; our <style> is later in document order than Gradio's
+   head CSS, so the tie resolves in our favour. Verified against the live Gradio DOM
+   by the e2e computed-style guard (test_report_typography_uses_design_tokens). This
+   is the typography analogue of the plan-item wrapper that dodges `.prose li > p`. */
+.gander-output h2.gander-h2 { font-size: var(--g-text-lg); }
+.gander-output h3.gander-h3,
+.gander-output h3.gander-component-name { font-size: var(--g-text-sm); }
+.gander-output h2.gander-score-label {
+  font-size: var(--g-text-xs); font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--g-fg-subtle);
+}
+/* `.prose blockquote` ALSO rewrites border-left (5px), padding-left (8px) and the
+   block margin — only on the short-quote <blockquote>, not the long-quote <span>,
+   so cards rendered inconsistently. A 3-class selector beats `.prose blockquote`
+   for border/padding; its margin is declared `!important`, so the only correct way
+   to restore parity with the <span> variant (margin 0) is a matching `!important`.
+   This is the one `!important` in the report — it counters a vendor `!important`,
+   not our own cascade. */
+.gander-output .gander-component .gander-component-quote {
+  margin: 0 !important;
+  border-left: 3px solid var(--g-border-strong); padding-left: 0.7rem;
+}
+
 @media (max-width: 32rem) {
   /* The grid collapses to one column on its own (auto-fit + min(22rem, 100%)); only
      the score numeral needs a hand-tuned shrink at phone widths. */
@@ -776,15 +809,22 @@ def _growth_section_html(growth: list[GrowthAction] | StageFailure | None) -> st
     items: list[str] = []
     for action in growth:
         # Title first so the <ol> marker numbers the action; the time-horizon chip
-        # trails as a meta line (styled by `.gander-plan .gander-chip`). The chip
-        # markup is unchanged — only its position in the <li> moved.
+        # trails as a meta line (styled by `.gander-plan .gander-chip`).
+        #
+        # The title/mechanism paragraphs are wrapped in a block <div>, NOT placed
+        # as direct children of <li>. Gradio's bundled prose CSS ships a
+        # `.prose li > p, .prose ul > p { display: inline }` reset; our gr.HTML
+        # report renders inside that `.prose` container, so direct `li > p`
+        # children collapse to one inline run ("inference.Transitioning…"). The
+        # wrapper breaks the `li > p` relationship so the paragraphs stay block,
+        # without a version-pinned specificity war against Gradio's selector.
         items.append(
-            "<li>"
+            '<li><div class="gander-plan-item">'
             f'<p class="gander-plan-title">{_html_inline(action.what)}</p>'
             f'<p class="gander-plan-mech">{_html_inline(action.mechanism)}</p>'
             f'<span class="gander-chip" aria-label="Time horizon: {action.time_horizon_months} '
             f'months">{action.time_horizon_months} months</span>'
-            "</li>"
+            "</div></li>"
         )
     return _h2("Plan") + '<ol class="gander-plan">' + "".join(items) + "</ol>"
 
