@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 
 from gander import pipeline
-from gander.report import render_body
+from gander.report import render_html
 from gander.schemas import Report
 
 # Random bytes with `.pdf` suffix → `extract_text` returns CORRUPT_MSG, the
@@ -35,7 +35,7 @@ async def _collect(it: Any) -> list[Report]:
 
 @pytest.mark.fast
 async def test_every_yield_is_renderable_without_exception() -> None:
-    """Each intermediate `Report` must round-trip through `render_body`
+    """Each intermediate `Report` must round-trip through `render_html`
     without raising. The initial yield (profile=None) renders to an empty
     string; once profile becomes a StageFailure, the renderer short-circuits
     to a single failure callout. Neither path may raise — a Gradio re-render
@@ -44,9 +44,9 @@ async def test_every_yield_is_renderable_without_exception() -> None:
     assert len(reports) >= 2, "pipeline must yield at least an initial + final report"
     for i, r in enumerate(reports):
         try:
-            out = render_body(r)
+            out = render_html(r)
         except Exception as exc:
-            pytest.fail(f"render_body raised on yield #{i}: {type(exc).__name__}: {exc}")
+            pytest.fail(f"render_html raised on yield #{i}: {type(exc).__name__}: {exc}")
         assert isinstance(out, str)
 
 

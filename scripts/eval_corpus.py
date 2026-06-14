@@ -296,7 +296,7 @@ def _write_individual_report(
     report: object,
     latency_s: float,
 ) -> Path:
-    from gander.report import render_body
+    from gander.report import render_markdown
 
     cost_usd = float(getattr(report, "total_cost_usd", 0.0) or 0.0)
     header = "\n".join(
@@ -311,7 +311,7 @@ def _write_individual_report(
             "",
         ]
     )
-    body = render_body(report)  # type: ignore[arg-type]
+    body = render_markdown(report)  # type: ignore[arg-type]
     out_path = output_dir / f"{cv_path.stem}.md"
     out_path.write_text(header + body, encoding="utf-8")
     return out_path

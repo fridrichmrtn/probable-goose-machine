@@ -1,15 +1,18 @@
-"""L7 Gradio UI — file upload, stage tracker, streaming markdown report.
+"""L7 Gradio UI — file upload, stage tracker, streaming HTML report.
 
 The UI is a pure function of `Report` state: every yield from `pipeline.run`
-re-renders both the tracker HTML and the body markdown. No UI-side state.
+re-renders the tracker and the report body, both as `gr.HTML`. No UI-side state.
+All styling rides on the single global `report.STYLE` block injected once at the
+top of the page; the per-yield renderers emit only class-bearing markup.
 
 `_initial_report()` placeholder blocks are never rendered. `render_tracker`
-only reads `.statuses`, and the `gr.Markdown` body is initialised empty —
-never with `render_body(_initial_report())`. Calling `render_body` on this
-report would short-circuit to a `StageFailure` callout because
-`report.profile` is a failure (see `report.py` line 290). The tracker is
-also initialised empty so the 5-pill row only appears once the user clicks
-Analyze CV (the handler's first yield calls `render_tracker(reading_report)`).
+only reads `.statuses`, and the `gr.HTML` body is initialised empty — never with
+`render_html(_initial_report())`. Calling `render_html` on this report would
+short-circuit to a `StageFailure` callout because `report.profile` is a failure.
+The tracker is also initialised empty so the 5-pill row only appears once the
+user clicks Analyze CV (the handler's first yield calls `render_tracker`). The
+download button serves a portable markdown archive built by `render_markdown`,
+independent of the on-screen HTML.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ import gradio as gr
 from gander.errors import StageFailure
 from gander.llm import check_env
 from gander.pipeline import run as pipeline_run
-from gander.report import render_body, render_tracker
+from gander.report import STYLE, render_html, render_markdown, render_status, render_tracker
 from gander.schemas import Profile, Report
 
 
@@ -110,18 +113,21 @@ def _write_report_md(body: str) -> str:
 _HERO_CSS = """<style>
 #gander-app { max-width: 72ch; margin-inline: auto; }
 .gander-hero {
-  margin: 1rem 0 2.5rem; font-family: system-ui, sans-serif;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem;
+  margin: 0.75rem 0 1.5rem; font-family: system-ui, sans-serif;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 1rem;
 }
-.gander-hero .mascot { width: 64px; height: 64px; flex-shrink: 0; color: #344054; }
-.gander-hero .text { display: flex; flex-direction: column; gap: 0.4rem; }
+.gander-hero .mascot { width: 48px; height: 48px; flex-shrink: 0; color: #344054; }
+.gander-hero .text { display: flex; flex-direction: column; gap: 0.25rem; }
 .gander-hero h1 {
-  margin: 0; font-size: 2.125rem; line-height: 1.2;
+  margin: 0; font-size: 1.75rem; line-height: 1.2;
   font-weight: 600; letter-spacing: -0.01em;
 }
-.gander-hero p  { margin: 0; color: #475467; font-size: 1.0625rem; line-height: 1.5; }
-.gander-caption { color: #667085; font-size: 0.85rem; margin: 0.75rem 0 1.25rem; }
-.gradio-container button.primary { margin-top: 0.5rem !important; }
+.gander-hero p  { margin: 0; color: #475467; font-size: 1rem; line-height: 1.5; }
+.gander-caption { color: #475467; font-size: 0.9rem; line-height: 1.55; margin: 0.5rem 0 1.25rem; }
+.gander-caption .privacy { display: block; margin-top: 0.35rem; color: #667085; }
+/* Space the action row below the caption (not the primary button alone, which
+   left Cancel 8px misaligned beside Analyze); center both buttons vertically. */
+#gander-app .gander-actions { margin-top: 0.5rem; align-items: center; }
 button.primary, .gradio-container button.primary {
   background: #92400e !important; border-color: #92400e !important; color: #ffffff !important;
 }
@@ -138,9 +144,6 @@ button.primary:disabled,
   background: #fed7aa !important; border-color: #fed7aa !important;
   color: #7c2d12 !important; cursor: not-allowed; opacity: 1;
 }
-@keyframes ganderPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-.pill.running { animation: ganderPulse 1.2s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .pill.running { animation: none; } }
 @media (prefers-color-scheme: dark) {
   .gander-hero h1 { color: #f4f4f5; }
   .gander-hero p { color: #d4d4d8; }
@@ -197,19 +200,21 @@ if os.environ.get("GANDER_SKIP_ENV_CHECK") != "1":
 
 with gr.Blocks(title="Gander · CV analysis") as demo:
     with gr.Column(elem_id="gander-app"):
-        gr.HTML(_HERO_CSS + _HERO_HTML)
+        # One top-of-page <style>: hero CSS + the global report/tracker STYLE.
+        # Injected once so per-yield renderers emit only class-bearing markup.
+        gr.HTML(_HERO_CSS + STYLE + _HERO_HTML)
         file_in = gr.File(file_types=[".pdf", ".docx"], label="Your CV", type="filepath")
         gr.HTML(
             '<p class="gander-caption">PDF or DOCX, max 10 MB. PDFs are uploaded '
             "to OpenRouter/Gemini as page images for transcription; DOCX is read "
-            "locally. Salary data is fetched via DuckDuckGo search. "
-            "Uploads are not retained by Gander.</p>"
+            "locally. Salary data is fetched via DuckDuckGo search."
+            '<span class="privacy">Uploads are not retained by Gander.</span></p>'
         )
-        with gr.Row():
+        with gr.Row(elem_classes=["gander-actions"]):
             run_btn = gr.Button("Analyze CV", variant="primary", interactive=False)
             cancel_btn = gr.Button("Cancel", variant="secondary", visible=False)
         tracker_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
-        report_md = gr.Markdown(value="", visible=False, elem_classes=["gander-output"])
+        report_html = gr.HTML(value="", visible=False, elem_classes=["gander-output"])
         download_btn = gr.DownloadButton(
             "Download report (.md)", visible=False, elem_classes=["gander-output"]
         )
@@ -235,7 +240,7 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
     # previous CV's report into the download button.
 
     # Yield order matches the run_btn.click outputs list below:
-    # (tracker_html, report_md, download_btn, cancel_btn).
+    # (tracker_html, report_html, download_btn, cancel_btn).
     _DOWNLOAD_IDLE = gr.update(visible=False)
     _CANCEL_SHOWN = gr.update(visible=True)
     _CANCEL_HIDDEN = gr.update(visible=False)
@@ -247,7 +252,7 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             failed = _read_error_report("Select a CV first.")
             yield (
                 gr.update(visible=True, value=render_tracker(failed)),
-                gr.update(visible=True, value=render_body(failed)),
+                gr.update(visible=True, value=render_html(failed)),
                 _DOWNLOAD_IDLE,
                 _CANCEL_HIDDEN,
             )
@@ -260,7 +265,7 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
             )
             yield (
                 gr.update(visible=True, value=render_tracker(failed)),
-                gr.update(visible=True, value=render_body(failed)),
+                gr.update(visible=True, value=render_html(failed)),
                 _DOWNLOAD_IDLE,
                 _CANCEL_HIDDEN,
             )
@@ -271,8 +276,8 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         # silence reads as breakage (PRD §8). Show Cancel for the duration of the run.
         reading_report = _initial_report()
         reading_report.statuses["profile"] = "running"
-        reading_copy = (
-            "*Transcribing PDF…*" if filename.lower().endswith(".pdf") else "*Reading DOCX…*"
+        reading_copy = render_status(
+            "Transcribing PDF…" if filename.lower().endswith(".pdf") else "Reading DOCX…"
         )
         yield (
             gr.update(visible=True, value=render_tracker(reading_report)),
@@ -284,16 +289,17 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         last_report: Report | None = None
         async for report in pipeline_run(file_bytes, filename):
             last_report = report
-            # render_body short-circuits to a failure callout when profile is still a
-            # StageFailure placeholder; hold neutral copy until profile is a real Profile.
+            # render_html short-circuits to a failure callout when profile is still a
+            # StageFailure placeholder; hold a styled "working" block until profile
+            # is a real Profile.
             if isinstance(report.profile, Profile):
-                body = render_body(report)
+                body = render_html(report)
             elif report.statuses["profile"] == "running" and not report.redacted_cv_text:
                 body = reading_copy
             elif report.statuses["profile"] == "running":
-                body = "*Extracting profile…*"
+                body = render_status("Extracting profile…")
             else:
-                body = "*Generating report…*"
+                body = render_status("Generating report…")
             yield (
                 gr.update(visible=True, value=render_tracker(report)),
                 gr.update(visible=True, value=body),
@@ -303,14 +309,15 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
 
         # Offer the download only for a report that actually rendered a body
         # (profile resolved to a real Profile, not a top-level failure callout).
-        # `body` here is the final loop iteration's render — when last_report's
-        # profile is a real Profile, that branch took `body = render_body(report)`,
-        # so it equals the finished report's markdown (no re-render needed).
-        # Tracker and body keep their last values; only reveal the download and
-        # hide Cancel now that the run is done.
+        # The download is a portable markdown archive serialized from the final
+        # report — independent of the on-screen HTML in `body`. Tracker and body
+        # keep their last values; only reveal the download and hide Cancel now
+        # that the run is done.
         if last_report is not None and isinstance(last_report.profile, Profile):
             try:
-                download = gr.update(visible=True, value=_write_report_md(body))
+                download = gr.update(
+                    visible=True, value=_write_report_md(render_markdown(last_report))
+                )
             except OSError:
                 # A disk failure writing the artifact must not break graceful
                 # completion — degrade to no-download, report stays on screen.
@@ -322,7 +329,7 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
     run_event = run_btn.click(
         handle,
         inputs=[file_in],
-        outputs=[tracker_html, report_md, download_btn, cancel_btn],
+        outputs=[tracker_html, report_html, download_btn, cancel_btn],
         show_progress="hidden",
     )
 
@@ -332,10 +339,15 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
         # no "cancelled" signal. Settle the UI explicitly: clear the stale
         # tracker, replace the partial body with a clear cancelled message, hide
         # the (never-populated) download and Cancel buttons, and re-enable Run.
-        # Outputs order: tracker_html, report_md, download_btn, cancel_btn, run_btn.
+        # Outputs order: tracker_html, report_html, download_btn, cancel_btn, run_btn.
         return (
             gr.update(value="", visible=False),
-            gr.update(value="_Run cancelled. The partial output was discarded._", visible=True),
+            gr.update(
+                value=render_status(
+                    "Run cancelled. The partial output was discarded.", working=False
+                ),
+                visible=True,
+            ),
             gr.update(visible=False),
             gr.update(visible=False),
             gr.Button(interactive=True),
@@ -344,7 +356,7 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
     cancel_btn.click(
         _on_cancel,
         inputs=None,
-        outputs=[tracker_html, report_md, download_btn, cancel_btn, run_btn],
+        outputs=[tracker_html, report_html, download_btn, cancel_btn, run_btn],
         cancels=[run_event],
     )
 
@@ -355,7 +367,7 @@ with gr.Blocks(title="Gander · CV analysis") as demo:
     file_in.change(
         _on_file_change,
         inputs=[file_in],
-        outputs=[run_btn, tracker_html, report_md, download_btn, cancel_btn],
+        outputs=[run_btn, tracker_html, report_html, download_btn, cancel_btn],
         show_progress="hidden",
         cancels=[run_event],
     )

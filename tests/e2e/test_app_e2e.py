@@ -1,0 +1,201 @@
+"""Browser e2e tests for the Gander Gradio UI.
+
+All tests are sync (not async) to avoid conflicts between pytest-asyncio's
+event loop and the Gradio server thread. The `page` fixture from
+pytest-playwright is synchronous; the Gradio server runs in its own thread
+launched by `demo.launch(prevent_thread_lock=True)`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from playwright.sync_api import Page, expect
+
+from tests._fakes import _LONG_EVIDENCE_QUOTE
+
+pytestmark = pytest.mark.e2e
+
+# Generous timeout for the full pipeline streaming run. Stages each sleep 50ms
+# (e2e_delays=True in conftest), so the full run takes ~350ms; 30s leaves
+# ample headroom for SSE delivery latency and DOM update cycles.
+_STREAM_TIMEOUT = 30_000  # ms
+
+
+def test_page_loads(page: Page, live_app_url: str) -> None:
+    """The page renders the hero heading, tagline, and file upload control."""
+    page.goto(live_app_url)
+
+    # Hero heading and tagline from _HERO_HTML in app.py.
+    expect(page.get_by_role("heading", name="Gander")).to_be_visible()
+    expect(page.get_by_text("Take a closer look at any CV.")).to_be_visible()
+
+    # The file input is present (Gradio renders it inside a label).
+    expect(page.locator("input[type=file]")).to_be_attached()
+
+
+def test_analyze_button_gating(page: Page, live_app_url: str, cv_fixture_path: Path) -> None:
+    """Analyze CV is disabled until a file is chosen, then becomes enabled."""
+    page.goto(live_app_url)
+
+    analyze_btn = page.get_by_role("button", name="Analyze CV")
+    expect(analyze_btn).to_be_disabled()
+
+    # Set the file on the hidden <input type=file> inside the gr.File component.
+    page.locator("input[type=file]").set_input_files(str(cv_fixture_path))
+
+    expect(analyze_btn).to_be_enabled(timeout=5_000)
+
+
+def test_happy_path(page: Page, live_app_url: str, cv_fixture_path: Path) -> None:
+    """End-to-end: upload a CV, run analysis, verify all report sections render."""
+    page.goto(live_app_url)
+
+    page.locator("input[type=file]").set_input_files(str(cv_fixture_path))
+    expect(page.get_by_role("button", name="Analyze CV")).to_be_enabled(timeout=5_000)
+    page.get_by_role("button", name="Analyze CV").click()
+
+    # Wait for the score number to appear — signals the full report is rendered.
+    expect(page.locator(".gander-score-num")).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    # Component cards.
+    expect(page.locator(".gander-component").first).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    # The FULL multi-sentence evidence quote must appear verbatim — no truncation.
+    # _LONG_EVIDENCE_QUOTE is the exact string from fake_score(); using has_text
+    # with the full value proves the renderer emits the complete quote, not a
+    # truncated version.
+    expect(page.locator(".gander-component-quote", has_text=_LONG_EVIDENCE_QUOTE)).to_be_visible(
+        timeout=_STREAM_TIMEOUT
+    )
+
+    # Salary range.
+    expect(page.locator(".gander-salary-range")).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    # Confidence chip.
+    expect(page.locator(".gander-chip").first).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    # Growth plan list (growth runs concurrently with confidence; wait with full timeout).
+    expect(page.locator(".gander-plan")).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    # About disclosure is present and CLOSED (no `open` attribute).
+    about = page.locator("details.gander-about")
+    expect(about).to_be_attached(timeout=_STREAM_TIMEOUT)
+    assert about.get_attribute("open") is None, "About disclosure must be collapsed by default"
+
+    # Download button becomes visible after the run completes.
+    expect(page.get_by_role("button", name="Download report (.md)")).to_be_visible(
+        timeout=_STREAM_TIMEOUT
+    )
+
+
+def test_structure_regression(page: Page, live_app_url: str, cv_fixture_path: Path) -> None:
+    """Report body renders as real DOM nodes, not escaped HTML text, and CSS is applied.
+
+    Guards against a regression where the HTML output was escaped and shown as
+    literal tag text, or where the global stylesheet was not injected so class
+    rules had no effect.
+    """
+    page.goto(live_app_url)
+
+    page.locator("input[type=file]").set_input_files(str(cv_fixture_path))
+    expect(page.get_by_role("button", name="Analyze CV")).to_be_enabled(timeout=5_000)
+    page.get_by_role("button", name="Analyze CV").click()
+
+    expect(page.locator(".gander-score-num")).to_be_visible(timeout=_STREAM_TIMEOUT)
+
+    # The score number and component cards must exist as real DOM elements.
+    assert page.locator(".gander-score-num").count() >= 1, (
+        ".gander-score-num not found as a DOM node — HTML may have been escaped"
+    )
+    assert page.locator(".gander-component").count() >= 1, (
+        ".gander-component not found as a DOM node"
+    )
+
+    # The global STYLE sets `.gander-score-num { font-size: 3rem }`.
+    # 3rem at the browser default of 16px = 48px. Assert >= 32px to give a
+    # generous margin for zoom/density differences while still catching
+    # a "font-size: initial" regression (which would be ~16px).
+    raw_font_size: str = page.eval_on_selector(
+        ".gander-score-num",
+        "el => getComputedStyle(el).fontSize",
+    )
+    # raw_font_size is a string like "48px"
+    assert raw_font_size.endswith("px"), f"Unexpected font-size unit: {raw_font_size!r}"
+    font_size_px = float(raw_font_size.removesuffix("px"))
+    assert font_size_px >= 32, (
+        f".gander-score-num computed font-size is {raw_font_size!r} "
+        f"(expected >= 32px); STYLE may not be applied"
+    )
+
+
+def test_action_buttons_aligned(page: Page, live_app_url: str, cv_fixture_path: Path) -> None:
+    """Analyze CV and Cancel share the same baseline and height during a run.
+
+    Regression guard for an 8px vertical offset: a global
+    `button.primary { margin-top: 0.5rem }` rule pushed the primary Analyze CV
+    button down while the secondary Cancel button stayed at the row top. Fixed by
+    moving the spacing onto the action row (.gander-actions) and centering it.
+    """
+    page.goto(live_app_url)
+    page.locator("input[type=file]").set_input_files(str(cv_fixture_path))
+    expect(page.get_by_role("button", name="Analyze CV")).to_be_enabled(timeout=5_000)
+    page.get_by_role("button", name="Analyze CV").click()
+
+    # Cancel is visible only while the pipeline streams; read both boxes then.
+    cancel = page.get_by_role("button", name="Cancel")
+    expect(cancel).to_be_visible(timeout=_STREAM_TIMEOUT)
+    analyze_box = page.get_by_role("button", name="Analyze CV").bounding_box()
+    cancel_box = cancel.bounding_box()
+    assert analyze_box is not None and cancel_box is not None
+
+    assert abs(analyze_box["y"] - cancel_box["y"]) <= 1.0, (
+        f"Action buttons vertically misaligned: Analyze y={analyze_box['y']}, "
+        f"Cancel y={cancel_box['y']}"
+    )
+    assert abs(analyze_box["height"] - cancel_box["height"]) <= 1.0, (
+        f"Action buttons differ in height: {analyze_box['height']} vs {cancel_box['height']}"
+    )
+
+
+def test_long_evidence_clamps_and_expands(
+    page: Page, live_app_url: str, cv_fixture_path: Path
+) -> None:
+    """A long evidence quote is visually clamped behind a disclosure that reveals
+    the full text on click. The full quote is always in the DOM (no truncation);
+    only the *visual* height is clamped, so cards stay uniform. This is the only
+    place the clamp CSS is actually exercised (unit tests don't run a browser).
+    """
+    page.goto(live_app_url)
+    page.locator("input[type=file]").set_input_files(str(cv_fixture_path))
+    expect(page.get_by_role("button", name="Analyze CV")).to_be_enabled(timeout=5_000)
+    page.get_by_role("button", name="Analyze CV").click()
+
+    # Only the long Skills quote (from _LONG_EVIDENCE_QUOTE) exceeds the clamp
+    # threshold, so exactly one disclosure renders, collapsed by default.
+    details = page.locator("details.gander-evidence")
+    expect(details).to_be_attached(timeout=_STREAM_TIMEOUT)
+    assert details.count() == 1, f"expected one evidence disclosure, got {details.count()}"
+    assert details.get_attribute("open") is None, "evidence disclosure must start collapsed"
+
+    # The full quote text is present in the DOM even while visually clamped.
+    quote = details.locator(".gander-component-quote")
+    expect(quote).to_contain_text(_LONG_EVIDENCE_QUOTE)
+
+    # Collapsed: content overflows its clamped box (rendered height < full height).
+    collapsed = quote.evaluate("el => ({client: el.clientHeight, scroll: el.scrollHeight})")
+    assert collapsed["scroll"] > collapsed["client"] + 4, (
+        f"expected a clamped quote (scrollHeight > clientHeight), got {collapsed}"
+    )
+
+    # Expand via the summary; the box grows to show the full quote with no overflow.
+    details.locator("summary").click()
+    expect(details).to_have_attribute("open", "")
+    expanded = quote.evaluate("el => ({client: el.clientHeight, scroll: el.scrollHeight})")
+    assert expanded["client"] > collapsed["client"], (
+        f"expanded quote should be taller than collapsed: {expanded} vs {collapsed}"
+    )
+    assert expanded["scroll"] <= expanded["client"] + 4, (
+        f"expanded quote should not overflow: {expanded}"
+    )

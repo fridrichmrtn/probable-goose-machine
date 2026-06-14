@@ -37,6 +37,20 @@ def _contrast_ratio(fg: str, bg: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
+def _resolve_light_token(css: str, name: str) -> str:
+    """Resolve a CSS custom property from the light `:root` block.
+
+    The light `:root { … }` is the first one in the stylesheet; dark overrides
+    live in later `@media (prefers-color-scheme: dark)` / `body.dark` blocks, so
+    the first match is the light value the math composites over white.
+    """
+    root = re.search(r":root\s*\{([^}]*)\}", css)
+    assert root is not None, "no :root block found"
+    m = re.search(rf"{re.escape(name)}:\s*(#[0-9a-fA-F]{{6}})", root.group(1))
+    assert m is not None, f"{name} not defined in light :root"
+    return m.group(1)
+
+
 @pytest.mark.fast
 def test_contrast_helper_matches_known_reference() -> None:
     # Black on white is the canonical 21:1 reference.
@@ -62,14 +76,16 @@ def test_light_disabled_button_meets_aa() -> None:
 
 @pytest.mark.fast
 def test_skipped_pill_meets_aa() -> None:
-    # Pill background is transparent; in light mode it composites over white.
-    fg, bg = "#667085", "#ffffff"
+    # The skipped/pending pill colour is token-driven (`var(--g-fg-subtle)`), so
+    # resolve the token from the light :root and check the *resolved* value. Pill
+    # background is transparent; in light mode it composites over white.
+    fg = _resolve_light_token(_REPORT_PY, "--g-fg-subtle")
+    bg = "#ffffff"
     assert _contrast_ratio(fg, bg) >= _AA_NORMAL
-    # Scope to the `.pill.skipped` rule block. #667085 also appears in
-    # `.pill.pending`, `.gander-salary-context`, and `.gander-component-score`,
-    # so an unscoped substring check would stay green even if the skipped pill
-    # regressed. `re.search` returns the first (light-mode) block; the dark
-    # overrides use #71717a.
+    # Scope to the `.pill.skipped` rule block and assert it follows the token.
+    # Hardcoding a hex here (bypassing the token) would slip past the resolved
+    # contrast check above, so require the `var(--g-fg-subtle)` reference; any
+    # token change is then re-checked through _resolve_light_token + the ratio.
     m = re.search(r"\.pill\.skipped\s*\{([^}]*)\}", _REPORT_PY)
     assert m is not None
-    assert f"color: {fg}" in m.group(1)
+    assert "color: var(--g-fg-subtle)" in m.group(1)

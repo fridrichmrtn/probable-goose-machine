@@ -589,4 +589,3 @@ the branch.
   (one announcement per stage transition, no six-pill re-read) is verified only at the
   HTML/attribute level, not with a real AT (VoiceOver/NVDA). Same browser-evidence gap
   the `ui-polish-pass-2` block flagged for the prior live-region change.
-

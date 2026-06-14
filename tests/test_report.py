@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from gander.errors import StageFailure
-from gander.report import render_body
+from gander.report import render_html, render_markdown
 from gander.schemas import (
     Anchor,
     Profile,
@@ -47,12 +47,12 @@ def _failed_statuses() -> dict[StageName, StageStatus]:
 
 
 @pytest.mark.fast
-def test_stage_failure_does_not_block_other_stages() -> None:
-    """Every downstream stage fails with a distinct message; renderer surfaces every callout.
+def test_stage_failure_does_not_block_other_stages_html() -> None:
+    """Every downstream stage fails with a distinct message; render_html surfaces every callout.
 
     Without the rest-of-report-renders promise from PRD §4.6, a renderer that
     short-circuits on the first StageFailure would emit only one of these
-    four messages. The test asserts all four reach the body.
+    four messages. The test asserts all four reach the HTML body.
     """
     report = Report(
         profile=_profile(),
@@ -62,7 +62,37 @@ def test_stage_failure_does_not_block_other_stages() -> None:
         growth=StageFailure(stage="growth", user_message="Plan generation failed"),
         statuses=_failed_statuses(),
     )
-    out = render_body(report)
+    out = render_html(report)
+
+    # All four sections render their failure callouts.
+    assert '<h2 class="gander-h2">Score</h2>' in out
+    assert "Score stage hit a wall" in out
+
+    assert '<h2 class="gander-h2">Salary</h2>' in out
+    assert "Insufficient market data" in out
+
+    assert '<h2 class="gander-h2">Confidence</h2>' in out
+    assert "Confidence judge offline" in out
+
+    assert '<h2 class="gander-h2">Plan</h2>' in out
+    assert "Plan generation failed" in out
+
+    # Footer still renders — it always does for a populated profile.
+    assert "How is this scored?" in out
+
+
+@pytest.mark.fast
+def test_stage_failure_does_not_block_other_stages_markdown() -> None:
+    """Every downstream stage fails; render_markdown surfaces each callout."""
+    report = Report(
+        profile=_profile(),
+        score=StageFailure(stage="score", user_message="Score stage hit a wall"),
+        salary=StageFailure(stage="salary", user_message="Insufficient market data"),
+        confidence=StageFailure(stage="confidence", user_message="Confidence judge offline"),
+        growth=StageFailure(stage="growth", user_message="Plan generation failed"),
+        statuses=_failed_statuses(),
+    )
+    out = render_markdown(report)
 
     # All four sections render their failure callouts.
     assert "## Score" in out
@@ -77,5 +107,5 @@ def test_stage_failure_does_not_block_other_stages() -> None:
     assert "## Plan" in out
     assert "Plan generation failed" in out
 
-    # Footer still renders — it always does for a populated profile.
+    # Footer still renders.
     assert "How is this scored?" in out
