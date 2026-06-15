@@ -168,7 +168,8 @@ def test_plan_paragraphs_render_as_blocks(
     # Numbering fix: each step is numbered by a CSS counter pinned to
     # `.gander-plan-item::before`, NOT the native <ol> marker — which sits in the
     # list's outside gutter, detaches from the block wrapper, and floats above the
-    # text. Suppressing it requires `ol.gander-plan` (0,2,1) to out-rank Gradio's
+    # text. Suppressing it requires `.gander-output ol.gander-plan` (0,2,1 — plain
+    # `ol.gander-plan` is only 0,1,1) to match and out-order Gradio's
     # `.prose ol { list-style: decimal }`. Only a browser proves this cascade.
     list_style = page.eval_on_selector("ol.gander-plan", "el => getComputedStyle(el).listStyleType")
     assert list_style == "none", (

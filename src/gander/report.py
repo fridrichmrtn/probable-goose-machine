@@ -324,9 +324,12 @@ body.dark {
    native marker sits in the list's outside gutter and detaches from the block
    `.gander-plan-item` wrapper, leaving the digit floating above the text. A
    counter rendered into `.gander-plan-item::before` keeps the numeral pinned to
-   its content. Suppressing the native marker needs `ol.gander-plan` (0,2,1) to
-   out-rank Gradio's `.prose ol { list-style: decimal }` on document order —
-   the same tactic as the .prose-neutralization block below. */
+   its content. Suppressing the native marker needs `.gander-output ol.gander-plan`
+   (0,2,1 — plain `ol.gander-plan` is only 0,1,1) to match Gradio's
+   `.prose ol { list-style: decimal }` (also 0,2,1) and win on document order —
+   the same tactic as the .prose-neutralization block below. The <ol> carries an
+   explicit role="list" (see _growth_section_html) so list semantics survive the
+   list-style:none in Safari/VoiceOver. */
 .gander-output ol.gander-plan { list-style: none; padding-left: 0; margin: 0.5rem 0; }
 .gander-plan { counter-reset: gander-step; }
 .gander-plan li { counter-increment: gander-step; }
@@ -856,7 +859,9 @@ def _growth_section_html(growth: list[GrowthAction] | StageFailure | None) -> st
             f'months">{action.time_horizon_months} months</span>'
             "</div></li>"
         )
-    return _h2("Plan") + '<ol class="gander-plan">' + "".join(items) + "</ol>"
+    # role="list" keeps the list semantics that Safari/VoiceOver drop when the
+    # native marker is removed via `list-style: none` (see the Plan CSS block).
+    return _h2("Plan") + '<ol class="gander-plan" role="list">' + "".join(items) + "</ol>"
 
 
 def _footer_html(report: Report) -> str:

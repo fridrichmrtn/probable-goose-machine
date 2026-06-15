@@ -302,12 +302,25 @@ def test_style_plan_numbers_steps_with_counter_not_native_marker() -> None:
     assert "counter-reset: gander-step" in STYLE
     assert "counter-increment: gander-step" in STYLE
     assert 'content: counter(gander-step) "."' in STYLE
-    # The native marker is suppressed via the (0,2,1) `ol.gander-plan` selector
-    # so it out-ranks Gradio's `.prose ol { list-style: decimal }`.
+    # The native marker is suppressed via the (0,2,1) `.gander-output ol.gander-plan`
+    # selector (plain `ol.gander-plan` is only 0,1,1) so it matches and out-orders
+    # Gradio's `.prose ol { list-style: decimal }`.
     assert ".gander-output ol.gander-plan { list-style: none;" in STYLE
     # The fragile native-marker rule must be gone (the comment that quotes
     # Gradio's `.prose ol { list-style: decimal }` is fine; the *rule* is not).
     assert ".gander-plan { list-style: decimal" not in STYLE
+
+
+@pytest.mark.fast
+def test_render_html_plan_list_carries_explicit_list_role() -> None:
+    # WebKit drops list semantics from an <ol>/<ul> when `list-style: none` is
+    # computed and no list role is present, so Safari+VoiceOver users would not
+    # hear "list, N items". role="list" re-asserts the semantics; it is the
+    # standard remediation and sufficient on its own (the <li>s keep
+    # display:list-item, so no per-item role is needed). Guard it co-present with
+    # the class that triggers the marker-suppressing CSS.
+    out = render_html(_make_report())
+    assert '<ol class="gander-plan" role="list">' in out
 
 
 @pytest.mark.fast
@@ -421,8 +434,9 @@ def test_render_html_populated_contains_expected_content() -> None:
     assert '<h3 id="gander-score-skills" class="gander-component-name">Skills</h3>' in out
     # Evidence quotes in blockquote elements (full, no truncation).
     assert '<blockquote class="gander-component-quote">' in out
-    # Plan / growth list renders as structured HTML with horizon chips.
-    assert '<ol class="gander-plan">' in out
+    # Plan / growth list renders as structured HTML with horizon chips. The <ol>
+    # carries role="list" so Safari/VoiceOver keep list semantics under list-style:none.
+    assert '<ol class="gander-plan" role="list">' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
     assert '<span class="gander-chip" aria-label="Time horizon: 6 months">6 months</span>' in out
     # The action title precedes its time-horizon chip in the <li> so the step
