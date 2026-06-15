@@ -51,6 +51,10 @@ _DEFAULT_SALARY_SEARCH_TIMEOUT_S = 6
 _DEFAULT_SALARY_SEARCH_TOTAL_TIMEOUT_S = 20
 _MAX_SALARY_SEARCH_TIMEOUT_S = 15
 _MAX_SALARY_SEARCH_TOTAL_TIMEOUT_S = 60.0
+# CZ hard backstop for the market-neutral junior guidance in salary.md. The
+# prompt's junior rule is now relative ("high must not exceed the senior band"),
+# which has no absolute number to enforce; this currency-gated cap is the
+# deterministic floor under that soft rule and is a no-op outside CZK/month.
 _JUNIOR_CZK_MONTH_HIGH_CAP = 90_000
 # CZ baseline only: the curated boards we trust for CZ profiles. Outside CZ we
 # stop applying this list and let live-search ranking stand — the live-search

@@ -175,7 +175,8 @@ def test_normalize_role_deterministic_cases(
             False,
             "market_token",
         ),
-        ("Research Scientist", 12, [], "research scientist", "mid", False, "market_token"),
+        # Tenure floor: 12y IC with no management evidence → at least senior (was mid).
+        ("Research Scientist", 12, [], "research scientist", "senior", False, "market_token"),
         ("Head of Data", 15, [], "head of data", "head", True, "market_token"),
         (
             "Data Gardener | AI, Data Science & Engineering @Stealth",
@@ -252,7 +253,9 @@ def test_role_normalized_event_emitted() -> None:
 
 @pytest.mark.fast
 def test_role_unrecognized_event_emitted() -> None:
-    """An unrecognizable headline with no recoverable titles must fire `role_unrecognized`."""
+    """An unrecognizable headline with no recoverable titles must fire
+    `role_unrecognized`, and the emitted `fallback` must reflect the actual
+    post-floor band, not a hardcoded "mid_default" — the tenure floor can lift it."""
     events: list[dict[str, Any]] = []
     with subscribe(events.append):
         result = normalize_role("Wizard of Bytes", 4, [])
@@ -260,9 +263,23 @@ def test_role_unrecognized_event_emitted() -> None:
     assert len(unrecognized) == 1
     payload = unrecognized[0]
     assert payload["detected"] == "Wizard of Bytes"
-    assert payload["fallback"] == "mid_default"
+    assert payload["fallback"] == "mid"
     assert result.source == "unrecognized"
     assert result.seniority_band == "mid"
+
+
+@pytest.mark.fast
+def test_role_unrecognized_event_reports_floored_band() -> None:
+    """When tenure floors the unrecognized fallback above mid, the emitted
+    `fallback` must match the returned band (regression for the misleading
+    hardcoded "mid_default")."""
+    events: list[dict[str, Any]] = []
+    with subscribe(events.append):
+        result = normalize_role("Wizard of Bytes", 12, [])
+    payload = next(e for e in events if e["event"] == "role_unrecognized")
+    assert payload["fallback"] == "senior"
+    assert result.source == "unrecognized"
+    assert result.seniority_band == "senior"
 
 
 @pytest.mark.fast
@@ -326,6 +343,10 @@ def test_tagline_recovery_uses_title_prefixes_not_duration_summaries() -> None:
 
 @pytest.mark.fast
 def test_valid_mid_detected_role_not_overridden_by_prior_head_title() -> None:
+    """Canonical role and management flag stay the conservative current role; the
+    band still reflects demonstrated leadership + tenure. The prior Head title
+    does not rewrite "data scientist" to management, but the 8y IC with a Head in
+    the history is floored to staff (top IC band), not left at mid."""
     result = normalize_role(
         "Data Scientist",
         8,
@@ -334,10 +355,19 @@ def test_valid_mid_detected_role_not_overridden_by_prior_head_title() -> None:
 
     assert result.canonical_role == "data scientist"
     assert result.source == "market_token"
+    assert result.seniority_band == "staff"
+    assert result.is_management is False
 
 
 @pytest.mark.fast
 def test_role_recovery_ignores_sentence_shaped_experience_summaries() -> None:
+    """Sentence-shaped experience summaries count for neither canonical recovery
+    nor the band floor. The 16-word "Senior Manager AI ... managed two squads"
+    prose is not a title-shaped candidate, so it does NOT become the canonical
+    role (stays "research engineer") and does NOT supply management evidence — the
+    band reflects the tenure floor only (10y → senior), not the staff lift. This
+    guards the false-positive fix: only the candidate's own title-shaped roles
+    lift the band, not arbitrary prose that may name someone else's title."""
     result = normalize_role(
         "Research Engineer",
         10,
@@ -350,12 +380,81 @@ def test_role_recovery_ignores_sentence_shaped_experience_summaries() -> None:
 
     assert result.canonical_role == "research engineer"
     assert result.source == "market_token"
+    assert result.seniority_band == "senior"
+    assert result.is_management is False
+
+
+@pytest.mark.fast
+def test_research_engineer_with_management_history_floors_to_staff() -> None:
+    """Regression for the reported defect: a long-tenured research engineer whose
+    CV shows a management history was anchored at IC/mid, poisoning the salary
+    search. The canonical title stays "research engineer" (accepted as correct),
+    but the band must floor to staff so the salary anchor reflects ~10y tenure +
+    demonstrated leadership. Mirrors the Profile.pdf shape without sending the CV:
+    the extractor's prose summaries carry a title-shaped prefix ("Head of Data
+    Science & Analytics", "Senior Manager AI & Data Science") that supplies the
+    management evidence, while the current IC role appears first so canonical
+    recovery keeps "research engineer"."""
+    result = normalize_role(
+        "Research Engineer",
+        10,
+        [
+            "Research Engineer, 10 years 7 months tenure",
+            "Head of Data Science & Analytics at Alza.cz, founded and led the analytics team",
+            "Senior Manager AI & Data Science at TD SYNNEX, led commercial data streams",
+        ],
+    )
+
+    assert result.canonical_role == "research engineer"
+    assert result.seniority_band == "staff"
+    assert result.is_management is False
+    assert result.source == "market_token"
+
+
+@pytest.mark.fast
+def test_unrelated_stakeholder_mention_is_not_management_evidence() -> None:
+    """False-positive guard: an experience summary that merely *mentions* another
+    person's management title ("Partnered with the Head of Sales ...") must NOT
+    lift an IC to staff. The 9-word prose is not title-shaped, so it supplies no
+    management evidence — the band reflects the tenure floor only (8y → senior)."""
+    result = normalize_role(
+        "Data Scientist",
+        8,
+        ["Partnered with the Head of Sales on forecasting dashboards"],
+    )
+
+    assert result.canonical_role == "data scientist"
+    assert result.seniority_band == "senior"
+    assert result.is_management is False
+
+
+@pytest.mark.fast
+def test_compound_ic_manager_title_floors_to_staff() -> None:
+    """False-negative guard: a compound title whose management token trails a
+    longer non-management token ("Principal Engineer / Engineering Manager")
+    classifies as (staff, False) under `_classify`'s first-match rule, hiding the
+    manager history. The band-floor scan checks all management tokens, so the 10y
+    IC with explicit manager history is correctly floored to staff."""
+    result = normalize_role(
+        "Research Engineer",
+        10,
+        [
+            "Research Engineer, 10 years tenure",
+            "Principal Engineer / Engineering Manager",
+        ],
+    )
+
+    assert result.canonical_role == "research engineer"
+    assert result.seniority_band == "staff"
+    assert result.is_management is False
 
 
 @pytest.mark.fast
 def test_valid_senior_detected_role_is_not_overridden_by_prior_head_title() -> None:
     """The recovery path is intentionally narrow: it fixes low/mid side-entry
-    picks without converting every senior IC with a past head title into management."""
+    picks without converting every senior IC with a past head title into management.
+    The canonical role and management flag stay IC; the band floor lifts the 10y
+    senior IC with a Head in the history to staff (top IC band)."""
     result = normalize_role(
         "Senior Data Scientist",
         10,
@@ -364,6 +463,8 @@ def test_valid_senior_detected_role_is_not_overridden_by_prior_head_title() -> N
 
     assert result.canonical_role == "senior data scientist"
     assert result.source == "market_token"
+    assert result.seniority_band == "staff"
+    assert result.is_management is False
 
 
 @pytest.mark.fast
