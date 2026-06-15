@@ -313,9 +313,6 @@ body.dark {
   color: var(--g-fg-muted); margin-bottom: 0.35rem;
 }
 
-/* ---- Confidence ---- */
-.gander-confidence-rationale { line-height: 1.6; }
-
 /* ---- Plan ---- */
 /* Each <li> leads with the action title so the <ol> marker numbers the action,
    not the leading time-horizon chip; the chip is demoted to a trailing meta line
