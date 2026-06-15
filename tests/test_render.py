@@ -294,6 +294,32 @@ def test_style_defines_sr_only_clip_rule() -> None:
 
 
 @pytest.mark.fast
+def test_style_plan_numbers_steps_with_counter_not_native_marker() -> None:
+    # The plan numerals come from a CSS counter pinned to `.gander-plan-item`,
+    # NOT the native <ol> marker (which detaches from the block wrapper and
+    # floats above the text). Guard the whole mechanism so a refactor can't
+    # silently reintroduce the floating-digit bug.
+    assert "counter-reset: gander-step" in STYLE
+    assert "counter-increment: gander-step" in STYLE
+    assert 'content: counter(gander-step) "."' in STYLE
+    # The native marker is suppressed via the (0,2,1) `ol.gander-plan` selector
+    # so it out-ranks Gradio's `.prose ol { list-style: decimal }`.
+    assert ".gander-output ol.gander-plan { list-style: none;" in STYLE
+    # The fragile native-marker rule must be gone (the comment that quotes
+    # Gradio's `.prose ol { list-style: decimal }` is fine; the *rule* is not).
+    assert ".gander-plan { list-style: decimal" not in STYLE
+
+
+@pytest.mark.fast
+def test_style_tints_confidence_chip_by_tier() -> None:
+    # Each confidence tier tints the chip's leading edge (mirrors the `.pill`
+    # border-left convention) so the rating reads at a glance.
+    assert ".gander-chip.is-high { border-left: 3px solid var(--g-ok); }" in STYLE
+    assert ".gander-chip.is-medium { border-left: 3px solid var(--g-warn); }" in STYLE
+    assert ".gander-chip.is-low { border-left: 3px solid var(--g-err); }" in STYLE
+
+
+@pytest.mark.fast
 def test_render_tracker_announces_running_stage() -> None:
     report = _make_report(
         statuses=_statuses(
@@ -399,14 +425,14 @@ def test_render_html_populated_contains_expected_content() -> None:
     assert '<ol class="gander-plan">' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
     assert '<span class="gander-chip" aria-label="Time horizon: 6 months">6 months</span>' in out
-    # The action title precedes its time-horizon chip in the <li> so the <ol> marker
-    # numbers the action, not the chip (UX fix: list number aligns to the title).
+    # The action title precedes its time-horizon chip in the <li> so the step
+    # counter numbers the action, not the chip (UX fix: list number aligns to the title).
     assert out.index('<p class="gander-plan-title">learn rust</p>') < out.index(
         '<span class="gander-chip" aria-label="Time horizon: 6 months">6 months</span>'
     )
     assert "**learn rust**" not in out
     # Confidence badge is visually separated from the rationale.
-    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
+    assert '<span class="gander-chip is-high" aria-label="Confidence: High">High</span>' in out
 
 
 @pytest.mark.fast
@@ -464,7 +490,7 @@ def test_render_html_with_salary_failure_keeps_score_block() -> None:
     assert "Insufficient market data for this profile" in out
     assert "CZK" not in out
     # Confidence + plan still render.
-    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
+    assert '<span class="gander-chip is-high" aria-label="Confidence: High">High</span>' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
 
 
@@ -763,7 +789,7 @@ def test_render_html_score_failure_keeps_other_sections() -> None:
     # Salary, confidence, growth still render.
     assert "CZK" in out
     assert "80,000" in out
-    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
+    assert '<span class="gander-chip is-high" aria-label="Confidence: High">High</span>' in out
     assert '<p class="gander-plan-title">learn rust</p>' in out
 
 
@@ -796,7 +822,7 @@ def test_render_html_growth_failure_keeps_other_sections() -> None:
     # Score, salary, confidence still render.
     assert 'class="gander-score-num"' in out
     assert "CZK" in out
-    assert '<span class="gander-chip" aria-label="Confidence: High">[!] High</span>' in out
+    assert '<span class="gander-chip is-high" aria-label="Confidence: High">High</span>' in out
 
 
 # ---------- render_html — confidence badge tiers ----------
@@ -806,15 +832,16 @@ _ConfidenceTier = Literal["High", "Medium", "Low"]
 
 
 @pytest.mark.fast
-@pytest.mark.parametrize(
-    ("tier", "glyph"),
-    [("High", "[!]"), ("Medium", "[~]"), ("Low", "[?]")],
-)
-def test_render_html_confidence_badge_matches_tier(tier: _ConfidenceTier, glyph: str) -> None:
+@pytest.mark.parametrize("tier", ["High", "Medium", "Low"])
+def test_render_html_confidence_badge_matches_tier(tier: _ConfidenceTier) -> None:
     conf = Confidence(tier=tier, rationale="ok")
     report = _make_report(confidence=conf)
     out = render_html(report)
-    assert f"{glyph} {tier}" in out
+    # Badge text is the bare tier (no glyph) and the chip carries a tier class so
+    # the leading edge can be tinted by rating.
+    assert (
+        f'<span class="gander-chip is-{tier.lower()}" aria-label="Confidence: {tier}">{tier}</span>'
+    ) in out
 
 
 # ---------- render_html — footer ----------
@@ -1142,7 +1169,7 @@ def test_render_markdown_growth_section_format() -> None:
 def test_render_markdown_confidence_section_format() -> None:
     out = render_markdown(_make_report())
     assert "## Confidence" in out
-    assert "**[!] High**" in out
+    assert "**High**" in out
 
 
 @pytest.mark.fast
