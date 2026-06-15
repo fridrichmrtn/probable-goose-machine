@@ -93,6 +93,9 @@ _BAND_RANK: Final[dict[SeniorityBand, int]] = {
 _RANK_TO_BAND: Final[dict[int, SeniorityBand]] = {rank: band for band, rank in _BAND_RANK.items()}
 
 _SORTED_SENIORITY_TOKENS: Final = sorted(_SENIORITY_TOKENS.items(), key=lambda kv: -len(kv[0]))
+_MANAGEMENT_TOKENS: Final[frozenset[str]] = frozenset(
+    token for token, (_band, is_mgmt) in _SENIORITY_TOKENS.items() if is_mgmt
+)
 _ROLE_TOKEN_RE: Final = re.compile(rf"\b(?:{'|'.join(_ROLE_TOKENS)})\b")
 _AT_EMPLOYER_RE: Final = re.compile(r"\s+at\s+", flags=re.IGNORECASE)
 _DURATION_SUFFIX_RE: Final = re.compile(
@@ -214,20 +217,38 @@ def _recover_current_title(titles: list[str]) -> tuple[str, SeniorityBand, bool]
     return None
 
 
-def _has_management_evidence(experience_titles: list[str]) -> bool:
-    """True when any prior title classifies as a management role.
+def _has_management_token(text: str) -> bool:
+    """True when any management token appears in `text`.
 
-    Loose by design — this scans the raw strings via `_classify` and does NOT
-    require `_is_title_shaped_candidate`. So prose like "Senior Manager AI and
-    Data Science led two analytics squads" still counts as leadership evidence
-    for the band floor, even though the canonical-role recovery deliberately
-    rejects that same sentence-shaped string. Level should reflect demonstrated
-    management history; the canonical title stays the conservative current role.
+    Unlike `_classify` (which returns only the first/longest token match), this
+    scans every management token, so a compound title like "Principal Engineer /
+    Engineering Manager" is recognized as management even though the longer
+    non-management token "principal" sorts first.
+    """
+    n = _norm(text)
+    return any(re.search(rf"\b{re.escape(token)}\b", n) for token in _MANAGEMENT_TOKENS)
+
+
+def _has_management_evidence(experience_titles: list[str]) -> bool:
+    """True when a title-shaped prior role carries a management token.
+
+    Restricted to title-shaped prefix candidates — the same gate canonical-role
+    recovery uses — so unrelated prose that merely *mentions* another person's
+    title (e.g. "Partnered with the Head of Sales on forecasting dashboards")
+    does not lift an IC's band. Within a title-shaped candidate it scans all
+    management tokens directly (see `_has_management_token`), so a compound
+    IC/manager title still registers. Level reflects the candidate's own
+    demonstrated management history; the canonical title stays the conservative
+    current role.
+
+    Residual edge: a short title-shaped phrase that names someone else's role
+    (e.g. "Reported to the Head of Data") still counts — far narrower than the
+    prior raw-prose scan, and bounded at the `staff` floor.
     """
     for title in experience_titles:
-        classified = _classify(title)
-        if classified is not None and classified[1]:  # (band, is_management)
-            return True
+        for candidate in _title_prefix_candidates(title):
+            if _is_title_shaped_candidate(candidate) and _has_management_token(candidate):
+                return True
     return False
 
 
@@ -352,7 +373,9 @@ def normalize_role(
         source="unrecognized",
     )
     floored = _apply_seniority_floor(result, years, experience_titles)
-    obs.emit("extract", "role_unrecognized", detected=detected_role, fallback="mid_default")
+    obs.emit(
+        "extract", "role_unrecognized", detected=detected_role, fallback=floored.seniority_band
+    )
     return floored
 
 

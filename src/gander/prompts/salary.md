@@ -130,15 +130,15 @@ Input results (excerpt):
 Output:
 ```json
 {
-  "low": 145000,
-  "high": 185000,
+  "low": 165000,
+  "high": 210000,
   "currency": "GBP",
   "period": "year",
   "sources": [
     {"url": "https://www.levels.fyi/t/data-scientist/locations/london", "snippet": "Senior Data Scientist London total comp ranges £95,000 to £125,000 per year.", "domain": "www.levels.fyi"},
     {"url": "https://uk.indeed.com/career/data-scientist/salaries/london", "snippet": "Data Scientist average base salary in London is £78,000 per year.", "domain": "uk.indeed.com"}
   ],
-  "reasoning": "Snippets are IC-only (senior-IC top is £125k at levels.fyi; indeed base is £78k). Candidate is Head-level with 12y; per the management-premium carve-out, extrapolating above senior-IC top to roughly 1.2-1.5× (145-185k). Basis is gross annual GBP."
+  "reasoning": "Snippets are IC-only (senior-IC top is £125k at levels.fyi; indeed base is £78k). Candidate is Head-level with 12y; per the management-premium carve-out, extrapolating above senior-IC top to roughly 1.3-1.7× (165-210k). Basis is gross annual GBP."
 }
 ```
 
