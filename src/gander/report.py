@@ -299,7 +299,7 @@ body.dark {
   font-size: var(--g-text-sm); font-weight: 500; color: var(--g-fg-subtle); white-space: nowrap;
 }
 .gander-salary-reasoning {
-  margin: 0.5rem 0; line-height: 1.6; color: var(--g-fg-muted); max-width: 68ch;
+  margin: 0.5rem 0; line-height: 1.6; color: var(--g-fg-muted);
 }
 .gander-sources { margin: 0.25rem 0; padding-left: 1.1rem; }
 .gander-sources li { margin: 0.3rem 0; font-size: var(--g-text-sm); color: var(--g-fg-muted); }
@@ -313,17 +313,14 @@ body.dark {
   color: var(--g-fg-muted); margin-bottom: 0.35rem;
 }
 
-/* ---- Confidence ---- */
-.gander-confidence-rationale { max-width: 68ch; }
-
 /* ---- Plan ---- */
 /* Each <li> leads with the action title so the <ol> marker numbers the action,
    not the leading time-horizon chip; the chip is demoted to a trailing meta line
    (see _growth_section_html). */
-.gander-plan { list-style: decimal; padding-left: 1.3rem; margin: 0.5rem 0; max-width: 68ch; }
+.gander-plan { list-style: decimal; padding-left: 1.3rem; margin: 0.5rem 0; }
 .gander-plan li + li { margin-top: 1.1rem; }
 .gander-plan-title { margin: 0 0 0.3rem; font-weight: 600; color: var(--g-fg); }
-.gander-plan-mech { margin: 0; line-height: 1.55; color: var(--g-fg-muted); max-width: 68ch; }
+.gander-plan-mech { margin: 0; line-height: 1.55; color: var(--g-fg-muted); }
 .gander-plan .gander-chip { margin: 0.5rem 0 0; }
 
 /* ---- Failure callout ---- */
