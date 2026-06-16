@@ -74,9 +74,9 @@ _COMPONENT_DISPLAY: dict[str, str] = {
 }
 
 _CONFIDENCE_BADGE: dict[str, str] = {
-    "High": "[!] High",
-    "Medium": "[~] Medium",
-    "Low": "[?] Low",
+    "High": "High",
+    "Medium": "Medium",
+    "Low": "Low",
 }
 
 # Single global stylesheet for tracker + report + status surfaces. Injected once
@@ -261,6 +261,7 @@ body.dark {
   display: block; margin: 0; padding-left: 0.7rem;
   border-left: 3px solid var(--g-border-strong);
   color: var(--g-fg-muted); font-size: var(--g-text-sm); line-height: 1.5;
+  font-style: italic;
 }
 .gander-component-cite {
   display: block; margin-top: 0.3rem; font-size: var(--g-text-xs);
@@ -276,9 +277,9 @@ body.dark {
 .gander-evidence-summary::after {
   content: "Show full evidence"; display: inline-block; margin-top: 0.4rem;
   font-size: var(--g-text-xs); font-weight: 600; color: var(--g-accent);
+  text-decoration: underline;
 }
 .gander-evidence[open] .gander-evidence-summary::after { content: "Show less"; }
-.gander-evidence-summary:hover::after { text-decoration: underline; }
 .gander-evidence-summary:focus-visible {
   outline: 2px solid var(--g-accent); outline-offset: 2px; border-radius: var(--g-radius-sm);
 }
@@ -312,13 +313,34 @@ body.dark {
   border: 1px solid var(--g-border); background: var(--g-surface-2);
   color: var(--g-fg-muted); margin-bottom: 0.35rem;
 }
+/* Confidence chip: tint the leading edge by tier so the rating reads at a
+   glance, mirroring the `.pill` border-left convention. */
+.gander-chip.is-high { border-left: 3px solid var(--g-ok); }
+.gander-chip.is-medium { border-left: 3px solid var(--g-warn); }
+.gander-chip.is-low { border-left: 3px solid var(--g-err); }
 
 /* ---- Plan ---- */
-/* Each <li> leads with the action title so the <ol> marker numbers the action,
-   not the leading time-horizon chip; the chip is demoted to a trailing meta line
-   (see _growth_section_html). */
-.gander-plan { list-style: decimal; padding-left: 1.3rem; margin: 0.5rem 0; }
+/* Each step is numbered by a CSS counter, not the native <ol> marker. The
+   native marker sits in the list's outside gutter and detaches from the block
+   `.gander-plan-item` wrapper, leaving the digit floating above the text. A
+   counter rendered into `.gander-plan-item::before` keeps the numeral pinned to
+   its content. Suppressing the native marker needs `.gander-output ol.gander-plan`
+   (0,2,1 — plain `ol.gander-plan` is only 0,1,1) to match Gradio's
+   `.prose ol { list-style: decimal }` (also 0,2,1) and win on document order —
+   the same tactic as the .prose-neutralization block below. The <ol> carries an
+   explicit role="list" (see _growth_section_html) so list semantics survive the
+   list-style:none in Safari/VoiceOver. */
+.gander-output ol.gander-plan { list-style: none; padding-left: 0; margin: 0.5rem 0; }
+.gander-plan { counter-reset: gander-step; }
+.gander-plan li { counter-increment: gander-step; }
 .gander-plan li + li { margin-top: 1.1rem; }
+.gander-plan-item { position: relative; padding-left: 2rem; }
+.gander-plan-item::before {
+  content: counter(gander-step) "."; position: absolute; left: 0; top: 0;
+  width: 1.4rem; text-align: right;
+  font-size: var(--g-text-base); font-weight: 600; line-height: 1.4;
+  color: var(--g-fg-subtle);
+}
 .gander-plan-title { margin: 0 0 0.3rem; font-weight: 600; color: var(--g-fg); }
 .gander-plan-mech { margin: 0; line-height: 1.55; color: var(--g-fg-muted); }
 .gander-plan .gander-chip { margin: 0.5rem 0 0; }
@@ -803,7 +825,8 @@ def _confidence_section_html(conf: Confidence | StageFailure | None) -> str:
         return _h2("Confidence") + _failure_callout_html(conf)
     badge = _CONFIDENCE_BADGE[conf.tier]
     return (
-        _h2("Confidence") + f'<p><span class="gander-chip" aria-label="Confidence: {conf.tier}">'
+        _h2("Confidence") + f'<p><span class="gander-chip is-{conf.tier.lower()}" '
+        f'aria-label="Confidence: {conf.tier}">'
         f"{_esc(badge)}</span></p>"
         + f'<p class="gander-confidence-rationale">{_html_inline(conf.rationale)}</p>'
     )
@@ -818,8 +841,8 @@ def _growth_section_html(growth: list[GrowthAction] | StageFailure | None) -> st
         return _h2("Plan") + '<p class="gander-empty">No actions.</p>'
     items: list[str] = []
     for action in growth:
-        # Title first so the <ol> marker numbers the action; the time-horizon chip
-        # trails as a meta line (styled by `.gander-plan .gander-chip`).
+        # Title first so the step counter numbers the action; the time-horizon
+        # chip trails as a meta line (styled by `.gander-plan .gander-chip`).
         #
         # The title/mechanism paragraphs are wrapped in a block <div>, NOT placed
         # as direct children of <li>. Gradio's bundled prose CSS ships a
@@ -836,7 +859,9 @@ def _growth_section_html(growth: list[GrowthAction] | StageFailure | None) -> st
             f'months">{action.time_horizon_months} months</span>'
             "</div></li>"
         )
-    return _h2("Plan") + '<ol class="gander-plan">' + "".join(items) + "</ol>"
+    # role="list" keeps the list semantics that Safari/VoiceOver drop when the
+    # native marker is removed via `list-style: none` (see the Plan CSS block).
+    return _h2("Plan") + '<ol class="gander-plan" role="list">' + "".join(items) + "</ol>"
 
 
 def _footer_html(report: Report) -> str:
