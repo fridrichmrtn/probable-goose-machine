@@ -14,7 +14,6 @@ dependencies = [
     "pypdf>=6.11.0",
     "python-docx>=1.2.0",
     "structlog>=25.5.0",
-    "tenacity>=9.1.4",
 ]
 
 [build-system]
@@ -23,9 +22,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gander"]
-
-[tool.uv]
-package = true
 
 [tool.ruff]
 line-length = 100

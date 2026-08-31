@@ -172,7 +172,7 @@ _DEFAULT_LLM_TIMEOUT_S = 60.0
 _DEFAULT_VISION_TIMEOUT_S = 120.0
 
 _MISSING_KEY_MESSAGE = (
-    "OPENROUTER_API_KEY not set — add it to .env or export it "
+    "OPENROUTER_API_KEY not set — export it "
     "(or set GANDER_LLM_PROVIDER=local to run text slots fully self-hosted)"
 )
 

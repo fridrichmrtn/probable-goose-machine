@@ -1,13 +1,9 @@
 FROM python:3.11-slim
 
-RUN pip install --no-cache-dir uv
-
 WORKDIR /app
 
-# requirements.txt is kept in sync with uv.lock by a pre-commit hook; install
-# from it so the image needs no build backend or editable install of the app.
 COPY requirements.txt ./
-RUN uv pip install --system --no-cache -r requirements.txt
+RUN python -m pip install --no-cache-dir -r requirements.txt
 
 # Prompts live under src/gander/prompts/, so copying src/ pulls them in too.
 COPY src/ src/

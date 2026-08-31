@@ -18,12 +18,14 @@ pinned: false
 
 **Public Space:** https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine
 
-First request may take about 20 seconds if the Space is asleep; the warm-keeper
-cron usually prevents that. Local run:
+First request may take about 20 seconds if the Space is asleep. Local run:
 
 ```bash
 uv sync && OPENROUTER_API_KEY=... uv run python app.py
 ```
+
+The PDF/DOCX fixtures use Git LFS. Install it and run `git lfs install` before
+cloning, or run `git lfs pull` in an existing clone.
 
 Fresh-clone check:
 
@@ -48,8 +50,7 @@ Open the printed local Gradio URL, upload `tests/fixtures/cvs/03_ds_horak.pdf`
 or another PDF/DOCX CV, and wait for the final report. A healthy run has a
 non-empty score (`score.total > 0`) and either populated Salary, Confidence,
 and Plan sections or clear inline `StageFailure` copy when a live dependency
-does not have enough evidence. The committed PDF/DOCX fixtures use Git LFS; if
-a fixture opens as pointer text after cloning, run `git lfs pull`.
+does not have enough evidence.
 
 ## What It Does
 
@@ -123,18 +124,18 @@ This avoids adding another model failure mode at the privacy boundary. It does
 not remove every possible demographic or prestige signal, so the report copy
 frames outputs as reviewer hypotheses, not authoritative judgments.
 
-The biggest cuts are intentional: no OCR, no auth, no persistence, no batch
-mode, no LLM PII pass, and no claim of fairness validation across protected
-groups. The pipeline is designed to fail loudly on scanned or low-evidence
-files instead of pretending it understood them.
+The biggest cuts are intentional: no dedicated OCR engine, no auth, no
+persistence, no batch mode, no LLM PII pass, and no claim of fairness
+validation across protected groups. PDF vision handles scanned pages; the
+pipeline fails loudly when vision and local text fallback both lack evidence.
 
 ## Providers
 
 Gander uses OpenRouter by default:
 
 ```bash
-OPENROUTER_API_KEY=...
-GANDER_LLM_PROVIDER=openrouter
+export OPENROUTER_API_KEY=...
+uv run python app.py
 ```
 
 OpenRouter model slugs may point at Anthropic, Gemini, OpenAI, or other hosted
@@ -146,14 +147,13 @@ stays primary for every slot. Opt in two ways, which layer:
 
 ```bash
 # Global: route every text slot (reasoning + cheap + extract) to local at once.
-GANDER_LLM_PROVIDER=local
-GANDER_LOCAL_BASE_URL=http://localhost:11434/v1   # default
-GANDER_LOCAL_API_KEY=local                         # default; Ollama ignores it
+export GANDER_LLM_PROVIDER=local
+export GANDER_LOCAL_BASE_URL=http://localhost:11434/v1   # default
+export GANDER_LOCAL_API_KEY=local                         # default; Ollama ignores it
+uv run python app.py
 
 # Or per slot — a per-slot value overrides the global for that slot only.
-GANDER_LLM_PROVIDER_CHEAP=local
-GANDER_LLM_PROVIDER_EXTRACT=local
-GANDER_LLM_PROVIDER_REASONING=local
+OPENROUTER_API_KEY=... GANDER_LLM_PROVIDER_CHEAP=local uv run python app.py
 ```
 
 Each local slot resolves its model from the matching `OPENROUTER_MODEL_<SLOT>`
@@ -202,13 +202,11 @@ using the GitHub `HF_TOKEN` secret.
 Required Hugging Face Space configuration:
 
 - Secret: `OPENROUTER_API_KEY`.
-- Variables: `GANDER_MODEL_PROFILE=local` and `PYTHONPATH=/app/src`.
+- Variable: `PYTHONPATH=/app/src`.
 
 Required GitHub configuration:
 
 - Secret: `HF_TOKEN` with write access to the Space.
-- Variable: `HF_SPACE_URL=https://fridrichmrtn-probable-goose-machine.hf.space`
-  for the warm-keeper workflow.
 - Secret: `OPENROUTER_API_KEY` for the required `openrouter-live` CI job.
 
 Rebind an existing Space through the Space settings page
@@ -216,18 +214,18 @@ Rebind an existing Space through the Space settings page
 the Space with the CLI:
 
 ```bash
-hf repos create fridrichmrtn/probable-goose-machine --type space --space-sdk gradio --public --secrets OPENROUTER_API_KEY=... --env GANDER_LLM_PROVIDER=openrouter --env GANDER_MODEL_PROFILE=local --env PYTHONPATH=/app/src --exist-ok
+hf repos create fridrichmrtn/probable-goose-machine --type space --space-sdk gradio --public --secrets OPENROUTER_API_KEY=... --env PYTHONPATH=/app/src --exist-ok
 gh secret set HF_TOKEN
-gh variable set HF_SPACE_URL --body https://fridrichmrtn-probable-goose-machine.hf.space
 gh workflow run sync-to-hub.yml
 ```
 
 ## Evaluation
 
-Fast unit coverage is the normal local gate:
+Deterministic coverage is the normal local gate:
 
 ```bash
-uv run pytest -m fast -q
+uv run pytest -m "not live and not e2e" -q
+uv run ruff format --check .
 uv run ruff check .
 uv run mypy src/
 ```
@@ -284,7 +282,8 @@ Known limitations:
 
 - English and Czech CV shapes have the most coverage; other languages are best
   effort.
-- Scanned PDFs are rejected unless their text is selectable.
+- Scanned PDFs require the default provider-vision path; text-only mode rejects
+  them when no selectable text is available.
 - Salary quality depends on live search availability.
 - Non-CZ market salary support is country-aware, but not yet locally tuned per
   labor market.

@@ -3,9 +3,15 @@ name: Sync to Hugging Face Space
 on:
   # Called as the final job of ci.yml — deploys only after static + openrouter-live pass.
   workflow_call:
+    secrets:
+      HF_TOKEN:
+        required: true
   # Manual escape hatch for triage. Bypasses CI gating — use only when you know
   # the current main is good (e.g. re-syncing after an HF-side hiccup).
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   sync:
@@ -23,7 +29,6 @@ jobs:
         with:
           # HF rejects shallow pushes as non-fast-forward; we need the full graph.
           fetch-depth: 0
-          # .gitattributes declares HF's LFS filters — fetch the pointers so the push is byte-identical.
           lfs: true
 
       - name: Push to Hugging Face Space
@@ -35,29 +40,17 @@ jobs:
         run: |
           git push "https://x-access-token:${HF_TOKEN}@huggingface.co/spaces/fridrichmrtn/probable-goose-machine" main
 
-      - name: Guard — HF_SPACE_URL must be set
-        env:
-          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
+      - name: Wait for deployed revision
         run: |
-          if [ -z "$HF_SPACE_URL" ]; then
-            echo "::error::repo variable HF_SPACE_URL is not set — cannot verify the deploy"
-            exit 1
-          fi
-
-      - name: Wait for Space to serve the app
-        env:
-          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
-        # HF_SPACE_URL is the *.hf.space app endpoint (warm-keeper HEAD-pings the same URL),
-        # which returns non-2xx while the Space is building or broken — a 200 means the app
-        # is actually serving. Post-push rebuilds include dependency install, so poll up to
-        # ~5 min (30 × 10 s) before declaring the deploy broken.
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sfI "$HF_SPACE_URL" > /dev/null; then
-              echo "Space is serving (attempt $i)."
+          deadline=$((SECONDS + 300))
+          while (( SECONDS < deadline )); do
+            if curl --connect-timeout 3 --max-time 5 -sf \
+              https://huggingface.co/api/spaces/fridrichmrtn/probable-goose-machine/runtime \
+              | jq -e --arg sha "$GITHUB_SHA" '.sha == $sha and .stage == "RUNNING"' > /dev/null; then
+              echo "Space is running $GITHUB_SHA."
               exit 0
             fi
-            sleep 10
+            sleep 5
           done
-          echo "::error::Space did not return 2xx within ~5 min of the push — deploy looks broken"
+          echo "::error::Space did not run $GITHUB_SHA within ~5 min of the push"
           exit 1

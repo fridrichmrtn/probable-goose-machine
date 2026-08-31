@@ -1003,6 +1003,5 @@ async def test_configured_slugs_present_in_catalog() -> None:
     missing = sorted(slug for slug in configured if slug not in catalog)
     assert not missing, (
         f"Configured OpenRouter slugs absent from the live catalog: {missing}. "
-        "Re-pin _OPENROUTER_ROUTES in gander.llm (and the CLAUDE.md / .env.example "
-        "model policy) to currently-listed ids."
+        "Re-pin _OPENROUTER_ROUTES in gander.llm to currently listed IDs."
     )

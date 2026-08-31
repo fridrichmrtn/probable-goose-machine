@@ -448,10 +448,10 @@ async def estimate_salary(profile: Profile) -> SalaryEstimate | StageFailure:
         try:
             sources = await search(queries, country=country, currency_hint=currency_hint)
         except Exception as exc:
-            # Catches every search escape path (tenacity-exhausted transport errors,
-            # the deliberate `<2 sources` RuntimeError, anything else) so the
+            # Catches every search escape path (transport errors, the deliberate
+            # `<2 sources` RuntimeError, anything else) so the
             # user-facing string never falls back to `stage_boundary`'s `str(exc)`
-            # default, which would leak ddgs/tenacity internals.
+            # default, which would leak dependency internals.
             ratelimited = isinstance(exc, _RateLimitError)
             emit(
                 "salary",

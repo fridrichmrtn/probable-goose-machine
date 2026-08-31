@@ -406,8 +406,7 @@ async def _run_corpus(
         file_bytes = path.read_bytes()
         if file_bytes.startswith(LFS_POINTER_PREFIX):
             print(
-                f"{path.name} is an unresolved Git LFS pointer. "
-                "Run `git lfs pull` (CI uses actions/checkout@v4 with lfs: true).",
+                f"{path.name} is an unresolved Git LFS pointer. Run `git lfs pull`.",
                 file=sys.stderr,
             )
             return 2
