@@ -6,8 +6,8 @@ Profile: `local` (GANDER_MODEL_PROFILE)
 > the numbers below are not real. Regenerate with:
 >
 > ```bash
-> uv run python scripts/eval_corpus.py --allow-provider-upload
-> uv run python scripts/eval_corpus.py --profile ci --allow-provider-upload
+> OPENROUTER_API_KEY=... uv run python scripts/eval_corpus.py --allow-provider-upload
+> OPENROUTER_API_KEY=... uv run python scripts/eval_corpus.py --profile ci --allow-provider-upload
 > ```
 >
 > The opt-in flag is intentional: the run sends committed fixture CV contents

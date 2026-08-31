@@ -365,8 +365,7 @@ def _emit_claim_attr_missing(claim_attr: str | None, count: int) -> None:
 # A judge adjudicates (claim, quote) pairs the lexical gate flagged as suspect:
 # it takes the pairs and returns one bool per pair (True = supportive = keep).
 # Injected by the caller (extract.py wires the cheap LLM slot) so verify.py
-# stays provider-free and the grader is a separate call from the generator
-# (CLAUDE.md §9: separate generation from grading).
+# stays provider-free.
 CompatJudge = Callable[[list[tuple[str, str]]], Awaitable[Sequence[bool]]]
 
 
@@ -375,9 +374,8 @@ async def _adjudicate(judge: CompatJudge, pairs: list[tuple[str, str]]) -> list[
 
     Returns one bool per pair (True = keep). On ANY failure mode — the judge
     raises, returns the wrong length, or returns non-bools — keep every suspect
-    (all True). A grader failure must never false-drop valid evidence
-    (CLAUDE.md §9: model output is untrusted; a failed grader degrades to the
-    existence+lexical result, it does not delete data).
+    (all True). Model output is untrusted, so a failed grader degrades to the
+    existence+lexical result instead of deleting data.
     """
     if not pairs:
         return []

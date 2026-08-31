@@ -1,5 +1,4 @@
-# Keep the build context to runtime code only. Excluding test data and LFS-
-# tracked fixtures stops the image from shipping LFS pointer files / CV samples.
+# Keep the build context to runtime code only; test CV samples do not ship.
 .git/
 .github/
 .worktrees/
