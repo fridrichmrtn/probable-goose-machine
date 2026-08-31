@@ -48,12 +48,16 @@ jobs:
       - name: Pytest (deterministic)
         run: uv run pytest -m "not live and not e2e" --strict-markers -v
 
+      - name: Build Docker image
+        run: docker build --tag gander-ci .
+
   openrouter-live:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: static
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # The acceptance suite touches DDG, so serialize main-branch runs.
+    # Fork PRs cannot read repository secrets; same-repo PRs and main pushes run live.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # The acceptance suite touches DDG, so serialize live runs.
     concurrency:
       group: ci-live
       cancel-in-progress: false
@@ -61,7 +65,11 @@ jobs:
       - name: Require OpenRouter secret
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: test -n "$OPENROUTER_API_KEY"
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY repository secret is required for openrouter-live"
+            exit 1
+          fi
 
       - uses: actions/checkout@v6
         with:

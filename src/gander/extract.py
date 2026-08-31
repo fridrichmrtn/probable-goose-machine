@@ -244,10 +244,10 @@ class _CompatVerdicts(BaseModel):
 def _make_compat_judge(client: LLMClient) -> CompatJudge:
     """Wire the cheap LLM slot as the claim–quote compatibility judge.
 
-    The judge is a separate call from the extractor that produced the anchors. It
-    resolves the suspects
-    the lexical gate cannot — an English `item.text` against a verbatim CV quote
-    in another language scores near-zero on token overlap but is valid evidence.
+    The judge is a separate call from the extractor that produced the anchors.
+    It resolves the suspects the lexical gate cannot — for example, an English
+    `item.text` against a verbatim CV quote in another language scores near-zero
+    on token overlap but is valid evidence.
     The cheap slot shares the Flash-Lite model with extract: this is call-level
     (not model-level) separation, acceptable for a prototype; move the judge to
     the `reasoning` slot if stronger separation is wanted. The judge may raise

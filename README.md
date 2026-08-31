@@ -18,7 +18,8 @@ pinned: false
 
 **Public Space:** https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine
 
-First request may take about 20 seconds if the Space is asleep. Local run:
+The free Space may sleep after inactivity; the next visit wakes it and can take
+longer than a warm start. Local run:
 
 ```bash
 uv sync && OPENROUTER_API_KEY=... uv run python app.py
@@ -193,8 +194,8 @@ bytes so large files cannot silently expand provider cost.
 ## Deployment Recovery
 
 The public Space page is
-`https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine`; the warm
-runtime URL is `https://fridrichmrtn-probable-goose-machine.hf.space`.
+`https://huggingface.co/spaces/fridrichmrtn/probable-goose-machine`; the app URL
+is `https://fridrichmrtn-probable-goose-machine.hf.space`.
 GitHub `main` is the source of truth. Pushing to `main` triggers
 `.github/workflows/sync-to-hub.yml`, which pushes the same commit to the Space
 using the GitHub `HF_TOKEN` secret.
@@ -209,6 +210,10 @@ Required GitHub configuration:
 - Secret: `HF_TOKEN` with write access to the Space.
 - Secret: `OPENROUTER_API_KEY` for the required `openrouter-live` CI job.
 
+The sync workflow defaults to `fridrichmrtn/probable-goose-machine`. Forks can
+set the `HF_SPACE_ID` repository variable to `owner/space` without editing the
+workflow.
+
 Rebind an existing Space through the Space settings page
 (`Settings -> Variables and secrets`), then run the sync workflow. To recreate
 the Space with the CLI:
@@ -216,6 +221,7 @@ the Space with the CLI:
 ```bash
 hf repos create fridrichmrtn/probable-goose-machine --type space --space-sdk gradio --public --secrets OPENROUTER_API_KEY=... --env PYTHONPATH=/app/src --exist-ok
 gh secret set HF_TOKEN
+gh variable set HF_SPACE_ID --body fridrichmrtn/probable-goose-machine
 gh workflow run sync-to-hub.yml
 ```
 
